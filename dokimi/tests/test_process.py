@@ -204,22 +204,23 @@ def test_a_detached_job_that_closed_its_output_is_killed_too(tmp_path):
 
 @_POSIX_ONLY
 def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
-    """A child that calls setsid() leaves the group the kill reaches. The call still returns after the
-    drain grace, not when that child closes the inherited pipes, keeping what was read. The timeout
-    fires once the child has escaped, so no wall-clock time decides it."""
-    pid_file, said = tmp_path / "child.pid", tmp_path / "said"
+    """A child that calls setsid() leaves the group the kill reaches. The call still returns after the drain
+    grace, not when that child closes the inherited pipes, keeping what was read. The timeout fires once the
+    child has escaped, and both processes live until the test writes `stop` (10 minutes at most): no clock decides it."""
+    pid_file, said, stop = tmp_path / "child.pid", tmp_path / "said", tmp_path / "stop"
     code = ("import os, sys, time\n"
+            "hold = lambda: [time.sleep(0.01) for _ in range(60000) if not os.path.exists(sys.argv[3])]\n"
             "if os.fork() == 0:\n"
             "    os.setsid()\n"
             "    open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
             "    os.rename(sys.argv[1] + '.tmp', sys.argv[1])\n"
-            "    time.sleep(60)\n"
+            "    hold()\n"
             "    os._exit(0)\n"
             "while not os.path.exists(sys.argv[1]):\n"
             "    time.sleep(0.01)\n"
             "print('before', flush=True)\n"
             "open(sys.argv[2], 'w').write('x')\n"
-            "time.sleep(60)\n")
+            "hold()\n")
     real_collect = process._collect
     armed, finished, outcome = threading.Event(), threading.Event(), {}
 
@@ -230,7 +231,7 @@ def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
 
     def call():
         try:
-            outcome["done"] = _py(code, str(pid_file), str(said), timeout=600)
+            outcome["done"] = _py(code, str(pid_file), str(said), str(stop), timeout=600)
         except BaseException as exc:  # noqa: BLE001 - handed to the test below
             outcome["error"] = exc
         finally:
@@ -246,8 +247,7 @@ def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
         assert _alive(int(pid_file.read_text()))  # the escaped child is alive and holds stdout and stderr
         assert done.timed_out and done.stdout == "before\n"
     finally:
-        if pid_file.is_file() and pid_file.read_text():
-            os.kill(int(pid_file.read_text()), signal.SIGKILL)  # frees the pipes a blocked call waits on
+        stop.write_text("x")  # both processes leave, freeing the pipes a blocked call waits on, with or without a pid
         worker.join(30)
 
 
