@@ -843,3 +843,84 @@ def test_an_existing_directory_with_an_at_sign_is_read_whole(tmp_path, sub):
     assert (src.location, src.rev) == (f"{tmp_path}/{sub}", None)
     pinned = RepoSource.parse(f"{tmp_path}/{sub}@origin/main")
     assert (pinned.location, pinned.rev) == (f"{tmp_path}/{sub}", "origin/main")
+
+
+def _patch_link_repo(tmp_path, target, key="setup_patch"):
+    root = _repo(tmp_path)
+    _task(root, "linked", **{key: "p.patch"})
+    _write(root, "dev/evals/real.patch", "--- a\n+++ b\n")
+    _write(root, "dev/evals/inside/p.patch", "--- a\n+++ b\n")
+    (root / "dev/evals/tasks/linked/p.patch").symlink_to(target)
+    return root
+
+
+@pytest.mark.parametrize("key", ["setup_patch", "review_patch"])
+@pytest.mark.parametrize("rev", [False, True])
+@pytest.mark.parametrize("target", ["../../../../../toy/dev/evals/real.patch", "../../real.patch", "../../nothing.patch"])
+def test_patch_link_a_run_would_refuse_is_reported_not_raised(tmp_path, key, rev, target):
+    # #1275: a patch link that leaves and re-enters the repo, or points outside the task directory, is a
+    # validation error naming the patch, as for ``_task_file`` in ``workspace.py``; not a traceback or a pass
+    root = _patch_link_repo(tmp_path, target, key)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any("tasks/linked/task.json:" in e and "p.patch" in e for e in report.errors), report.errors
+    assert "linked" not in [t.id for t in report.tasks]
+    assert report.refused is (target != "../../nothing.patch")  # a dangling link is an ordinary error
+
+
+@pytest.mark.parametrize("rev", [False, True])
+@pytest.mark.parametrize("target", ["../../../../../toy/dev/evals/real.patch", "../../real.patch"])
+def test_patch_link_a_run_would_refuse_exits_2_from_eval_check(tmp_path, rev, target):
+    # #1275: the same refusal (exit 2, the patch named, no traceback) for a directory and for ``<repo>@HEAD``
+    root = _patch_link_repo(tmp_path, target)
+    _git_commit(root)
+    source = f"{root}@HEAD" if rev else str(root)
+    with refusal() as exc:
+        _run_cli(["eval", "check", "--schema-only", source, "--manifest", "dev/evals/repo-eval.yaml"])
+    assert exc.code == 2, exc.err
+    assert "p.patch" in exc.err, exc.err
+
+
+def test_patch_link_inside_the_task_directory_is_accepted(tmp_path):
+    root = _patch_link_repo(tmp_path, "real.patch")
+    _write(root, "dev/evals/tasks/linked/real.patch", "--- a\n+++ b\n")
+    for tree in (WorkTree(root),):
+        report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+        assert report.ok, report.errors
+
+
+def test_patch_in_a_task_directory_reached_through_a_link_is_accepted(tmp_path):
+    # #1275: ``_task_file`` resolves the task directory too, so a task directory that is itself a link is fine
+    root = _repo(tmp_path)
+    _task(root, "one", setup_patch="p.patch")
+    _write(root, "dev/evals/tasks/one/p.patch", "--- a\n+++ b\n")
+    _git_commit(root)  # the index keeps ``tasks/one/...``; the directory is then replaced by a link
+    (root / "dev/evals/tasks/one").rename(root / "dev/evals/actual-one")
+    (root / "dev/evals/tasks/one").symlink_to("../actual-one")
+    tree = WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert report.ok, report.errors
+    assert not report.refused
+
+
+def test_dangling_patch_link_in_its_task_directory_is_the_same_in_both_views(tmp_path):
+    # #1275: a link that stays in the task directory is an ordinary error (exit 1) in a directory and at a commit
+    root = _patch_link_repo(tmp_path, "missing.patch")
+    _git_commit(root)
+    for tree in (WorkTree(root), GitTree(root, "HEAD")):
+        report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+        assert any("p.patch" in e for e in report.errors), (tree.label, report.errors)
+        assert not report.refused, tree.label
+
+
+def test_dangling_link_whose_target_is_named_like_an_escape_is_not_a_refusal(tmp_path):
+    # #1275: the exit code follows the kind of error, not words in a file name
+    root = _patch_link_repo(tmp_path, "escapes the repository.patch")
+    _git_commit(root)
+    for tree in (WorkTree(root), GitTree(root, "HEAD")):
+        report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+        assert any("p.patch" in e for e in report.errors), (tree.label, report.errors)
+        assert not report.refused, tree.label

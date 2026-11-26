@@ -123,7 +123,7 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         for error in report.errors:
             print(f"  error: {error}", file=sys.stderr)
     if failed:
-        sys.exit(1)
+        sys.exit(EXIT_USAGE if report.refused else 1)  # #1275: a patch link no run can open is an input refusal
 
 
 def _read_static(path: str) -> Any:
