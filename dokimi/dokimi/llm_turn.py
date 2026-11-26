@@ -5,8 +5,9 @@
 
 :func:`parse_turn` is the reader of the adapter and the tool-choice probe;
 :mod:`dokimi.eval.agent_runner` still has its own. The adapter (:mod:`dokimi.llm`) reads
-leniently; the tool-choice probe (:mod:`dokimi.commands.tools`) reads strictly. Both read the
-same fields the same way. No provider SDK is imported here.
+leniently; the tool-choice probe (:mod:`dokimi.commands.tools`) reads strictly. Both read
+well-formed fields the same way. The mode describes how missing choices are handled.
+No provider SDK is imported here.
 """
 
 from __future__ import annotations
@@ -71,7 +72,8 @@ def parse_turn(resp: Any, *, strict: bool = False) -> ChatTurn:
     routes bill as a 200, reads as an empty turn; its callers price it. Strict: no choice
     raises instead, as a caller that needs an answer wants (``IndexError`` for an empty
     list, ``TypeError`` for ``None``, ``AttributeError`` for a choice with no ``message``).
-    The strict tool probe keeps malformed dict tool calls and reports an empty name.
+    For malformed dictionary function metadata, the probe keeps an unnamed call and
+    the adapter preserves its existing error.
     """
     if strict:
         choice = resp.choices[0]

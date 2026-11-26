@@ -6,6 +6,6 @@ SPDX-License-Identifier: Apache-2.0
 ### Changed
 
 - **`tools preference` reads its reply through the shared chat-response parser.** Internal
-  refactor; no flag changes. One difference: a tool call given as
-  a dict (not the object a provider SDK returns) now keeps its function name instead of
-  reading as `""`. The probe still treats a reply with no choices as an item error.
+  refactor with no flag changes. A well-formed dictionary tool call now keeps its
+  function name. The elapsed time uses a monotonic clock. The probe still treats
+  a reply with no choices as an item error.
