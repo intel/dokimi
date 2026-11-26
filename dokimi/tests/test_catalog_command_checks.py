@@ -789,10 +789,20 @@ def test_npx_reports_an_explicit_package_named_like_a_local_bin(tmp_path, option
     ('cd "$PROJECT_DIR" && npx mytool init',),
     ('pushd "$PROJECT_DIR"; npx mytool init',),
     ('cd "$PROJECT_DIR"', "npx mytool init"),
+    ('if cd "$PROJECT_DIR"; then npx mytool init; fi',),
+    ('{ cd "$PROJECT_DIR"; npx mytool init; }',),
+    ("popd; npx mytool init",),
 ])
 def test_npx_reports_a_local_bin_name_after_a_directory_change(tmp_path, commands):
     files = {"package.json": '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'}
     [finding] = _found(_review(tmp_path, _fenced(*commands), files), "install-unpinned")
+    assert "npx mytool" in finding.message
+
+
+@pytest.mark.parametrize("option", ['--prefix "$PROJECT_DIR"', "--prefix=other", "-w tools"])
+def test_npx_checks_an_executable_selected_from_another_project(tmp_path, option):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    [finding] = _found(_review(tmp_path, _fenced(f"npx {option} mytool init"), files), "install-unpinned")
     assert "npx mytool" in finding.message
 
 

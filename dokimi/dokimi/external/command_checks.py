@@ -104,6 +104,7 @@ NPM_VALUE_OPTIONS = frozenset({
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
+_NPX_PROJECT_OPTIONS = frozenset({"--prefix", "--workspace", "-w"})
 # pnpm's value options: npm's, less ``-w``/``--workspace`` (flags in pnpm), plus a workspace filter, a directory, the
 # store and a catalog name
 PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
@@ -144,8 +145,9 @@ BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens 
 # Skip quoted arguments, escaped characters and comments before recognising a directory-changing command.
 _DIR_CHANGE = re.compile(
     r"""\\[\s\S]|'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
-    r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*(?:(?:command|builtin|then|do)[ \t]+)*"
-    r"(?P<change>cd|pushd)(?=$|[\s;&|)\0])"
+    r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*"
+    r"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{)[ \t]+)*"
+    r"(?P<change>cd|pushd|popd)(?=$|[\s;&|)\0])"
 )
 
 
@@ -177,10 +179,11 @@ def _code_text(text: str, markdown: bool) -> str:
     return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 
-def _words(rest: str, value_options: frozenset[str]) -> list[str]:
+def _words(rest: str, value_options: frozenset[str], keep_options: frozenset[str] = frozenset()) -> list[str]:
     """The words of a command's rest: shell-split (quotes kept whole), without an option's value.
 
     A word that is only a version number (``30``, ``2.0``) is not a package name, so it is dropped here too.
+    A value option itself is retained only if it appears in ``keep_options``.
     """
     rest = re.sub(r"\\\r?\n", " ", rest)  # a continued line is the same command
     try:
@@ -203,6 +206,8 @@ def _words(rest: str, value_options: frozenset[str]) -> list[str]:
             skip_target = REDIRECT.fullmatch(word) is not None
         elif word in value_options:
             take_value = True
+            if word in keep_options:
+                words.append(word)
         elif not VERSION_ONLY.fullmatch(word):
             words.append(word)
     return words
@@ -253,12 +258,17 @@ def _unpinned_npx(
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
     it. Words after the program are its own arguments: its ``-p`` is not npx's selection. Only an inferred
     executable can use the skill's local package or bin names (``own``)."""
-    words = _words(rest, value_options)
+    project_options = value_options & _NPX_PROJECT_OPTIONS
+    words = _words(rest, value_options, project_options)
     selected: list[str] = []
     executable = None
     i = 0
     while i < len(words):
         word = words[i]
+        if word.partition("=")[0] in project_options:
+            own = frozenset()
+            i += 1
+            continue
         if word in ("--package", "-p") and i + 1 < len(words):
             selected.append(words[i + 1])
             i += 2
@@ -577,7 +587,8 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     The whole file is read, so a line number is the line in the file. ``at_root``: the ``SKILL.md``
     sits in the scanned root, so no bundled file, including ``package.json``, is read.
     For a bundled skill, an example starts in the skill's folder for the bare ``npx`` exemption.
-    A ``cd`` or ``pushd`` in the example disables that exemption for later commands in the same example.
+    A directory change in the example disables the exemption for later commands in that example.
+    An ``npx`` that explicitly selects a project or workspace is checked as usual.
     """
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     own: frozenset[str] = frozenset()
