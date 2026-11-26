@@ -317,7 +317,7 @@ class Scan:
             hits = self._named(target, is_dir)
             if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
-            return "unresolved", tried
+            return self._missing(cands, is_dir, tried, "unresolved")
         parent_relative = target.startswith("../")
         paths = [c for c in cands if c != ".." and not c.startswith("../")]
         for c in paths:
