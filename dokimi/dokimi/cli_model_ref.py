@@ -43,8 +43,10 @@ class ProviderModelAction(argparse.Action):
             setattr(namespace, self.provider_dest, provider)
             if self.named_dest:
                 setattr(namespace, self.named_dest, True)
-            # An explicit OpenAI prefix forces that endpoint even when the model has its own route prefix.
-            setattr(namespace, self.dest, values if provider == "openai" and "/" in model else model)
+            prefix, nested, _ = model.partition("/")
+            # Keep legacy cross-routes between Dokimi providers, and let the OpenAI endpoint serve other nested names.
+            keeps_openai = provider == "openai" and nested and prefix not in self.known
+            setattr(namespace, self.dest, values if keeps_openai else model)
         elif sep and provider in self.known:
             parser.error(f"{option_string}: `{provider}` is not a provider for this command; "
                          f"use one of {', '.join(sorted(self.providers))}")

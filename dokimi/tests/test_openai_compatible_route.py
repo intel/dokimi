@@ -55,6 +55,7 @@ def test_a_name_litellm_takes_for_openais_goes_out_bare_and_still_routes(litellm
 @pytest.mark.parametrize(("ref", "route"), [
     ("openai/deepseek/deepseek-chat", "openai/deepseek/deepseek-chat"),
     ("deepseek/deepseek-chat", "deepseek/deepseek-chat"),
+    ("openai/anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),
     ("openai/meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),
     ("openai/gpt-4o", "gpt-4o"),
 ])
