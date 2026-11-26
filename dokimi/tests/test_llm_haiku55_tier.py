@@ -14,9 +14,11 @@ from litellm.types.utils import ModelResponse, Usage
 from dokimi import llm
 
 
-def _cost(litellm_model: str, *, prompt: int, completion: int = 1000, cache_read: int = 0) -> float:
+def _cost(litellm_model: str, *, prompt: int, completion: int = 1000, cache_read: int = 0,
+          cache_write: int = 0) -> float:
     resp = ModelResponse(model=litellm_model, usage=Usage(
-        prompt_tokens=prompt, completion_tokens=completion, cache_read_input_tokens=cache_read))
+        prompt_tokens=prompt, completion_tokens=completion,
+        cache_read_input_tokens=cache_read, cache_creation_input_tokens=cache_write))
     cost = llm._safe_completion_cost(resp, litellm_model, litellm_model=litellm_model)
     assert cost is not None
     return cost
@@ -43,6 +45,12 @@ def test_cache_reads_count_toward_the_prompt_length():
     # 110k prompt of which 50k is cache reads: 60k fresh at $0.50, 50k cached at $0.05, out at $2.50.
     assert _cost("anthropic/claude-haiku-5-5", prompt=110_000, cache_read=50_000) == pytest.approx(
         60_000 * 5e-7 + 50_000 * 5e-8 + 1000 * 2.5e-6, rel=1e-9)
+
+
+def test_cache_writes_count_toward_the_prompt_length():
+    # 110k prompt with 50k cache writes: $0.50 fresh, $0.625 written and $2.50 out per MTok.
+    assert _cost("anthropic/claude-haiku-5-5", prompt=110_000, cache_write=50_000) == pytest.approx(
+        60_000 * 5e-7 + 50_000 * 6.25e-7 + 1000 * 2.5e-6, rel=1e-9)
 
 
 def test_the_us_only_route_pays_the_regional_premium_on_the_over_100k_tier():
