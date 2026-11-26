@@ -64,7 +64,7 @@ criteria:
     delivery: available
     enforce: true
     capability: question-set-pinning
-    surfaces: ["benchmark run --force-regen"]
+    surfaces: ["benchmark run --force"]
     refs: [dokimi/orchestrator/pipeline.py]
     evidence:
       - {id: cjm-question-cache, kind: integration, stubs: [answer and eval model calls]}
@@ -498,7 +498,7 @@ criteria:
     delivery: partial
     enforce: false
     capability: arms
-    surfaces: ["tasks run --harnesses --baseline-harness"]
+    surfaces: ["tasks run --harness --baseline-harness"]
     gaps:
       - "the three arms run in one tasks run, but no test or recorded run compares a user's skill with a self-generated one against no skill"
       - needs Docker, BenchFlow and paid agent runs; not run to fill this row
@@ -506,7 +506,7 @@ criteria:
     delivery: available
     enforce: true
     capability: arms
-    surfaces: ["tasks run --harnesses"]
+    surfaces: ["tasks run --harness"]
     evidence:
       - {id: cjm-selfgen-named-creator, kind: unit, stubs: [bench (fake executable)]}
     scope: the staged creator directory and the refusal are checked; BenchFlow itself is not run

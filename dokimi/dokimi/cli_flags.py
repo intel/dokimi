@@ -32,6 +32,7 @@ __all__ = [
     "Concept",
     "Flag",
     "FlagMove",
+    "JoinedValues",
     "add",
     "registry_problems",
 ]
@@ -199,7 +200,7 @@ CONCEPTS: tuple[Concept, ...] = (
                  meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+        note="--max-tokens meant retrieval in four leaves and output in eleven; FLAG_MOVES moves each leaf "
              "by what its code does.",
     ),
     Concept(
@@ -358,7 +359,8 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--method", "NAME", "text"),
             Flag("--unit", "NAME", "text"),
             Flag("--contrast", "NAME", "text"),
-            Flag("--correction", "NAME", "text"),
+            Flag("--correction", "{holm,bh}", "choice",
+                 meaning="the multiple-comparison correction across arms or runs: holm (family-wise) or bh (FDR)"),
         ),
         banned=("--stats-correction",),
     ),
@@ -398,6 +400,14 @@ def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
     return problems
 
 
+class JoinedValues(argparse.Action):
+    """A repeatable flag whose values join with commas: ``--arm a --arm b,c`` is ``a,b,c``."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        prior = getattr(namespace, self.dest, None)
+        setattr(namespace, self.dest, values if prior is None else f"{prior},{values}")
+
+
 def add(parser: argparse.ArgumentParser, concept: str, *args: str, **kwargs: object) -> argparse.Action:
     """Add a flag of ``concept`` to ``parser``. Every option string must be a canonical spelling of it."""
     spellings = {flag.spelling for c in CONCEPTS if c.name == concept for flag in c.canonical}
@@ -431,7 +441,7 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
-    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on eleven.
     FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
         ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
     )),
@@ -460,6 +470,15 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
+    # Run-name concept (F1b): the identity of a run directory. `--batch` is the batch directory's name on repo run.
+    FlagMove("--run-id", "--name", leaves=(("answers", "generate"), ("eval", "score", "pointwise"), ("report", "eval"))),
+    FlagMove("--batch", "--name", leaves=(("repo", "run"),)),
+    # Force concept (F1b): re-run over existing output. benchmark run and batch discard the cached personas and questions.
+    FlagMove("--force-regen", "--force", leaves=(("benchmark", "run"), ("benchmark", "batch"))),
+    # Policy concept (F1b): the statistics of a comparison; `--correction` takes holm or bh.
+    FlagMove("--stats-correction", "--correction", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("report", "model-compare"),
+    )),
     # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
     FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
     FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),
@@ -471,5 +490,12 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
+    FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
+    # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.
+    FlagMove("--harnesses", "--harness", leaves=(("tasks", "run"),)),
+    # Baseline concept (F1b): the artifact or snapshot a comparison is made against.
+    FlagMove("--baseline-json", "--baseline", leaves=(("arms", "plugin-delta"),)),
+    FlagMove("--base", "--baseline", leaves=(("docs", "compare"),)),
 )
 

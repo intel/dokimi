@@ -22,7 +22,7 @@ BASELINE_ONLY_LIMITATION = [
     "> ```bash",
     "> dokimi arms run \\",
     ">   --product oneTBB --questions questions/oneTBB.json \\",
-    ">   --arms \"baseline,docs\" \\",
+    ">   --arm \"baseline,docs\" \\",
     ">   --judge \\",
     ">   --judge-model claude-sonnet-5-5",
     "> ```",

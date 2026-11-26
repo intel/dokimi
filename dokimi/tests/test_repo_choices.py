@@ -94,6 +94,15 @@ def test_a_package_manager_install_names_the_package_whatever_the_spelling(comma
     assert _choices(_run(SKLEARN, _bash("a", command, "2026-01-01T00:00:05Z"))) == [("sklearn", "install", None)]
 
 
+def test_poetry_add_lock_updates_the_lock_file_and_installs_nothing():
+    events = with_choices([{"kind": "command", "text": "poetry add --lock scipy", "rc": 0}],
+                          {"scipy": {"install": ["scipy"]}}, [])
+    assert [e for e in events if e.get("kind") == "choice"] == []
+    events = with_choices([{"kind": "command", "text": "poetry add scipy", "rc": 0}],
+                          {"scipy": {"install": ["scipy"]}}, [])
+    assert [e for e in events if e.get("kind") == "choice"] != []
+
+
 @pytest.mark.parametrize("command", [
     "grep 'pip install scikit-learn-intelex' README",
     "echo pip install scikit-learn-intelex",

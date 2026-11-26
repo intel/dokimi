@@ -211,26 +211,28 @@ def skill_needs(skill_dir: Optional[Path], plan: NetworkPlan) -> Optional[dict[s
 # ── applying a plan ─────────────────────────────────────────────────────────
 
 
-def proxy_env_flags(pol: PhasePolicy, *, credentials: bool = True) -> list[str]:
-    """``docker exec -e`` flags for a step under *pol*.
+def proxy_env(pol: PhasePolicy, *, credentials: bool = True) -> dict[str, str]:
+    """The proxy variables of a step under *pol*, with their values.
 
     ``public``: the host's proxy variables (behind a corporate proxy a verifier
     that installs pytest at verify time fails without them), with their
     ``user:pw@`` dropped when ``credentials`` is off (the verifier after an
     in-container agent runs the agent's code). ``allowlist``: the sidecar, which
     holds the upstream credentials itself. ``none``: nothing.
+
+    The caller writes them to a 0600 ``--env-file`` for ``docker exec`` (see
+    :func:`dokimi.harnesses.task_env.exec_env_file`), so a credential never sits on an argv.
     """
     if pol.mode == "allowlist":
-        return [a for v in PROXY_VARS for a in
-                ("-e", f"{v}={'localhost,127.0.0.1,::1' if v.lower() == 'no_proxy' else SIDECAR_URL}")]
+        return {v: "localhost,127.0.0.1,::1" if v.lower() == "no_proxy" else SIDECAR_URL for v in PROXY_VARS}
     if pol.mode != "public":
-        return []
-    flags: list[str] = []
+        return {}
+    values: dict[str, str] = {}
     for var in PROXY_VARS:
         val = os.environ.get(var)
         if val:
-            flags += ["-e", f"{var}={val if credentials else _USERINFO_RE.sub(_KEEP_SCHEME, val)}"]
-    return flags
+            values[var] = val if credentials else _USERINFO_RE.sub(_KEEP_SCHEME, val)
+    return values
 
 
 def build_env(pol: PhasePolicy) -> dict[str, str]:
@@ -255,6 +257,59 @@ def build_args(pol: PhasePolicy) -> list[str]:
     for var in build_env(pol):
         flags += ["--build-arg", var]
     return flags
+
+
+_ARG_INSTRUCTION = re.compile(r"\s*ARG\s+(.*)", re.IGNORECASE)
+_PARSER_DIRECTIVE = re.compile(r"\s*#\s*([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+?)\s*")
+
+
+def _escape_token(lines: list[str]) -> str:
+    """The continuation character a Dockerfile sets with an ``# escape=`` parser directive, else ``\\``.
+    Docker reads directives only at the top of the file, up to the first line that is not one."""
+    for line in lines:
+        directive = _PARSER_DIRECTIVE.fullmatch(line)
+        if not directive:
+            break
+        name = directive.group(1).lower()
+        if name not in {"syntax", "escape", "check"}:
+            break
+        if name == "escape" and directive.group(2) in ("\\", "`"):
+            return directive.group(2)
+    return "\\"
+
+
+def dockerfile_arg_names(text: str) -> set[str]:
+    """The names a Dockerfile declares with ``ARG`` (``ARG a=1 b``), with continuations joined."""
+    names: set[str] = set()
+    pending = ""
+    lines = text.removeprefix("\ufeff").splitlines()
+    escape = _escape_token(lines)
+    for raw in lines:
+        if raw.lstrip().startswith("#") or not raw.strip():  # docker drops these, also inside a continuation
+            continue
+        trimmed = raw.rstrip(" \t")
+        if trimmed.endswith(escape) and not trimmed.endswith(escape * 2):
+            pending += trimmed[:-1]  # docker joins the lines as they are, with no separator
+            continue
+        found = _ARG_INSTRUCTION.fullmatch((pending + raw).strip())
+        pending = ""
+        if found:
+            names.update(token.split("=", 1)[0] for token in found.group(1).split())
+    found = _ARG_INSTRUCTION.fullmatch(pending.strip())  # a continuation at the end of the file still runs
+    if found:
+        names.update(token.split("=", 1)[0] for token in found.group(1).split())
+    return names
+
+
+def credential_build_args(dockerfile: str, pol: PhasePolicy) -> list[str]:
+    """The proxy build-args :func:`build_args` passes under *pol* that *dockerfile* declares with
+    ``ARG`` and whose value carries ``user:pw@``. Docker records such a value in the image history.
+
+    Matched by exact name: docker passes a build-arg only under the name it is given, and ``ARG``
+    names are case-sensitive, so a proxy variable the Dockerfile declares in another case is
+    not passed and cannot leak."""
+    declared = dockerfile_arg_names(dockerfile)
+    return [name for name, value in build_env(pol).items() if name in declared and _USERINFO_RE.search(value)]
 
 
 def container_phases(plan: NetworkPlan, *, solve_in_container: bool) -> list[PhasePolicy]:

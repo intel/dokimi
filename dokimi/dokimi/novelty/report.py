@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 from dokimi.gate.novelty_gate import uncleared_conflicts
 
-from .attribute import COLOURS, LEGEND, SpanAttribution
+from .attribute import LEGEND, SpanAttribution
 from .bundle import Coverage, named_exclusions
 
 # The per-scoring control keys of ``paired_outcomes``; an analyze artifact keeps them too.
@@ -705,8 +705,3 @@ def render_annotated_markdown(attributions: list[SpanAttribution], *, title: str
         )
     lines.append("")
     return "\n".join(lines)
-
-
-def colour_of(label: str) -> str:
-    """Colour name for an attribution label (kept next to the renderers)."""
-    return COLOURS.get(label, "dim")

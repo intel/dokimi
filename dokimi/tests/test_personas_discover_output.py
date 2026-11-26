@@ -57,7 +57,8 @@ def fakes(monkeypatch):
 def test_discover_exits_2_when_the_personas_output_cannot_be_written(tmp_path, capsys, fakes, kind):
     out = _outputs(tmp_path)[kind]
     args = SimpleNamespace(repo=None, description="d", product="p", output=str(out), count=1,
-                           model="m", provider="x", save_analysis=False, github_token=None)
+                           model="m", provider="x", save_analysis=False, github_token=None,
+                           dry_run=False, max_usd=None)
     with pytest.raises(SystemExit) as exc:
         personas_cmd.cmd_personas_discover(args)
     assert exc.value.code == 2
@@ -69,7 +70,8 @@ def test_discover_exits_2_when_the_analysis_cannot_be_written(tmp_path, capsys, 
     blocker = tmp_path / "file"
     blocker.write_text("x", encoding="utf-8")
     args = SimpleNamespace(repo="o/r", description=None, product="p", output=str(blocker / "out.json"),
-                           count=1, model="m", provider="x", save_analysis=True, github_token="t")
+                           count=1, model="m", provider="x", save_analysis=True, github_token="t",
+                           dry_run=False, max_usd=None)
     with pytest.raises(SystemExit) as exc:
         personas_cmd.cmd_personas_discover(args)
     assert exc.value.code == 2

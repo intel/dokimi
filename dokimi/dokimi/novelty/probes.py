@@ -82,6 +82,7 @@ _NOT_ANCHORS = frozenset({"e.g", "i.e"})
 _CAPS_NOT_ENV = frozenset("""not never none and the all any yes must only true false use
 when then with without note warning should cannot do does but for from this that than
 avoid unsupported forbidden""".split())
+_TYPOGRAPHIC_APOSTROPHES = str.maketrans("’‘ʼ", "'''")
 _NEGATIONS = re.compile(
     r"\b(?:not|never|no|none|cannot|can't|don't|doesn't|won't|shouldn't|mustn't|isn't|"
     r"aren't|without|avoid|unsupported|disallowed|forbidden)\b",
@@ -354,6 +355,7 @@ def _paraphrase_reasons(source: str, text: str, answer: str) -> list[str]:
 
 def _presumes_answer(text: str) -> bool:
     """Whether ``text`` carries a leading cue or a trailing tag ("..., can't it?")."""
+    text = _straight_apostrophes(text)
     return bool(_LEADING_CUES.search(text) or _TRAILING_TAG.search(text))
 
 
@@ -362,7 +364,7 @@ def _question_negations(claim: str) -> int:
 
     Only a question has any: ``Don't install X as root.`` is an imperative and keeps its negation.
     """
-    plain = _strip_question_phrasing(claim) if claim.rstrip().endswith("?") else claim
+    plain = _strip_question_phrasing(claim) if _is_question(claim) else claim
     return len(_NEGATIONS.findall(plain))
 
 
@@ -385,8 +387,22 @@ def _new_markers(source: str, text: str) -> set[str]:
     return found
 
 
+def _straight_apostrophes(text: str) -> str:
+    """``text`` with a typographic apostrophe written as ``'``, the one the patterns match (#1143)."""
+    return text.translate(_TYPOGRAPHIC_APOSTROPHES)
+
+
+def _is_question(text: str) -> bool:
+    """Whether ``text`` ends with ``?``: only a question has phrasing to strip (#1144)."""
+    return text.rstrip().endswith("?")
+
+
 def _normalise_negations(text: str) -> str:
-    """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not"."""
+    """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not".
+
+    A typographic apostrophe is written as ``'`` first, so ``doesn’t`` counts as ``doesn't``.
+    """
+    text = _straight_apostrophes(text)
     for pattern, replacement in _NEGATION_SYNONYMS:
         text = pattern.sub(replacement, text)
     return text
@@ -400,14 +416,20 @@ def _strip_question_phrasing(text: str) -> str:
 def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
-    A leading negative auxiliary and a trailing tag ("..., doesn't it?") are question
-    phrasing and are not counted. A negation's
+    In a question, a trailing tag ("..., doesn't it?") is question phrasing and is never counted,
+    and neither is a leading negative auxiliary, unless ``source`` itself opens with one
+    (then both sides keep it); a statement keeps its leading "Don't". A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
     one reworded onto a new verb, which is not evidence of anything.
     """
-    claim = _strip_question_phrasing(text)
+    claim = text
+    if _is_question(text):
+        keep_leading = bool(_LEADING_NEGATIVE.search(source))
+        claim = _TRAILING_TAG.sub("?", text, count=1)
+        if not keep_leading:
+            claim = _LEADING_NEGATIVE.sub(" ", claim, count=1)
     source_stems = _stems(source)
     targets = set()
     for match in _NEGATIONS.finditer(claim):

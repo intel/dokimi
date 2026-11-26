@@ -53,6 +53,41 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
     assert _reads(_events(_call("a", "head -n 40 /ws/sub/AGENTS.md"), _result("a"))) == ["sub/AGENTS.md"]
 
 
+@pytest.mark.parametrize("command,reads", [("head -n 0 AGENTS.md", []), ("tail -c 0 AGENTS.md", []),
+                                           ("head -n -0 AGENTS.md", ["AGENTS.md"]), ("tail -n 1 AGENTS.md", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+                                           ("export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; false && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("true() { false; }; true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("command -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1 >/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=yes>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; true && { false; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </missing; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("X=1 export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1 <<<ignored; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("if true; then export POSIXLY_CORRECT=1; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; if false; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("true || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+                                           ("false || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time -p POSIXLY_CORRECT=1 export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"])])
+def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
+    assert _reads(_events(_call("a", command), _result("a", ""))) == reads
+
+
 def test_a_failed_cat_of_one_file_is_no_read():
     events = _events(_call("a", "cat AGENTS.md"), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert events == [{"t": 5.0, "kind": "command", "text": "cat AGENTS.md", "rc": 1,

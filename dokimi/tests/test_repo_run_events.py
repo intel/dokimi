@@ -25,7 +25,7 @@ def setup(tmp_path, monkeypatch):
 
 def _run(s, *extra):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", "b1", "--out", str(s["out"]),
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--name", "b1", "--out", str(s["out"]),
             "--cache-root", str(s["out"] / "caches"), "--agent-network", "host", *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -42,6 +42,17 @@ def test_a_run_writes_the_probe_and_choice_rows_its_files_name(setup, monkeypatc
     (events_file,) = (setup["out"] / "b1").glob("*/events.jsonl")
     kinds = [(e["kind"], e.get("pattern") or e.get("act")) for e in map(json.loads, events_file.read_text().splitlines())]
     assert ("probe", "nproc") in kinds and ("choice", "import") in kinds
+
+
+def test_a_probes_file_replaces_the_default_patterns_of_its_target_in_the_cells_events(setup, monkeypatch, tmp_path):
+    probes = tmp_path / "probes.yaml"
+    probes.write_text("cpu: [mycpuinfo]\n")
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([["Bash", {"command": "nproc"}], ["Bash", {"command": "mycpuinfo"}]]))
+    monkeypatch.setenv("FAKE_TOOL_RESULTS", "1")
+    _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--probes", str(probes))
+    (events_file,) = (setup["out"] / "b1").glob("*/events.jsonl")
+    events = [json.loads(line) for line in events_file.read_text().splitlines()]
+    assert [(e["pattern"], e["text"]) for e in events if e["kind"] == "probe"] == [("mycpuinfo", "mycpuinfo")]
 
 
 @pytest.mark.parametrize("flag,other", [("--candidates", "sp: {import: [sklearnex]}\n"), ("--probes", "cpu: [lscpu]\n")])

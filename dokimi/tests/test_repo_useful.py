@@ -954,7 +954,7 @@ def test_a_pattern_past_its_search_budget_is_a_timeout_reason_and_the_trace_is_n
 
     searched = []
 
-    def slow(useful, event):
+    def slow(useful, event, resolve=None):
         searched.append(event["text"])
         if len(searched) == 1:
             raise TimeoutError
