@@ -358,10 +358,12 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    if args.atom_labels and not args.atom_verdicts:
+    if args.atom_labels is not None and not args.atom_labels.strip():
+        raise InputError("--atom-labels needs a file path")
+    if args.atom_labels is not None and not args.atom_verdicts:
         raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
     labels = None
-    if args.atom_labels:
+    if args.atom_labels is not None:
         from dokimi.novelty.atom_labels import load_atom_labels
 
         labels = load_atom_labels(args.atom_labels)
