@@ -511,16 +511,24 @@ def _run_cli(argv: list[str]) -> None:
     args.func(args)
 
 
+@pytest.mark.outcome("cjm-repo-manifest-schema-check")
 def test_repo_validate_cli(tmp_path, capsys):
     root = _repo(tmp_path)
     _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
-    _task(root, "bad", id="other")
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump({**MANIFEST, "eval_dir": 42}))
     with refusal() as exc:
         _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
-    assert exc.code == 1
+    assert exc.code == 2
+    assert "eval_dir: 42 is not of type 'string'" in capsys.readouterr().err
+
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+    _task(root, "bad", id="other")
+    with refusal() as bad_task:
+        _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
+    assert bad_task.code == 1
     assert "does not equal the directory name" in capsys.readouterr().err
 
 

@@ -251,9 +251,13 @@ criteria:
         stubs: []
   AC-J03-002:
     delivery: available
-    enforce: false
+    enforce: true
     surfaces: ["eval check --schema-only --manifest"]
-    gaps: ["not yet bound to a test id"]
+    evidence:
+      - id: cjm-repo-manifest-schema-check
+        kind: cli_scenario
+        invokes: ["eval check --schema-only --manifest"]
+        stubs: []
 
   # ---------------------------------------------------------------- J7
   AC-J07-001:
