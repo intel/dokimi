@@ -24,7 +24,7 @@ class _OwnerRefused(PermissionError):
     """Root could not give a new inode the owner, group or mode of the file it replaces, so the file is left as it was."""
 
 
-def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:
+def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8", new_mode: int = 0o666) -> None:
     """Write ``text`` to ``path`` through a random-named ``.tmp`` sibling, then ``os.replace``.
 
     The tmp name keeps at most 32 characters of the file name, so it stays under 170 bytes
@@ -32,8 +32,9 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
     at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, and raises ``PermissionError`` with the old file kept when it may not chown the owner or the group, or set the mode afterwards). Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
+    A file that did not exist, or a symlink at ``path`` (replaced, its target untouched), is created with ``new_mode`` cut by the umask (``0o666`` by default; ``0o600`` for a private one).
     """
-    _publish(Path(path), lambda fd: os.fdopen(fd, "w", encoding=encoding), text)
+    _publish(Path(path), lambda fd: os.fdopen(fd, "w", encoding=encoding), text, new_mode=new_mode)
 
 
 def write_bytes_atomic(path: Path | str, data: bytes) -> None:
@@ -193,11 +194,11 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
 
 
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False,
-             copy_in_place: bool = False) -> None:
+             copy_in_place: bool = False, new_mode: int = 0o666) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = tmp_sibling(path)
     old = _existing_stat(path)
-    mode = 0o666 if old is None else stat.S_IMODE(old.st_mode)
+    mode = new_mode if old is None else stat.S_IMODE(old.st_mode)
     try:
         # O_BINARY: without it Windows writes each \n as \r\n a second time, as tempfile avoids.
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
@@ -261,6 +262,11 @@ def _keep_owner_and_group(fd: int, old: os.stat_result, *, keep_group: bool = Fa
 
 def _existing_stat(path: Path) -> os.stat_result | None:
     try:
-        return path.stat()
+        # A link is replaced by the rename, so it is the file replaced: its target's mode and group are not kept.
+        return None if path.is_symlink() else path.stat()
     except FileNotFoundError:
         return None
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            return None
+        raise
