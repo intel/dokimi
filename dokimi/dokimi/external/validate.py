@@ -16,9 +16,10 @@ follow the Agent Skills spec:
 - ``description`` is at most 1024 characters (``error``). A missing or empty
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
-- A frontmatter key that neither the spec nor Claude Code names is a ``warn``
-  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`), and so is an ``allowed-tools``
-  name that is no Claude Code tool (``allowed-tools-unknown``). An ``allowed-tools`` that grants
+- A frontmatter key that neither the spec nor Claude Code names is a ``note``
+  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`). The spellings ``allowed_tools``
+  and ``allowed-tools`` differ: the former gets a targeted ``warn`` under the same code. An ``allowed-tools``
+  name that is no Claude Code tool is a ``warn`` (``allowed-tools-unknown``). An ``allowed-tools`` that grants
   ``Bash`` for every command (``Bash`` with no pattern, or ``Bash(*)``) is a ``warn``
   (``allowed-tools-unrestricted-bash``); its message names a ``pipe-to-shell`` or
   ``permission-bypass-flag`` hit in the same skill. A body over 500 lines or about
@@ -115,7 +116,7 @@ NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 # The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
-# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``).
+# Other keys may be typos or fields used by another harness (``frontmatter-unknown-key``, a note).
 FRONTMATTER_KEYS = frozenset(
     {
         "name", "description", "license", "allowed-tools", "metadata", "compatibility",
@@ -257,6 +258,31 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
+def _unknown_key_findings(meta: dict) -> list[Finding]:
+    findings: list[Finding] = []
+    unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
+    if "allowed_tools" in unknown_keys:
+        unknown_keys.remove("allowed_tools")
+        findings.append(
+            Finding(
+                "warn",
+                "frontmatter-unknown-key",
+                "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
+                "use 'allowed-tools'.",
+            )
+        )
+    if unknown_keys:
+        findings.append(
+            Finding(
+                "note",
+                "frontmatter-unknown-key",
+                f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
+            )
+        )
+    return findings
+
+
 def _frontmatter_findings(
     skill: Skill, *, at_root: bool = False, fmt: str = FORMAT_AGENT_SKILL
 ) -> tuple[list[Finding], bool]:
@@ -313,16 +339,7 @@ def _frontmatter_findings(
                 f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
             )
         )
-    unknown_keys = sorted({str(key) for key in meta} - FRONTMATTER_KEYS)
-    if unknown_keys:
-        findings.append(
-            Finding(
-                "warn",
-                "frontmatter-unknown-key",
-                f"frontmatter has {', '.join(map(repr, unknown_keys))}, which no spec or Claude Code "
-                "field is named; a typo, or a field no harness reads",
-            )
-        )
+    findings += _unknown_key_findings(meta)
     findings += _tool_findings(meta.get("allowed-tools"))
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
     hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in (

@@ -42,7 +42,7 @@ def _broken_links(skill_dir: Path, root: Path = SKILLS) -> list[str]:
 
 
 def test_the_bundle_is_not_empty():
-    assert {d.name for d in BUNDLED} >= {"fastcontext", "dokimi-design-evals"}
+    assert {d.name for d in BUNDLED} >= {"fastcontext", "dokimi-design-evals", "dokimi-fix-opportunities"}
 
 
 @pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
