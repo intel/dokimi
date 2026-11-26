@@ -6,8 +6,9 @@
 It reads envelope keys only (``kind``, ``status``, ``verdict``, ``reason``, ``error``,
 ``subjects``, ``cost``), so a new leaf needs no change here. It computes no verdict: each row
 shows the verdict its document carries, and ``verdict: null`` is report-only. A document that is
-missing, unreadable or of another schema stays a row (``not_run`` or ``invalid``); it is never
-dropped and never shown as a pass. Stdlib only, and no ``GITHUB_*`` variable is read.
+unreadable or of another schema stays a row (``invalid``); it is never dropped and never shown as a
+pass. A missing path stays a ``not_run`` row here, but ``dokimi report summary`` refuses it (exit 2).
+Stdlib only, and no ``GITHUB_*`` variable is read.
 """
 
 from __future__ import annotations

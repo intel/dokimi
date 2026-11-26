@@ -124,7 +124,9 @@ def test_summary_writes_a_lone_surrogate_in_a_subject_as_a_question_mark(tmp_pat
                "subjects": [{"subject": "n\ud800", "verdicts": {"k": "pass"}, "findings": []}]}
     monkeypatch.setattr("dokimi.report.summary.summarize", lambda paths: summary)
     out = tmp_path / "out" / "s.md"
-    args = build_parser().parse_args(["report", "summary", "x.json", "--out", str(out)])
+    src = tmp_path / "x.json"
+    src.write_text("{}", encoding="utf-8")  # an input that exists: the refusal of absent inputs runs first
+    args = build_parser().parse_args(["report", "summary", str(src), "--out", str(out)])
     args.func(args)
     assert "n?" in out.read_text(encoding="utf-8")
 
@@ -134,7 +136,9 @@ def test_summary_out_naming_a_directory_exits_2_with_a_message(tmp_path, monkeyp
     monkeypatch.setattr("dokimi.report.summary.summarize", lambda paths: summary)
     out = tmp_path / "taken"
     out.mkdir()
-    args = build_parser().parse_args(["report", "summary", "x.json", "--out", str(out)])
+    src = tmp_path / "x.json"
+    src.write_text("{}", encoding="utf-8")
+    args = build_parser().parse_args(["report", "summary", str(src), "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
