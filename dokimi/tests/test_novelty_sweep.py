@@ -268,10 +268,13 @@ def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
 
 
 def test_summary_lines_list_the_ranking_after_the_stratum_table():
-    lines = summary_lines(summarize([_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b")], resamples=50))
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b")]
+    lines = summary_lines(summarize(rows, strata={"a": "ops", "b": "dev"}, resamples=50))
+    table = next(i for i, line in enumerate(lines) if line.startswith("stratum"))
     head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share"))
+    assert table < head
     assert lines[head] == "ranking by new share (top 2 of 2):"
-    assert lines[head + 1].lstrip().startswith("1. b:")
+    assert lines[head + 1].lstrip() == "1. b: 60.00% new (3000 tokens)"
 
 
 def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
