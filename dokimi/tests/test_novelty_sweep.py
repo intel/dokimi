@@ -314,3 +314,11 @@ def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):
     path.write_text(json.dumps(_ok("a", 0.3)) + "\n" + bad, encoding="utf-8")
     with pytest.raises(InputError, match="line 2 is not a sweep row"):
         read_rows(path)
+
+
+def test_a_string_strict_share_is_a_line_numbered_input_error(tmp_path):
+    path = tmp_path / "rows.jsonl"
+    row = {**_ok("a", 0.5), "new_strict": "high"}
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match=r"line 1.*`new_strict` must be a number or null"):
+        read_rows(path)
