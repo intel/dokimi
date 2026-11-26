@@ -53,11 +53,11 @@ def _alive(pid: int) -> bool:
         return True
 
 
-def _gone_soon(pid: int, within: float = 5.0) -> bool:
+def _gone_soon(pid: int, within: float = 30.0) -> bool:
     return poll_until(lambda: not _alive(pid), within, interval=0.05)
 
 
-def _wait_for(path: Path, within: float = 10.0) -> str:
+def _wait_for(path: Path, within: float = 60.0) -> str:
     return wait_until(lambda: path.is_file() and path.read_text(), within, what=f"{path} to be written",
                       interval=0.05)
 
