@@ -150,7 +150,7 @@ def _run(s, *extra):
         str(s["exe"]),
         "--model",
         "m-1",
-        "--batch",
+        "--name",
         "b1",
         "--out",
         str(s["out"]),

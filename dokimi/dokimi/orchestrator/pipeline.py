@@ -346,7 +346,7 @@ class EvaluationPipeline:
                         logger.warning(
                             f"cached question set (n={cached_count}, hash={cached_hash}) differs from "
                             f"golden set (n={golden_count}, hash={golden_hash}); "
-                            f"use a fresh output directory (or --force-regen with benchmark run) to use the golden set"
+                            f"use a fresh output directory (or --force with benchmark run) to use the golden set"
                         )
                 except (json.JSONDecodeError, ValueError, TypeError, AttributeError, OSError) as e:
                     logger.warning(
@@ -577,7 +577,7 @@ class EvaluationPipeline:
         elif (not self.force_regen) and self.questions_path.exists():
             path = self.questions_path
             reused = _read_input_set(path, "the cached question set of an earlier run",
-                                        "fix or delete it to generate a new set; benchmark run: --force-regen")
+                                        "fix or delete it to generate a new set; benchmark run: --force")
         else:
             self._custom_questions = self._load_custom_questions()
             return None
@@ -588,7 +588,7 @@ class EvaluationPipeline:
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
         """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
 
-        A custom set that is this run's own ``questions/<product>.json`` (a ``--force-regen``
+        A custom set that is this run's own ``questions/<product>.json`` (a ``--force``
         run through the Python API) keeps the ``source_type`` a previous run wrote, so its
         generated records are not relabelled manual and protected from dedup on the next run.
         """

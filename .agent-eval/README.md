@@ -59,7 +59,7 @@ recall as a correctness measure, because the grader also matches by proximity.
 # Set MODEL to the model ID configured for your harness.
 revision=$(git rev-parse HEAD)
 ../.venv/bin/python cli.py repo run "..@$revision" --manifest .agent-eval/repo-eval.yaml \
-    --arm "guidance:none,guidance:rev:$revision" --model "$MODEL" --reps 3 --batch self \
+    --arm "guidance:none,guidance:rev:$revision" --model "$MODEL" --reps 3 --name self \
     --agent-network bridge --max-usd 50 --out-dir results/repo-runs
 ../.venv/bin/python cli.py repo compare results/repo-runs/self --baseline guidance:none
 ```
