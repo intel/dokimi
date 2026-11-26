@@ -108,6 +108,14 @@ def test_a_judge_drops_a_seed_the_route_refuses_and_warns_once(monkeypatch, caps
     assert capsys.readouterr().err.count("does not take a seed") == 1
 
 
+def test_judge_sampling_defers_route_check_until_the_model_is_known(monkeypatch):
+    from dokimi.eval import judge_sampling
+
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", _sampling_by_route)
+    assert judge_sampling.check_judge_sampling("amazon-bedrock", None, None, 7) == 7
+    assert judge_sampling.check_judge_sampling("amazon-bedrock", "m", None, 7) is None
+
+
 def test_a_judge_keeps_a_seed_the_route_takes(monkeypatch):
     from dokimi.eval import judge_sampling
 
