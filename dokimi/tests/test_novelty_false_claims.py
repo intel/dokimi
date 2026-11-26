@@ -235,3 +235,15 @@ def test_hyphenated_range_compares_the_second_quantity():
     assert lexical_conflict("Latency is -10--20 ms.", "Latency is -10--30 ms.") == ("lexical:value", "-30 ms")
     assert lexical_conflict("Use build-10 ms.", "Use build-20 ms.") is None
     assert lexical_conflict("Use build10-20 ms.", "Use build10-30 ms.") is None
+
+
+def test_frequency_units_compare_by_scale():
+    assert lexical_conflict("Clock is 1000 kHz.", "Clock is 1 MHz.") is None
+    assert lexical_conflict("Clock is 1000 MHz.", "Clock is 1 GHz.") is None
+    assert lexical_conflict("Clock is 1 MHz.", "Clock is 2 MHz.") == ("lexical:value", "2 MHz")
+
+
+def test_microsecond_units_compare_by_scale():
+    assert lexical_conflict("Wait 1000 µs.", "Wait 1 ms.") is None
+    assert lexical_conflict("Wait 1000 μs.", "Wait 1 ms.") is None
+    assert lexical_conflict("Wait 1000 us.", "Wait 1 ms.") is None
