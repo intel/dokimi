@@ -36,7 +36,7 @@
       "lines": [
         108
       ],
-      "kw": "\\boff[- ]by[- ]one\\b|>=|\\b(?:inclusive|boundary)\\b|\\bexactly\\b.{0,80}\\b(?:contexts?|snippets?|min_contexts)\\b"
+      "kw": "(?s)^(?!.*\\b(?:no\\s+off[- ]by[- ]one|off[- ]by[- ]one\\s+(?:is\\s+)?(?:absent|not\\s+(?:present|an\\s+issue)))\\b).*?(?:\\boff[- ]by[- ]one\\b|\\b(?:should|must|needs?)\\s+be\\s+`?>=|\\buse\\s+`?>=|\\b(?:skips?|excludes?|rejects?|omits?|miss(?:es)?|drops?|fails?\\s+for)\\b[^.!?]{0,80}\\bexactly\\b[^.!?]{0,60}\\b(?:contexts?|snippets?|min_contexts)\\b)"
     },
     {
       "id": "docs_flag_drift",

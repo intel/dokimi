@@ -86,6 +86,17 @@ def test_key_rename_needs_the_rename_not_just_both_key_names(message, hits):
     grade = _seeded("dokimi/dokimi/eval/grounding.py", 40, message)
     assert grade["seeds_hit"] == hits
 
+
+@pytest.mark.parametrize("message", [
+    "len(contexts) >= min_contexts is correct as written; the boundary is inclusive.",
+    "The boundary correctly includes answers with exactly min_contexts contexts.",
+    "No off-by-one issue at the context threshold.",
+])
+def test_seeded_boundary_rejects_findings_that_confirm_the_comparison(message):
+    grade = _seeded("dokimi/dokimi/eval/grounding.py", 110, message)
+    assert grade["seeds_hit"] == []
+
+
 def test_seed_keywords_accept_common_wordings():
     assert _seeded("dokimi/dokimi/eval/grounding.py", 40,
                    "len(contexts) > min_contexts should be >=")["seeds_hit"] == ["logic_off_by_one"]
