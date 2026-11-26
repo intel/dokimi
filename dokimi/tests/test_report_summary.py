@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 import sys
@@ -93,6 +94,23 @@ def test_cli_refuses_an_empty_path_even_when_the_cwd_has_a_document(tmp_path, mo
     done = _summary_cli("", "--out", "summary.md")
     assert done.returncode == 2 and "input path is empty" in done.stderr and done.stdout == ""
     assert not (tmp_path / "summary.md").exists()
+
+
+def test_cli_refuses_a_path_the_filesystem_cannot_check(tmp_path, monkeypatch):
+    name = tmp_path / "too-long.json"
+    out = tmp_path / "summary.md"
+    original_stat = Path.stat
+
+    def stat(path, **kwargs):
+        if path == name:
+            raise OSError(errno.ENAMETOOLONG, "File name too long", str(path))
+        return original_stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    code, stdout, stderr = _main("report", "summary", str(name), "--out", str(out))
+    assert code == 2 and stdout == ""
+    assert "File name too long" in stderr and str(name) in stderr and "Traceback" not in stderr
+    assert not out.exists()
 
 
 def test_cli_refuses_a_missing_path_next_to_a_good_document(tmp_path):

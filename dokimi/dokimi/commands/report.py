@@ -181,7 +181,15 @@ def _refuse_absent_inputs(paths: list[str]) -> None:
 
     if "" in paths:
         raise InputError("input path is empty")
-    missing = [p for p in paths if not Path(p).exists()]
+    missing = []
+    for raw in paths:
+        try:
+            Path(raw).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            missing.append(raw)
+        except (OSError, ValueError) as exc:
+            reason = (exc.strerror or str(exc)) if isinstance(exc, OSError) else str(exc)
+            raise InputError(f"cannot access {raw!r}: {reason}") from exc
     if missing:
         raise InputError(f"no such file or directory: {', '.join(missing)}")
     if all(p.is_dir() for p in expand_inputs(paths)):  # a file, a pipe or a FIFO is read, whatever it holds
