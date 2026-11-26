@@ -112,8 +112,21 @@ def _declares_code(doc: dict[str, Any]) -> list[str]:
     return [k for k in ("hooks", "mcpServers") if any(e.get(k) for e in entries)]
 
 
+def _manifest_dirs(scan: Scan) -> list[str]:
+    """Plugin manifest paths that are directories (#1271): the hooks and MCP servers they would declare cannot be read."""
+    out = []
+    for p in PLUGIN_MANIFESTS:
+        try:
+            if p not in scan.file_set and scan.tree.is_dir(p):
+                out.append(p)
+        except (OSError, SourceError):  # unreadable, or a link out of the tree: not a manifest directory
+            continue
+    return out
+
+
 def unreadable_plugin_manifests(scan: Scan) -> list[str]:
-    return [p for p in PLUGIN_MANIFESTS if p in scan.file_set and not isinstance(_json(scan, p), dict)]
+    return sorted([p for p in PLUGIN_MANIFESTS if p in scan.file_set and not isinstance(_json(scan, p), dict)]
+                  + _manifest_dirs(scan))
 
 
 def unreadable_claude_settings(scan: Scan) -> list[str]:
@@ -159,6 +172,7 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
                     capabilities.append(("mcp", "high", "enables all MCP servers"))
                 for kind, risk, note in capabilities:
                     out.append(Capability(path, kind, "claude-code", risk, note))
+    out.extend(Capability(p, "plugin", "claude-code", "high", "not read: a directory") for p in _manifest_dirs(scan))
     return sorted(out, key=lambda c: c.path)
 
 

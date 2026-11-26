@@ -49,11 +49,14 @@ def _parse_source(args: argparse.Namespace) -> RepoSource:
 def _open_tree(source: RepoSource, args: argparse.Namespace):
     """The source's tree, cloned into ``--cache-dir`` when remote: a bad ``--cache-dir`` or a pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
     from dokimi.repos import SourceError, open_source
-    from dokimi.repos.source import SourceArgumentError
+    from dokimi.repos.source import SourceArgumentError, WorkTree
 
     cache_dir = _cache_dir(args)  # before the handlers below: InputError is a ValueError
     try:
-        return open_source(source, cache_dir)
+        tree = open_source(source, cache_dir)
+        if isinstance(tree, WorkTree):
+            tree.check_listable()  # #1271: exit 2 for every command, not a traceback
+        return tree
     except SourceArgumentError as exc:
         raise InputError(str(exc)) from exc
     except (SourceError, OSError, ValueError) as exc:  # a cache dir that cannot be made, or git output that is not UTF-8
@@ -206,13 +209,30 @@ def _print_structure(section: dict[str, Any] | None) -> None:
               + ("" if m["in_guidance"] else ", not in guidance"))
 
 
+def _print_not_loaded(instructions: list[dict]) -> None:
+    """#1271: the instruction files the count includes but a harness cannot load, with why."""
+    for i in instructions:
+        for note in i["notes"]:
+            if note.startswith("not loaded"):
+                print(f"  NOT LOADED {_normalize_whitespace(i['path'], max_len=None)} -- {_normalize_whitespace(note)}")
+
+
+def _inspected(inspect_repo, tree, args: argparse.Namespace) -> dict:
+    from dokimi.repos.source import SourceArgumentError
+
+    try:
+        return inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
+    except SourceArgumentError as exc:  # #1271: a directory that cannot be listed is bad input, exit 2
+        raise InputError(str(exc)) from exc
+
+
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.environment import inspect_repo
 
     _, tree = _source_tree(args)
-    payload = inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
+    payload = _inspected(inspect_repo, tree, args)
     if "structure" in payload and not payload["structure"]["index"]["documents_in_tree"]:
         raise InputError(f"no document of the code index {args.index} is a file of this tree")
     if args.out:
@@ -242,6 +262,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
             if f["severity"] != "info":
                 where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
                 print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
+        _print_not_loaded(payload["instructions"])
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
         _print_structure(payload.get("structure"))
         if args.out:

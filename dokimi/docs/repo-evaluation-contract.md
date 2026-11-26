@@ -2322,7 +2322,11 @@ The report keeps observations apart from findings:
   with its `scope` (`root`, `path-specific`, `mode-specific`, `local-private`,
   `legacy`, `capability`, `unknown`), `activation`, the `directory` it applies to
   (for a record whose scope is `unknown`, the one it would apply to) and its size
-  (for a link, the size of the file it names). This is what each
+  (for a link, the size of the file it names). A record for a file the
+  harness cannot load (a link to nothing, a loop, a directory, a pipe or device,
+  or an empty file) keeps its place, carries a `not loaded` note, and has a
+  `not_observed` line. A source directory that cannot be listed is refused with
+  exit 2. This is what each
   harness documents; which files a given harness version loads is measured by
   the reach probe (§7).
 - `checks`: ways to build, test, lint and type-check, per project root (the

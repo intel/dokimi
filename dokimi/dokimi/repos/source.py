@@ -145,13 +145,19 @@ class WorkTree:
         self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
         self.skipped_paths.append(path)
 
+    def check_listable(self) -> None:
+        """:class:`SourceArgumentError` if the root cannot be read and searched."""
+        if not os.access(self.root, os.R_OK | os.X_OK):
+            # #1271: an unsearchable root lists as an empty tree, so its files would read as missing
+            raise SourceArgumentError(f"{self.root} cannot be listed: Permission denied")
+
     def _is_entry(self, path: str) -> bool:
         """Whether a listed path is a file or a link; one that cannot be looked at (a directory above it that
         cannot be searched) is left out and named in ``skipped``."""
         target = self.root / path
         try:  # os.lstat raises on every Python; Path.is_file and Path.is_symlink stop raising on 3.14
             mode = os.lstat(target).st_mode
-            return stat.S_ISLNK(mode) or stat.S_ISREG(mode)
+            return stat.S_ISLNK(mode) or stat.S_ISREG(mode) or not stat.S_ISDIR(mode)  # a pipe or device stays listed (#1271)
         except (FileNotFoundError, NotADirectoryError):
             return False
         except OSError as exc:
@@ -164,6 +170,8 @@ class WorkTree:
 
         The root may be a subdirectory of the working tree; ``ls-files -C`` lists paths relative to it.
         """
+        if self._files is None:
+            self.check_listable()
         if self._files is None and _git(self.root, "rev-parse", "--is-inside-work-tree", check=False).strip() == "true":
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
@@ -192,24 +200,43 @@ class WorkTree:
         except (_LinkLoop, _NoSuchPath):
             return False
 
+    def _readable(self, path: str) -> Path:
+        """The file ``path`` names; never a pipe, socket or device, which a read would wait on (#1271)."""
+        target = self._resolve(path)
+        mode = os.stat(target).st_mode
+        if not stat.S_ISREG(mode) and not stat.S_ISDIR(mode):
+            raise SourceArgumentError(f"{path} is not a regular file")  # #1271
+        return target
+
     def read_text(self, path: str) -> str:
-        return self._resolve(path).read_text(encoding="utf-8")
+        return self._readable(path).read_text(encoding="utf-8")
 
     def read_bytes(self, path: str) -> bytes:
-        return self._resolve(path).read_bytes()
+        return self._readable(path).read_bytes()
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         try:
             target = self._resolve(path)
         except (RuntimeError, OSError) as exc:  # a link loop (RuntimeError before Python 3.13)
             raise SourceArgumentError(f"too many levels of symbolic links: {path}") from exc
-        if target.is_dir() and dirs:
-            return target.relative_to(self.root).as_posix()
-        if target.is_dir():
-            raise SourceArgumentError(f"{path} links to a directory: {target.relative_to(self.root).as_posix()}")
-        if not target.is_file():
-            raise SourceArgumentError(f"{path} links to nothing: {target.relative_to(self.root).as_posix()}")
-        return target.relative_to(self.root).as_posix()
+        rel = target.relative_to(self.root).as_posix()
+        try:  # os.stat raises on every Python, where Path.is_dir stops raising on 3.14 (#1271)
+            mode: int | None = os.stat(target).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            mode = None
+        except PermissionError as exc:  # a directory above the target that cannot be searched
+            raise SourceArgumentError(f"{path} cannot be read: Permission denied") from exc  # #1271: refused, not a traceback
+        except OSError as exc:
+            raise SourceArgumentError(f"{path} cannot be read: {type(exc).__name__}") from exc  # #1271
+        if mode is not None and stat.S_ISDIR(mode) and dirs:
+            return rel
+        if mode is not None and stat.S_ISDIR(mode):
+            raise SourceArgumentError(f"{path} links to a directory: {rel}")
+        if mode is not None and stat.S_ISREG(mode):
+            return rel
+        if mode is not None:  # a pipe, a socket or a device, itself or at the end of a link
+            raise SourceArgumentError(f"{path} is not a regular file" + (f": {rel}" if rel != path else ""))  # #1271
+        raise SourceArgumentError(f"{path} links to nothing: {rel}")  # #1271: kept for a dangling link
 
     def read_many(self, paths: list[str], max_bytes: int = READ_MANY_LIMIT,
                   skipped: dict[str, str] | None = None) -> dict[str, str]:
