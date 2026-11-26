@@ -243,6 +243,23 @@ def test_patch_link_outside_the_task_directory_is_reported_not_raised(tmp_path, 
     assert "bad" not in [t.id for t in report.tasks]
 
 
+@pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
+@pytest.mark.parametrize("target", ["missing.patch", "sub"], ids=["dangling", "directory"])
+@pytest.mark.parametrize("spelling", ["p.patch", "./p.patch"], ids=["plain", "dot-slash"])
+def test_patch_link_that_dangles_or_names_a_directory_is_refused_in_both_trees(tmp_path, target, rev, spelling):
+    # a committed `p.patch -> missing.patch` exited 1 in the working tree and 2 at a revision
+    root = _repo(tmp_path)
+    _write(root, "dev/evals/tasks/bad/sub/x.patch", "--- a\n+++ b\n")
+    _task(root, "bad", setup_patch=spelling)
+    (root / "dev/evals/tasks/bad/p.patch").symlink_to(target)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert report.refused
+    assert any(f"patch {spelling!r}" in e for e in report.errors), report.errors
+
+
 def test_patch_link_outside_the_task_directory_exits_2_and_a_missing_patch_exits_1(tmp_path, capsys):
     # #1275: a link `repo run` refuses is a refused input (2); a patch that is not there is a task error (1)
     root = _repo(tmp_path)

@@ -21,6 +21,7 @@ repository's grader and are not read.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -532,8 +533,9 @@ def _patch_problem(tree: RepoTree, task_dir: str, patch: str) -> tuple[str, bool
     if problem:
         return f"patch {patch!r}: {problem}", False
     try:
-        exists = tree.is_file(f"{task_dir}/{patch}")
-        target = tree.resolve(f"{task_dir}/{patch}") if exists else ""
+        full = posixpath.normpath(f"{task_dir}/{patch}")  # './p.patch' is the entry 'p.patch' in the listing
+        exists = tree.is_file(full) or full in set(tree.files())  # a link is an entry even when it dangles or names a directory, in both trees
+        target = tree.resolve(full) if exists else ""
     except (SourceArgumentError, _NoSuchPath) as exc:  # a link that leaves the repository, even if it comes back (#1275); a failed git show is raised, as for task.json
         return f"patch {patch!r}: {exc}", True
     if not exists:
