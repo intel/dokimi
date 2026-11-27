@@ -675,6 +675,8 @@ def comment_result(report: dict) -> dict:
     """What the pull-request comment is posted from: the count per status, then each survivor and waived mutant.
 
     Source text and reasons are cut to ``CELL`` characters and the tests to their count, so its size has a bound.
+    ``untested`` counts what kept mutants from being tried (candidate tests that fail without a mutant, candidate
+    test files not run, changed lines no test executes), so a run that tested nothing is not shown as clean.
     """
     ms = report["mutants"]
     cut = {"original", "replacement", "reason"}
@@ -687,6 +689,9 @@ def comment_result(report: dict) -> dict:
         "survivors": [short(_entry(m, tests_run=len(m["tests"]))) for m in ms if m["status"] == "survived"],
         "waived": [short(_entry(m, reason=m["waiver"])) for m in ms if m["status"] == "waived"],
         "waivers_without_reason": report.get("waivers_without_reason", [])[:40],
+        "untested": {"failing_tests": len(report.get("failing_unmutated", [])),
+                     "tests_not_run": len(report.get("candidate_tests_not_run", [])),
+                     "uncovered_lines": sum(len(ls) for ls in report.get("uncovered_lines", {}).values())},
     }
 
 

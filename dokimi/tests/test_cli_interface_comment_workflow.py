@@ -322,9 +322,10 @@ def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):
 def test_concurrency_is_per_pr_branch_not_per_commit():
     group = _wf()["concurrency"]["group"]
     assert re.findall(r"\$\{\{ (.+?) \}\}", group) == [  # each part whole: a run id or a commit in one races two posts
-        "github.workflow", "github.event.workflow_run.head_repository.full_name", "github.event.workflow_run.head_branch"]
+        "github.workflow", "github.event.workflow_run.head_repository.full_name", "github.event.workflow_run.head_branch",
+        "github.event.workflow_run.name"]  # cli-interface and ci finishing together must not cancel each other's post
     assert group == ("${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}"
-                     "-${{ github.event.workflow_run.head_branch }}")
+                     "-${{ github.event.workflow_run.head_branch }}-${{ github.event.workflow_run.name }}")
 
 
 OLD_COMMENT = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold diff"}]

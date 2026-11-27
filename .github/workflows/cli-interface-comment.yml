@@ -13,9 +13,9 @@ on:
 permissions: {}
 
 concurrency:
-  # One group per PR branch (pull_requests[] is empty for forks), so pushes to one PR
-  # post one at a time and cannot both find no sticky comment and each create one.
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  # One group per PR branch and followed workflow (pull_requests[] is empty for forks): pushes post one at a time,
+  # and cli-interface and ci finishing together cannot cancel each other's pending post.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ github.event.workflow_run.name }}
   cancel-in-progress: false
 
 # Security: never checks out or runs PR code. The artifact is PR-controlled data: size-capped, parsed as JSON only, its PR
@@ -170,6 +170,10 @@ jobs:
                       !Object.entries(ENTRY).every(([k, t]) => typeof e[k] === t)) return `${key} has a malformed entry`;
                 }
               }
+              const u = r.untested;
+              if (!isObject(u) || !['failing_tests', 'tests_not_run', 'uncovered_lines'].every((k) => isCount(u[k]))) {
+                return 'untested is not an object of counts';
+              }
               const bare = r.waivers_without_reason;
               if (!Array.isArray(bare) || !bare.every((b) => typeof b === 'string')) return 'waivers_without_reason is not a list of strings';
               return null;
@@ -209,8 +213,11 @@ jobs:
               }
               const r = res.result;
               const c = r.counts;
-              if (!r.survivors.length && !existing) return;
+              // A check that could not run its tests is not a clean result, and is said even with no comment yet.
               const total = STATUSES.reduce((n, s) => n + c[s], 0);
+              const incomplete = r.untested.failing_tests > 0 || r.untested.tests_not_run > 0 ||
+                (total === 0 && r.untested.uncovered_lines > 0);
+              if (!r.survivors.length && !existing && !incomplete) return;
               const parts = [`${marker}\n## Mutation of changed lines\n`,
                 `${total} mutants of the lines this PR changes, at ${sha}: ${c.killed} killed, ` +
                 `**${r.survivors.length} survived**, ${r.waived.length} waived, ${c.inconclusive} inconclusive, ` +
@@ -225,8 +232,14 @@ jobs:
                     `| ${cell(e.replacement)} | ${e.tests_run} |`), room - (r.waived.length ? WAIVED_ROOM : 0));
                 parts.push(t.text + '\n');
                 room -= t.size;
-              } else {
+              } else if (!incomplete) {
                 parts.push('No surviving mutants on the changed lines.\n');
+              }
+              if (incomplete) {
+                parts.push(`The check was incomplete: ${r.untested.failing_tests} candidate tests fail without a mutant ` +
+                  `and were left out, ${r.untested.tests_not_run} candidate test files were not run, and ` +
+                  `${r.untested.uncovered_lines} changed lines were not mutated; ` +
+                  `${r.survivors.length ? 'the survivors above are not the whole picture' : 'this is not a clean result'}.\n`);
               }
               if (r.waived.length) {
                 parts.push('Waived by `mutation-ok`:\n');

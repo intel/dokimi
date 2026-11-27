@@ -26,8 +26,12 @@ WAIVED = {"path": "dokimi/dokimi/x.py", "line": 20, "op": "bump-int", "original"
 OLD = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold survivors"}]
 
 
-def _result(survivors=(SURVIVOR,), waived=(WAIVED,), bare=(), **kw):
-    result = {"counts": COUNTS, "survivors": list(survivors), "waived": list(waived), "waivers_without_reason": list(bare)}
+UNTESTED = {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 0}
+
+
+def _result(survivors=(SURVIVOR,), waived=(WAIVED,), bare=(), untested=UNTESTED, **kw):
+    result = {"counts": COUNTS, "survivors": list(survivors), "waived": list(waived), "waivers_without_reason": list(bare),
+              "untested": untested}
     return {"pr_number": 12, "head_sha": SHA, "status": "ok", "result": result, **kw}
 
 
@@ -58,6 +62,30 @@ def test_a_push_that_kills_every_survivor_marks_the_comment_clean(tmp_path):
     assert update["comment_id"] == 99 and "No surviving mutants" in update["body"] and "**0 survived**" in update["body"]
     assert "old survivors" not in update["body"] and "only the sign is read" in update["body"]
     assert "createComment" not in _names(calls)
+
+
+def test_a_run_that_could_not_test_is_not_shown_as_clean(tmp_path):
+    untested = {"failing_tests": 3, "tests_not_run": 0, "uncovered_lines": 5}
+    for comments in (OLD, []):
+        calls = _post(tmp_path, _result(survivors=(), untested=untested), comments=comments)
+        body = _bodies(calls)[0]
+        assert "No surviving mutants" not in body and "3 candidate tests fail without a mutant" in body
+        assert "not a clean result" in body
+
+
+def test_a_run_that_mutated_nothing_because_no_line_was_covered_is_not_shown_as_clean(tmp_path):
+    zero = {k: 0 for k in COUNTS}
+    untested = {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 5}
+    result = _result(survivors=(), waived=())
+    result["result"] = {**result["result"], "counts": zero, "untested": untested}
+    body = _bodies(_post(tmp_path, result, comments=OLD))[0]
+    assert "No surviving mutants" not in body and "5 changed lines were not mutated" in body
+    assert "not a clean result" in body
+
+
+def test_a_malformed_untested_count_posts_nothing(tmp_path):
+    for bad in (None, {"failing_tests": -1, "tests_not_run": 0, "uncovered_lines": 0}, {"failing_tests": 0}):
+        assert not {"createComment", "updateComment"} & set(_names(_post(tmp_path, _result(untested=bad))))
 
 
 def test_no_survivor_and_no_earlier_comment_posts_nothing(tmp_path):

@@ -888,6 +888,13 @@ def test_the_comment_result_cuts_long_source_text_and_counts_the_tests() -> None
     assert result["survivors"] == [{"path": "p.py", "line": 2, "op": "return-none", "original": "x" * mc.CELL,
                                     "replacement": "None", "tests_run": 2}]
     assert result["counts"]["survived"] == 1 and result["waived"] == [] and result["waivers_without_reason"] == []
+    assert result["untested"] == {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 0}
+
+
+def test_the_comment_result_carries_what_could_not_be_tested() -> None:
+    result = mc.comment_result({"mutants": [], "failing_unmutated": ["a", "b"], "candidate_tests_not_run": ["c"],
+                                "uncovered_lines": {"p.py": [1, 2], "q.py": [3]}})
+    assert result["untested"] == {"failing_tests": 2, "tests_not_run": 1, "uncovered_lines": 3}
 
 
 def test_a_mixed_boolean_with_a_text_in_the_middle_is_still_a_decision() -> None:
