@@ -9,7 +9,8 @@
 - ``hidden-unicode`` (warn): a bidi control, a Unicode tag character, or a stray zero-width character.
   Each is reported with its line and codepoint. Exempt: a zero-width joiner (U+200C, U+200D) next to an
   emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
-  order mark at the start of a file.
+  order mark at the start of a file. A hidden character that the front matter ``name`` or ``description``
+  writes as a YAML escape (``\\u202E``) is reported too, against the front matter key instead of a line.
 
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
 suffixes of :data:`TEXT_SUFFIXES`) in the skill
@@ -224,6 +225,52 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
     return hits
 
 
+def _hidden_counts(text: str) -> dict[str, int]:
+    bidi_exempt = _bidi_mark_exempt(text)
+    counts: dict[str, int] = {}
+    for i, ch in enumerate(text):
+        if _is_hidden(text, i, bidi_exempt):
+            counts[ch] = counts.get(ch, 0) + 1
+    return counts
+
+
+def _escaped_hits(key: str, value: str, raw: str) -> list[Hit]:
+    """#1285: hidden characters of a parsed front matter value beyond those ``raw`` ``SKILL.md`` holds literally.
+
+    A YAML escape (``\\u202E``, ``\\U000E0069``) is ASCII in the file but one hidden character in the value an agent reads.
+    A character that is in the file is already reported with its line by :func:`_hidden_hits`.
+    """
+    front = raw.partition("\n---")[0]  # the front matter only: a character in the body says nothing about the value
+    text = "\n" + value  # a value is not the start of a file: a leading U+FEFF is not a byte order mark
+    bidi_exempt = _bidi_mark_exempt(text)
+    literal = _hidden_counts(front)  # hidden characters the file holds literally: _hidden_hits reports those
+    found = []
+    for i in range(1, len(text)):
+        if _is_hidden(text, i, bidi_exempt):
+            if literal.get(text[i], 0) > 0:
+                literal[text[i]] -= 1
+            else:
+                found.append(i - 1)
+    hits: list[Hit] = []
+    for index in found[:REPORT_PER_FILE]:
+        ch = value[index]
+        hits.append(
+            (
+                "hidden-unicode",
+                f"SKILL.md front matter {key}: U+{ord(ch):04X} {unicodedata.name(ch, 'unnamed')} "
+                "is written as an escape and can hide text from a reader; remove it",
+            )
+        )
+    if len(found) > REPORT_PER_FILE:
+        hits.append(
+            (
+                "hidden-unicode",
+                f"SKILL.md front matter {key}: {len(found) - REPORT_PER_FILE} more hidden characters not listed",
+            )
+        )
+    return hits
+
+
 def _holds_skill(folder: Path) -> bool:
     """Whether ``folder`` holds another skill's ``SKILL.md``. A folder the walk cannot stat holds none."""
     try:
@@ -267,12 +314,17 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
     if not at_root:
         paths += [p for p in _text_files(skill_dir) if p != skill.path]
     hits: list[Hit] = []
+    raw = ""
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue  # unreadable or not UTF-8: a bundled file is skipped unread, SKILL.md is the loader's
+        if path == skill.path:
+            raw = text
         where = path.relative_to(skill_dir).as_posix()
         hits += _legacy_hits(where, text)
         hits += _hidden_hits(where, text)
+    for key, value in (("name", skill.name), ("description", skill.description)):
+        hits += _escaped_hits(key, value, raw)
     return hits
