@@ -26,15 +26,71 @@ PROJECT = Path(__file__).resolve().parents[1]
 _ENTRY = re.compile(r"^\s*[-*] \S", re.MULTILINE)
 
 
+# A backtick fence's info string has no backtick: ```x``` is an inline span.
+_FENCE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
+_CODE_SPAN = re.compile(r"`+[^`]*`+")
+_COMMENT = re.compile(r"<!--.*?(?:-->|$)")
+
+
+def _visible(lines: list[str]) -> list[bool]:
+    """For each line, whether it starts outside a fenced code block and an HTML comment.
+
+    Fence lines count as inside a fence. A fence marker inside a comment, and
+    a comment marker inside a fence, mean nothing.
+    """
+    visible, opener, in_comment = [], "", False
+    for line in lines:
+        if opener:
+            fence = _FENCE.match(line)
+            visible.append(False)
+            if fence and fence[1][0] == opener[0] and len(fence[1]) >= len(opener) \
+                    and not line.strip().strip(opener[0]):
+                opener = ""
+            continue
+        fence = None if in_comment else _FENCE.match(line)
+        visible.append(not in_comment and not fence)
+        if fence:
+            opener = fence[1]
+            continue
+        rest = _CODE_SPAN.sub("x", line)   # a `<!--` in a code span opens nothing
+        while True:
+            if in_comment:
+                end = rest.find("-->")
+                if end < 0:
+                    break
+                rest, in_comment = rest[end + 3:], False
+            else:
+                begin = rest.find("<!--")
+                if begin < 0:
+                    break
+                rest, in_comment = rest[begin + 4:], True
+    return visible
+
+
 def release_notes(changelog: str, version: str) -> str | None:
     """The body of the ``## [version]`` section, or None if there is none.
 
     The section ends at the next heading or at the ``<a id=...>`` anchor scriv
-    writes above each version.
+    writes above each version. A heading or anchor inside a fenced code block
+    does not end it.
     """
-    match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |^<a id=|\Z)",
-                      changelog, re.MULTILINE | re.DOTALL)
-    return match.group(1).strip() if match else None
+    lines = changelog.split("\n")
+    outside = _visible(lines)
+    start = re.compile(rf"^## \[{re.escape(version)}\]")
+    begin = next((i for i, line in enumerate(lines) if outside[i] and start.match(line)), None)
+    if begin is None:
+        return None
+    end = next((i for i in range(begin + 1, len(lines))
+                if outside[i] and lines[i].startswith(("## ", "<a id="))), len(lines))
+    body = "\n".join(lines[begin + 1:end])
+    return re.sub(r"\A(?:[ \t]*\n)+", "", body).rstrip()   # keep the first line's indent
+
+
+def _has_entry(notes: str) -> bool:
+    """Whether the notes hold a bullet outside HTML comments and fenced code blocks."""
+    lines = notes.split("\n")
+    return any(_ENTRY.search(_COMMENT.sub("", _CODE_SPAN.sub("x", line)))
+               for line, out in zip(lines, _visible(lines), strict=True) if out)
 
 
 def problems(tag: str, project: Path = PROJECT) -> tuple[list[str], str | None]:
@@ -44,7 +100,7 @@ def problems(tag: str, project: Path = PROJECT) -> tuple[list[str], str | None]:
     if tag != f"v{version}":
         found.append(f"tag {tag!r} does not match project.version {version!r} (want v{version})")
     notes = release_notes((project / "CHANGELOG.md").read_text(encoding="utf-8"), version)
-    if not notes or not _ENTRY.search(notes):
+    if not notes or not _has_entry(notes):
         found.append(f"CHANGELOG.md has no entries under '## [{version}]': "
                      f"run `scriv collect --version {version}`")
     pending = sorted(p.name for p in (project / "changelog.d").glob("*.md") if p.name != "README.md")

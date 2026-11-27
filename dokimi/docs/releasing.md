@@ -60,7 +60,9 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
    python scripts/check_release.py vX.Y.Z  # what the release workflow checks
    ```
 
-   Read the collected section as a user would and tidy it. Merge the PR.
+   Read the collected section as a user would and tidy it. The check ignores
+   bullets inside HTML comments and fenced code blocks, and a `## ` heading
+   inside a fence does not end the section. Merge the PR.
 
 2. **Release.** A maintainer first runs the release workflow on `main` and
    waits for it to pass while `main` is still the merge commit: the workflow
