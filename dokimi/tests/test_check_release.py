@@ -153,6 +153,55 @@ def test_inline_code_does_not_open_a_comment():
     assert cr._has_entry("- `<!--`")
 
 
+def test_a_code_span_with_backticks_does_not_open_a_comment():
+    """#1290: a longer delimiter lets a span hold backticks and a `<!--`."""
+    text = "## [0.2.0]\n\n- Write ``a ` <!-- b`` here.\n\n## [0.1.0]\n\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- Write ``a ` <!-- b`` here."
+    assert not cr._has_entry("A lone ` then <!-- open\n- hidden\n-->")   # no closer: literal tick
+
+
+def test_a_multiline_code_span_does_not_open_a_comment():
+    """#1290: a span may run over lines; a `<!--` inside it opens nothing."""
+    text = ("## [0.2.0]\n\n- Document `first\nsecond <!-- third` marker.\n\n"
+            "## [0.1.0]\n\n- Old entry.\n")
+    assert cr.release_notes(text, "0.2.0") == "- Document `first\nsecond <!-- third` marker."
+
+
+def test_backticks_in_a_comment_do_not_hide_its_end():
+    """#1290: backticks inside a comment are literal, so they cannot shield `-->`."""
+    assert cr._has_entry("<!-- ` --> `\n\n- Real entry.")
+
+
+def test_an_escaped_comment_opener_opens_nothing():
+    """#1290: ``\\<!--`` renders as text, so the bullet after it is visible."""
+    assert cr._has_entry("Write \\<!-- literally.\n\n- Real entry.")
+
+
+def test_a_comment_opened_on_the_heading_hides_the_section_body(tmp_path):
+    """#1290: the release check keeps the comment state of the heading line."""
+    text = "## [0.2.0] <!-- draft\n- Hidden entry\n-->\n\n## [0.1.0]\n- Old entry\n"
+    assert not cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+
+
+def test_a_code_span_does_not_cross_a_heading_or_comment_block(tmp_path):
+    """#1290: a tick on the heading cannot pair with one inside the next comment."""
+    text = "## [0.2.0] `\n<!-- `\n- Hidden entry\n-->\n"
+    assert not cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+    assert cr._has_entry("A `tick\n## Heading `\n- Real entry")
+
+
+def test_a_code_span_does_not_cross_a_list_item(tmp_path):
+    """#1290: a list item interrupts a paragraph, so two lone ticks pair with nothing."""
+    text = "## [0.2.0]\n\nExample `literal\n- Real entry with ` marker\n"
+    assert cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
 def test_an_indented_code_example_is_not_a_fence(tmp_path):
     """#1290: four spaces make code, not a fence, and notes keep the first line's indent."""
     text = "## [0.2.0]\n\n    ```\n\n- Real entry.\n"

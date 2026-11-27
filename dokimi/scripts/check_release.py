@@ -28,43 +28,96 @@ _ENTRY = re.compile(r"^\s*[-*] \S", re.MULTILINE)
 
 # A backtick fence's info string has no backtick: ```x``` is an inline span.
 _FENCE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
-_CODE_SPAN = re.compile(r"`+[^`]*`+")
-_COMMENT = re.compile(r"<!--.*?(?:-->|$)")
+_TICKS = re.compile(r"`+")
+_HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+# A heading, a list item or an HTML comment at the start of a line ends the paragraph a code span lives in.
+_BLOCK = re.compile(r"^(?: {0,3}(?:#{1,6}(?:\s|$)|<!--)|\s*[-*+] \S)")
 
 
-def _visible(lines: list[str]) -> list[bool]:
-    """For each line, whether it starts outside a fenced code block and an HTML comment.
+def _closes(lines: list[str], row: int, col: int, size: int) -> bool:
+    """Whether a backtick run of exactly ``size`` follows, within the paragraph."""
+    for number in range(row, len(lines)):
+        line = lines[number][col:] if number == row else lines[number]
+        if number > row and (not line.strip() or _FENCE.match(line) or _BLOCK.match(line)):
+            return False
+        if any(len(run[0]) == size for run in _TICKS.finditer(line)):
+            return True
+        if _HEADING.match(lines[row]):   # a heading is one line: no span runs past it
+            return False
+    return False
 
-    Fence lines count as inside a fence. A fence marker inside a comment, and
-    a comment marker inside a fence, mean nothing.
+
+def _inline(lines: list[str], row: int, in_comment: bool, span: int) -> tuple[str, bool, int]:
+    """The visible text of ``lines[row]`` and the comment and code span state at its end."""
+    line, text, col = lines[row], [], 0
+    if span:
+        text.append("x")
+    while col < len(line):
+        if in_comment:
+            end = line.find("-->", col)
+            if end < 0:
+                break
+            col, in_comment = end + 3, False
+        elif span:
+            match = next((m for m in _TICKS.finditer(line, col) if len(m[0]) == span), None)
+            if match is None:
+                break
+            col, span = match.end(), 0
+        elif line.startswith("<!--", col):
+            col, in_comment = col + 4, True
+        elif line[col] == "\\":
+            text.append(line[col:col + 2])
+            col += 2
+        elif line[col] == "`":
+            size = len(_TICKS.match(line, col)[0])
+            span = size if _closes(lines, row, col + size, size) else 0
+            text.append("x" if span else "`" * size)
+            col += size
+        else:
+            text.append(line[col])
+            col += 1
+    return "".join(text), in_comment, span
+
+
+def _scan(lines: list[str]) -> list[tuple[bool, str]]:
+    """For each line, whether it starts outside a fence and a comment, and its visible text.
+
+    The text has HTML comments removed and each inline code span (which may
+    run over several lines) replaced by ``x``; a fence line, a line inside a
+    fence and the part of a line inside a comment have none. Fence markers
+    inside a comment, comment markers inside a fence or a code span, and an
+    escaped ``\\<`` mean nothing; backticks inside a comment are literal.
     """
-    visible, opener, in_comment = [], "", False
-    for line in lines:
+    scanned, opener, in_comment, span = [], "", False, 0
+    for row, line in enumerate(lines):
         if opener:
             fence = _FENCE.match(line)
-            visible.append(False)
-            if fence and fence[1][0] == opener[0] and len(fence[1]) >= len(opener) \
-                    and not line.strip().strip(opener[0]):
+            scanned.append((False, ""))
+            if (fence and fence[1][0] == opener[0] and len(fence[1]) >= len(opener)
+                    and not line.strip().strip(opener[0])):
                 opener = ""
             continue
-        fence = None if in_comment else _FENCE.match(line)
-        visible.append(not in_comment and not fence)
+        fence = None if in_comment or span else _FENCE.match(line)
         if fence:
             opener = fence[1]
+            scanned.append((False, ""))
             continue
-        rest = _CODE_SPAN.sub("x", line)   # a `<!--` in a code span opens nothing
-        while True:
-            if in_comment:
-                end = rest.find("-->")
-                if end < 0:
-                    break
-                rest, in_comment = rest[end + 3:], False
-            else:
-                begin = rest.find("<!--")
-                if begin < 0:
-                    break
-                rest, in_comment = rest[begin + 4:], True
-    return visible
+        starts_visible = not in_comment
+        text, in_comment, span = _inline(lines, row, in_comment, span)
+        scanned.append((starts_visible, text))
+    return scanned
+
+
+def _section(changelog: str, version: str) -> tuple[list[str], int, int, list[tuple[bool, str]]] | None:
+    lines = changelog.split("\n")
+    scanned = _scan(lines)
+    start = re.compile(rf"^## \[{re.escape(version)}\]")
+    begin = next((i for i, line in enumerate(lines) if scanned[i][0] and start.match(line)), None)
+    if begin is None:
+        return None
+    end = next((i for i in range(begin + 1, len(lines))
+                if scanned[i][0] and lines[i].startswith(("## ", "<a id="))), len(lines))
+    return lines, begin, end, scanned
 
 
 def release_notes(changelog: str, version: str) -> str | None:
@@ -72,25 +125,29 @@ def release_notes(changelog: str, version: str) -> str | None:
 
     The section ends at the next heading or at the ``<a id=...>`` anchor scriv
     writes above each version. A heading or anchor inside a fenced code block
-    does not end it.
+    or an HTML comment does not end it.
     """
-    lines = changelog.split("\n")
-    outside = _visible(lines)
-    start = re.compile(rf"^## \[{re.escape(version)}\]")
-    begin = next((i for i, line in enumerate(lines) if outside[i] and start.match(line)), None)
-    if begin is None:
+    section = _section(changelog, version)
+    if section is None:
         return None
-    end = next((i for i in range(begin + 1, len(lines))
-                if outside[i] and lines[i].startswith(("## ", "<a id="))), len(lines))
+    lines, begin, end, _ = section
     body = "\n".join(lines[begin + 1:end])
     return re.sub(r"\A(?:[ \t]*\n)+", "", body).rstrip()   # keep the first line's indent
 
 
+def _entries(scanned: list[tuple[bool, str]]) -> bool:
+    return any(_ENTRY.search(text) for visible, text in scanned if visible)
+
+
 def _has_entry(notes: str) -> bool:
     """Whether the notes hold a bullet outside HTML comments and fenced code blocks."""
-    lines = notes.split("\n")
-    return any(_ENTRY.search(_COMMENT.sub("", _CODE_SPAN.sub("x", line)))
-               for line, out in zip(lines, _visible(lines), strict=True) if out)
+    return _entries(_scan(notes.split("\n")))
+
+
+def _section_has_entry(changelog: str, version: str) -> bool:
+    """Like ``_has_entry`` on the section's notes, but a comment opened on its heading still counts."""
+    section = _section(changelog, version)
+    return section is not None and _entries(section[3][section[1] + 1:section[2]])
 
 
 def problems(tag: str, project: Path = PROJECT) -> tuple[list[str], str | None]:
@@ -99,8 +156,9 @@ def problems(tag: str, project: Path = PROJECT) -> tuple[list[str], str | None]:
     found = []
     if tag != f"v{version}":
         found.append(f"tag {tag!r} does not match project.version {version!r} (want v{version})")
-    notes = release_notes((project / "CHANGELOG.md").read_text(encoding="utf-8"), version)
-    if not notes or not _has_entry(notes):
+    changelog = (project / "CHANGELOG.md").read_text(encoding="utf-8")
+    notes = release_notes(changelog, version)
+    if not notes or not _section_has_entry(changelog, version):
         found.append(f"CHANGELOG.md has no entries under '## [{version}]': "
                      f"run `scriv collect --version {version}`")
     pending = sorted(p.name for p in (project / "changelog.d").glob("*.md") if p.name != "README.md")
