@@ -42,10 +42,11 @@ _PROTECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
 # The whole run of fence characters: a fence closes only on a run at least as long.
 # A backtick run followed by another backtick on its line is inline code, not a fence.
 _FENCE = re.compile(r"^\s*(`{3,}(?!.*`)|~{3,})")
-_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+# Spaces or tabs only after the `#`s: a line ending (kept by `segment`, dropped by `dangling_fence`) must not count.
+_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 # A Setext underline: a run of `=` (level 1) or `-` (level 2) under a line of text.
-_SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*\r?$")
 _INDENTED = ("    ", "\t")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
@@ -142,6 +143,7 @@ def dangling_fence(text: str) -> str | None:
     lines = text.splitlines()
     in_list = False
     fresh = 0  # the index where a code block last ended: a new block may start there
+    front = _front_matter_end(lines)
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -159,6 +161,10 @@ def dangling_fence(text: str) -> str | None:
         opened = _FENCE.match(line)
         if opened:
             marker = opened.group(1)
+            continue
+        level, end = _setext(lines, i - 1, front, fresh)
+        if level:  # a heading ends here, so a new block may start straight after it
+            i = fresh = end
             continue
         if _LIST_ITEM.match(line):  # its continuation lines belong to it, as in segment
             i = _list_item_end(lines, i)
@@ -209,13 +215,14 @@ def _leaves_list(line: str) -> bool:
 def _block_start(lines: list[str], i: int, fresh: int) -> bool:
     """Whether a block may start at line ``i``.
 
-    That is the first line, a line after a blank line, a heading, an underline, or a code
-    block (``fresh`` is the index where the last one ended).
+    That is the first line, a line after a blank line or an ATX heading, or the line where a
+    code block or a Setext heading ended (``fresh``). A bare ``---`` is not an underline here:
+    only :func:`_setext` says whether it closed a heading.
     """
     if i == 0 or i == fresh:
         return True
     before = lines[i - 1]
-    return not before.strip() or bool(_HEADING.match(before) or _SETEXT.match(before))
+    return not before.strip() or bool(_HEADING.match(before))
 
 
 def _indented_code_end(lines: list[str], i: int, in_list: bool, fresh: int) -> int:
@@ -327,7 +334,7 @@ def segment(text: str) -> list[Span]:
             del heading_path[level - 1:]
             heading_path.append(" ".join(row.strip() for row in block[:-1]))
             offset += sum(len(row) for row in block)
-            i = end
+            i = fresh = end
             emit("heading", "".join(block), start)
             continue
 

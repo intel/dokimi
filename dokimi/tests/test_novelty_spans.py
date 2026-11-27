@@ -323,3 +323,52 @@ def test_a_leading_rule_is_not_front_matter():
     spans = segment("---\n\nTitle. More\n---\n\nBody.\n")
     assert [s.kind for s in spans] == ["sentence", "heading", "sentence"]
     assert spans[2].heading_path == ("Title. More",)
+
+
+def test_an_atx_heading_may_be_indented_up_to_three_spaces():
+    """#974: `  # Setup` is a heading, also as the first line of a stitched file."""
+    from dokimi.novelty.bundle import BundleFile, _stitch
+
+    text = _stitch([BundleFile("SKILL.md", "entrypoint", "  # Setup\n\nBody.\n")])
+    spans = segment(text)
+    assert [s.kind for s in spans] == ["heading", "sentence"]
+    assert spans[1].heading_path == ("Setup",)
+    assert [s.kind for s in segment("    # Setup\n")] == ["code"]
+
+
+def test_a_setext_underline_with_crlf_line_endings_is_an_underline():
+    """#974: `Setup\\r\\n=====\\r\\n` is one heading and the stitched reference stays apart."""
+    from dokimi.novelty.bundle import BundleFile, _stitch
+
+    source = "Setup\r\n=====\r\n    ```\r\n    example\r\n"
+    assert [s.kind for s in segment(source)] == ["heading", "code"]
+    assert dangling_fence(source) is None
+    text = _stitch([BundleFile("SKILL.md", "entrypoint", source),
+                    BundleFile("references/r.md", "reference", "Reference sentence.")])
+    assert not any("Reference sentence." in s.text and s.kind == "code" for s in segment(text))
+
+
+def test_a_bare_rule_is_not_a_completed_heading_for_the_next_indented_line():
+    """#974: `---` then `example` then indented backticks: `segment` sees a paragraph, not code."""
+    from dokimi.novelty.bundle import BundleFile, _stitch
+
+    source = "---\n    example\n    ```\n    content\n"
+    assert dangling_fence(source) == "```"
+    text = _stitch([BundleFile("SKILL.md", "entrypoint", source),
+                    BundleFile("references/r.md", "reference", "Reference sentence.")])
+    spans = segment(text)
+    assert not any("Reference sentence." in s.text and s.kind == "code" for s in spans)
+    assert any(s.text == "Reference sentence." for s in spans)
+
+
+def test_an_indented_empty_atx_heading_is_read_alike_by_segment_and_dangling_fence():
+    """#974: `  #` plus a line ending is no heading in either, so both see the same fence."""
+    from dokimi.novelty.bundle import BundleFile, _stitch
+
+    source = "  #\n    ```\n    example\n"
+    assert segment(source)[0].kind == "sentence"
+    assert dangling_fence(source) == "```"
+    spans = segment(_stitch([BundleFile("SKILL.md", "entrypoint", source),
+                             BundleFile("references/r.md", "reference", "Reference sentence.")]))
+    assert not any("Reference sentence." in s.text and s.kind == "code" for s in spans)
+    assert any(s.text == "Reference sentence." for s in spans)
