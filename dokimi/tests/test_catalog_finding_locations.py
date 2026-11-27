@@ -192,6 +192,39 @@ def test_a_link_is_not_located_at_an_earlier_link_that_it_prefixes(tmp_path, cap
     assert _one(tmp_path, capsys, "link-missing")["line"] == 6
 
 
+def test_a_reference_is_not_located_at_an_earlier_definition_that_it_prefixes(tmp_path, capsys):
+    """#942: ``]: missing.md`` is not found at ``]: missing.md.bak``, above or before the inline link."""
+    skill_dir = _skill(tmp_path, "a", body="[other]: missing.md.bak\n\n[bad](missing.md)\n")
+    (skill_dir / "missing.md.bak").write_text("x\n", encoding="utf-8")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 7
+
+
+def test_the_second_of_two_reference_definitions_is_located(tmp_path, capsys):
+    """#942: ``[missing]: missing.md`` on the line after ``[existing]: missing.md.bak`` is that line."""
+    skill_dir = _skill(tmp_path, "a", body="[existing]: missing.md.bak\n[missing]: missing.md\n")
+    (skill_dir / "missing.md.bak").write_text("x\n", encoding="utf-8")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 6
+
+
+def test_a_padded_first_link_is_the_first_line(tmp_path, capsys):
+    """#942: ``[first]( missing.md )`` above ``[later](missing.md)`` is the first occurrence."""
+    _skill(tmp_path, "a", body="[first]( missing.md )\n[later](missing.md)\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 5
+
+
+def test_a_link_is_not_located_at_an_angle_destination_with_a_space_that_it_prefixes(tmp_path, capsys):
+    """#942: ``(<missing.md backup>)`` is a different destination from ``missing.md``."""
+    skill_dir = _skill(tmp_path, "a", body="[existing](<missing.md backup>)\n[bad](missing.md)\n")
+    (skill_dir / "missing.md backup").write_text("x\n", encoding="utf-8")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 6
+
+
+def test_prose_in_parentheses_is_not_located_as_a_link(tmp_path, capsys):
+    """#942: ``( missing.md )`` in a sentence is not the link ``[bad](missing.md)`` on the next line."""
+    _skill(tmp_path, "a", body="Optional filename ( missing.md ).\n[bad](missing.md)\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 6
+
+
 def test_a_shell_escaped_path_is_located_as_written(tmp_path, capsys):
     """#942: ``my\\ tool.py`` in a code span names its line though the finding names ``my tool.py``."""
     _skill(tmp_path, "a", body="Run `python scripts/my\\ tool.py`.\n")

@@ -59,6 +59,24 @@ def text_line(text: str, *needles: "str | tuple[str, ...]") -> Optional[int]:
     return None
 
 
+def link_line(text: str, raw: str) -> Optional[int]:
+    """The 1-based line after the frontmatter of the first link whose destination is exactly ``raw``, or None.
+
+    An inline ``(raw)``, ``( raw )``, ``(raw "title")`` or ``(<raw>)`` and a reference ``]: raw`` all count, but
+    a destination that only starts with ``raw`` (``]: raw.bak``) does not; a line that merely contains ``raw``
+    is the fallback when no link form matches.
+    """
+    lines = _lines(text)
+    end = _frontmatter_end(lines)
+    first = 0 if end is None else end + 1
+    word = re.escape(raw)
+    form = re.compile(rf"(?:\]\(|^ {{0,3}}\[[^\]]*\]:)\s*(?:<{word}>|{word}(?=[\s)]|$))")  # inside <...> only ">" ends it
+    for index in range(first, len(lines)):
+        if form.search(lines[index]):
+            return index + 1
+    return text_line(text, raw)
+
+
 def written_path(message: str) -> str:
     """The path a ``path-missing`` message names: the Python string literal its message opens with."""
     match = _QUOTED_START.match(message)

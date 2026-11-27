@@ -12,7 +12,7 @@ from typing import Optional
 from dokimi.skills import Skill
 
 from .bundle_paths import path_missing
-from .finding_lines import path_needles, text_line
+from .finding_lines import link_line, path_needles, text_line
 from .findings import Finding
 from .link_files import _file_ref
 from .paths import _exists, _in_checkout, _inside, _resolved
@@ -72,8 +72,8 @@ def bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
     text = skill.path.read_text(encoding="utf-8")
     # The line is the first line of SKILL.md that holds the written link or span (its quoted form for a path).
-    needles = [((f"({raw})", f"({raw} ", f"]: {raw}"), f"({raw}", raw) for raw in targets] + [(f"`{raw}`", raw) for raw in spans]
-    located = [replace(f, line=text_line(text, *needle)) for f, needle in zip(found, needles, strict=True) if f is not None]
+    lines = [link_line(text, raw) for raw in targets] + [text_line(text, f"`{raw}`", raw) for raw in spans]
+    located = [replace(f, line=line) for f, line in zip(found, lines, strict=True) if f is not None]
     return located + [
         Finding("warn", "path-missing", message, line=text_line(text, *path_needles(message)))
         for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
