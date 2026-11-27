@@ -123,7 +123,8 @@ def _first_in_segment(sub: str, closers: str) -> str:
 
 
 _COMMIT_NO_VERIFY = _first_in_segment("commit", _COMMIT_CLOSERS)
-_PUSH_FORCE = r"[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)|\s\+\S)"
+# a short flag word with an `f`, taken whole: the word ends at the end of its letters, as a `\b` after an earlier letter never holds (#1268)
+_PUSH_FORCE = r"[^;&|\n]*(?:\s-(?=[a-z]*f)[a-z]++\b|--force\b(?!-with-lease|-if-includes)|\s\+\S)"
 _RESET_HARD = r"[^;&|\n]*\s--hard(?![\w-])"
 
 #: A shell word that is an absolute path.

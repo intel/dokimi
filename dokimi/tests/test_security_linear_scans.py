@@ -216,3 +216,60 @@ def test_a_chain_of_c_with_the_subcommand_name_is_scanned_in_linear_time(rule: s
 def test_the_push_and_commit_alternatives_scan_a_chain_of_c_with_the_subcommand_name_in_linear_time() -> None:
     _linear(security._PUSH_NO_VERIFY.search, lambda n: "git " + "-C push " * n, n=200)
     _linear(security._rx(security._COMMIT_NO_VERIFY).search, lambda n: "git " + "-C commit " * n, n=200)
+
+
+# --- history-rewrite: a short flag word is taken whole (#1268) -----------------------------------------
+
+_FORCE_FLAG_TABLE = [
+    ("git push -f", True),
+    ("git push -fF", True),
+    ("git push -F", True),
+    ("git push -fu", True),
+    ("git push -uf", True),
+    ("git push -ffff", True),
+    ("git push -fffff1", False),
+    ("git push -fff1", False),
+    ("git push -ff-x", True),
+    ("git push -ff.", True),
+    ("git push -ff\n", True),
+    ("git push -ff;", True),
+    ("git push -f_", False),
+    ("git push -f1", False),
+    ("git push -1f", False),
+    ("git push -a-f", False),
+    ("git push -n", False),
+    ("git push -fff1 -f", True),
+    ("git push -fff1 -", False),
+    ("git push -x1 -ff", True),
+    ("git push -f\u212a", True),
+    ("git push -\u017ff", True),
+    ("git push -f\u00e9", False),
+    ("git push -f\u0661", False),
+    ("git push -" + "f" * 40 + "1", False),
+    ("git push -" + "f" * 40, True),
+    ("git push -" + "a" * 40 + "1f", False),
+    ("git push -" + "a" * 40 + "f", True),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _FORCE_FLAG_TABLE)
+def test_a_flag_word_of_history_rewrite_is_read_as_the_old_flag_did(text: str, expected: bool) -> None:
+    assert (_MAIN_HISTORY_REWRITE.search(text) is not None) is expected
+    assert (_security_search("history-rewrite", text) is not None) is expected
+
+
+def test_history_rewrite_matches_the_old_flag_on_random_words_after_a_push() -> None:
+    pieces = ["f", "F", "a", "u", "1", "_", "-", ".", "\u212a", "\u017f", "\u00e9", "\u0661"]
+    rng = random.Random(1268)
+    hits = 0
+    for _ in range(6 * CASES):
+        text = "git push " + " ".join("-" * rng.randint(0, 1) + "".join(rng.choice(pieces) for _ in range(rng.randint(0, 6))) for _ in range(rng.randint(1, 3)))
+        new_match = _security_search("history-rewrite", text) is not None
+        assert new_match == (_MAIN_HISTORY_REWRITE.search(text) is not None), text
+        hits += new_match
+    assert hits > 300, hits
+
+
+@pytest.mark.parametrize("shape", [lambda n: "git push -" + "f" * n + "1", lambda n: "git push -" + "f" * n + "_", lambda n: "git push -" + "a" * n + "f1", lambda n: "git push -" + "fF" * n + "1"])
+def test_history_rewrite_scans_a_long_flag_word_in_linear_time(shape: Callable[[int], str]) -> None:
+    _linear(partial(_security_search, "history-rewrite"), shape, n=200)
