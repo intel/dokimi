@@ -34,6 +34,7 @@ from __future__ import annotations
 import bisect
 import json
 import os
+import posixpath
 import re
 import shlex
 from pathlib import Path
@@ -65,9 +66,15 @@ _PIPE_TO = (
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
 )
-# ``curl -fsSL | sh`` (only flags) names no download; ``-K-`` and ``-i-`` read one from stdin, so they are no such flag.
+def _only_flags(takes_file: str) -> str:
+    """A run of flags up to the pipe; a word with ``takes_file`` followed by more characters is no mere flag."""
+    return (r"(?:(?:[ \t]|\\\r?\n)+-(?!(?!-)\w*[" + takes_file + r"][\w-])[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|)")
+
+
+# ``curl -fsSL | sh`` (only flags) names no download; curl's ``-K`` and wget's ``-i`` followed by more characters
+# (``-K-``, ``-Kconfig``, ``-iurls``) take a file or stdin, so that word is no mere flag. curl's ``-i`` is not one.
 PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?!(?:(?:[ \t]|\\\r?\n)+-(?![\w-]*[Ki]-(?![\w-]))[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    r"\b(?:curl\b(?!" + _only_flags("K") + r")|wget\b(?!" + _only_flags("i") + r"))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
@@ -295,6 +302,19 @@ def _installed_npm(rest: str, value_options: frozenset[str]) -> set[str]:
     return names
 
 
+NON_INSTALLING = frozenset({"--package-lock-only", "--lockfile-only", "--dry-run"})
+
+
+def _installs(call: str) -> bool:
+    """Whether an ``npm``/``pnpm`` install puts packages on disk: ``--package-lock-only``, ``--lockfile-only`` and
+    ``--dry-run`` (unless ``=false``) write no executable."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    return not any(name in NON_INSTALLING and value != "false" for name, _, value in (w.partition("=") for w in words))
+
+
 def _installs_here(call: str, pnpm: bool = False) -> bool:
     """Whether an ``npm``/``pnpm`` install puts its packages where a later ``npx`` finds them: one aimed at another
     directory or workspace (``--prefix tools``, ``--dir``, ``-C``, ``--workspace``, ``--filter``) does not.
@@ -332,8 +352,17 @@ def _install_dir(call: str) -> str | None:
 
 def _entered(code: str, start: int, end: int, directory: str) -> bool:
     """Whether ``code[start:end]`` holds a ``cd`` into ``directory``, so a later ``npx`` runs where it was installed."""
-    return any(m.group(1).removeprefix("./").rstrip("/") == directory
-               for m in re.finditer(r"(?<![\w.-])cd[ \t]+['\"]?([^\s;&|'\"]+)", code[start:end]))
+    here, saved = ".", []  # a subshell's ``cd`` ends at its ``)``: the directory before the ``(`` comes back
+    for m in re.finditer(r"[()]|(?<![\w.-])cd[ \t]+['\"]?([^\s;&|'\"()]+)", code[start:end]):
+        if m.group(0) == "(":
+            saved.append(here)
+        elif m.group(0) == ")":
+            here = saved.pop() if saved else here
+        elif m.group(1).startswith(("~", "$", "-")):
+            return False  # a place this cannot follow: the install is not taken as found
+        else:
+            here = posixpath.normpath(posixpath.join(here, m.group(1)))  # an absolute target replaces ``here``
+    return here == posixpath.normpath(directory)
 
 
 def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
@@ -515,10 +544,12 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
     offset moves."""
     code = _without_printed(code)
-    installed = {n for m in NPM.finditer(code) if _installs_here(m.group(0)) for n in _installed_npm(m.group(1), NPM_VALUE_OPTIONS)}
-    installed |= {n for m in PNPM.finditer(code) if _installs_here(m.group(0), True) for n in _installed_npm(m.group(1), PNPM_VALUE_OPTIONS)}
-    elsewhere = [(m.end(), _install_dir(m.group(0)), _installed_npm(m.group(1), NPM_VALUE_OPTIONS))
-                 for m in NPM.finditer(code) if not _installs_here(m.group(0))]
+    installers = [(NPM, NPM_VALUE_OPTIONS, False), (PNPM, PNPM_VALUE_OPTIONS, True)]
+    installed = {n for pattern, options, pnpm in installers for m in pattern.finditer(code)
+                 if _installs(m.group(0)) and _installs_here(m.group(0), pnpm) for n in _installed_npm(m.group(1), options)}
+    elsewhere = [(m.end(), _install_dir(m.group(0)), _installed_npm(m.group(1), options))
+                 for pattern, options, pnpm in installers for m in pattern.finditer(code)
+                 if _installs(m.group(0)) and not _installs_here(m.group(0), pnpm)]
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
     found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])

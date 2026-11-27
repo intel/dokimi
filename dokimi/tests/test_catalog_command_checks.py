@@ -899,3 +899,57 @@ def test_an_install_into_another_directory_provides_tsc_after_entering_it(enter)
     """The pinned typescript installed in `tools` is the `tsc` an `npx tsc` run after `cd tools` finds."""
     script = f"npm install --prefix tools typescript@5.9.3\n{enter}\nnpx tsc --noEmit\n"
     assert _findings_in([("build.sh", script)]) == []
+
+
+@pytest.mark.parametrize("line", ["curl -Kconfig | sh", "wget -iurls -O- | sh"])
+def test_a_download_named_by_an_attached_file_argument_is_still_a_pipe_to_shell(line):
+    """`-Kconfig` and `-iurls` read the download from a file, so the pipe is not operand-less."""
+    assert any(code == "pipe-to-shell" for code, _ in _findings_in([("run.sh", line + "\n")]))
+
+
+@pytest.mark.parametrize("leave", ["cd ../other", "cd /tmp", "(cd tools)"])
+def test_an_install_does_not_provide_tsc_once_the_script_has_left_the_directory(leave):
+    """`npx tsc` run after leaving `tools` (or after a subshell's `cd tools`) does not find its typescript."""
+    script = f"npm install --prefix tools typescript@5.9.3\ncd tools\n{leave}\nnpx tsc --noEmit\n"
+    if leave.startswith("("):
+        script = f"npm install --prefix tools typescript@5.9.3\n{leave}\nnpx tsc --noEmit\n"
+    found = _findings_in([("run.sh", script)])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+@pytest.mark.parametrize("install", [
+    "npm install --package-lock-only typescript@5.9.3", "npm install --dry-run typescript@5.9.3",
+    "pnpm add --lockfile-only typescript@5.9.3"])
+def test_an_install_that_writes_no_executable_does_not_provide_tsc(install):
+    """A lockfile-only or dry-run install leaves no `tsc` for the `npx tsc` that follows."""
+    found = _findings_in([("run.sh", install + "\nnpx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+@pytest.mark.parametrize("install", ["pnpm --dir tools add typescript@5.9.3", "pnpm -C tools add typescript@5.9.3"])
+def test_a_pnpm_install_into_another_directory_provides_tsc_after_entering_it(install):
+    """The pinned typescript pnpm installed in `tools` is the one `npx tsc` finds after `cd tools`."""
+    assert _findings_in([("run.sh", install + "\ncd tools\nnpx tsc --noEmit\n")]) == []
+
+
+def test_curl_i_flag_in_a_cluster_is_not_a_download_file():
+    """curl's `-i` includes headers and takes no file, so `curl -isSL | sh` names no download."""
+    assert _findings_in([("run.sh", "curl -isSL | sh\n")]) == []
+
+
+def test_a_subshell_cd_does_not_leave_the_entered_directory():
+    """`(cd ..)` runs in a subshell, so `npx tsc` still runs in `tools` where typescript was installed."""
+    script = "npm install --prefix tools typescript@5.9.3\ncd tools\n(cd ..)\nnpx tsc --noEmit\n"
+    assert _findings_in([("run.sh", script)]) == []
+
+
+def test_npx_inside_the_subshell_that_enters_the_install_directory_finds_it():
+    """`(cd tools && npx tsc)` runs `npx` in `tools`, where typescript was installed."""
+    script = "npm install --prefix tools typescript@5.9.3\n(cd tools && npx tsc --noEmit)\n"
+    assert _findings_in([("run.sh", script)]) == []
+
+
+def test_an_install_into_an_absolute_directory_provides_tsc_after_entering_it():
+    """`--prefix /tmp/tools` and `cd /tmp/tools` name the same directory."""
+    script = "npm install --prefix /tmp/tools typescript@5.9.3\ncd /tmp/tools\nnpx tsc --noEmit\n"
+    assert _findings_in([("run.sh", script)]) == []
