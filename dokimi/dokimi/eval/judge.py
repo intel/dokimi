@@ -249,7 +249,6 @@ class Judge:
         self.provider = provider
         self.api_key = api_key
         self.temperature = temperature
-        self.seed = seed
         self.prompt_sha256 = JUDGE_PROMPT_SHA256
         self.run_metadata = dict(run_metadata) if run_metadata else {}
         self.prompt_template = prompt_template
@@ -262,9 +261,12 @@ class Judge:
         # The model names a CLI judge's aliases resolved to, for the judge record.
         self._resolved_models: set = set()
 
-        check_judge_sampling(provider, model, temperature, seed)
+        sent_seed = check_judge_sampling(provider, model, temperature, seed)
+        # A seed the route does not take is not sent: the judge runs unseeded, and its output says so.
+        self.seed = sent_seed
+        self.unsupported_seed = seed if sent_seed is None and seed is not None else None
         check_caller_provider(provider)
-        self.llm: ChatModel = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=seed))
+        self.llm: ChatModel = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=sent_seed))
         
         logger.info(f"Judge initialized: {provider}/{model}")
     
@@ -621,6 +623,8 @@ class Judge:
             "judge_temperature": self.temperature,
             "total_evaluations": len(evaluations),
             "evaluations": evaluations,
+            **({"judge_seed_requested": self.unsupported_seed, "judge_seed_status": "unsupported"}
+               if self.unsupported_seed is not None else {}),
         }
         with self._usage_lock:
             resolved = sorted(self._resolved_models)

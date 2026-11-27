@@ -119,6 +119,13 @@ Two checks, both `warn`:
   `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
   the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
   the same status and date.
+  The check reads every mention of a listed ID as a use of it. A line that documents a
+  retirement (a row of a retired-models table) or shows the old side of a migration
+  (`# Before`, `# Old`) is reported too, since a heading or comment label is a guess and
+  would hide a real call placed under it. The advice is conditional (`if this text calls the
+  model, use X`), so it does not tell you to replace an ID that the text means to name. A
+  catalog that documents model history can leave the check out with
+  `--ignore legacy-model-id`.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
   U+061C) with no Hebrew or Arabic letter as the nearest letter on either side in its line, a Unicode tag character (U+E0000 to U+E007F), a stray
   zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
@@ -127,7 +134,7 @@ Two checks, both `warn`:
   U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
   character other than a keycap base (`#`, `*`, `0` to `9`), or after a non-ASCII character that is not a symbol
   or an ideograph (a letter, a no-break space); after an emoji, a symbol or an ideograph it is not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
-  halfwidth), and U+2800 beside Braille. Each is reported with its line and codepoint; five
+  halfwidth), and U+2800 beside Braille. When a line holds more than three of the exempt U+034F, U+115F and U+1160, all of them on that line are reported (U+2800 is not counted). Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and

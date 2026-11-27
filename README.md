@@ -44,15 +44,16 @@ Each card states what works today and where it stops. Open PRs, partial workflow
 
 ## Start with a free check
 
-From a checkout, with Python 3.11 or newer:
+With Python 3.11 or newer:
 
 ```bash
-cd dokimi
-pip install -e .
+pip install dokimi
 dokimi repo scan /path/to/your/repository
 ```
 
-Replace the path with the repository you want to inspect. This static scan does not call an LLM. To check a skill collection instead:
+Replace the path with the repository you want to inspect. The scan makes no model calls. To gate CI on broken guidance, add `--json --fail-on=fail`; until a release after 0.2.0 ships that flag, install from a source checkout with `pip install -e ./dokimi` at its root.
+
+To check a skill collection:
 
 ```bash
 dokimi catalog check --root /path/to/your/catalog --kind skills

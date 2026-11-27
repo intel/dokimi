@@ -75,6 +75,19 @@ fallback gives the mixed stamp. To compare with an older run, written before
 `judge_materials`, run answering and judging again: re-judging that file sees only
 the snippets.
 
+To measure how much the material itself moves the judge, run with `--judge`
+and `--judge-context baseline` (on `arms run` or `arms matrix-run`). The flag is refused
+without `--judge`, since an answers-only run would keep the withheld text in place of the
+material. The judge is then
+shown no material on any arm, the context a baseline arm's judge sees, so every
+arm is judged on one context. The answering path is unchanged. The output is
+stamped `treatment_material.withheld.v1`, which pools only with other withheld
+runs. Partial artifacts saved before judging also keep this stamp. Rejudging a
+withheld artifact still supplies no treatment material when a stored context
+is missing. Its stored scores can be included in `eval judge agreement` with
+pairwise or checklist results, whose judges see the answers alone. The default,
+`--judge-context arm`, is the material protocol above.
+
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5
 judge, 24 bases, one run), the full material raised the mean intact score from
@@ -116,8 +129,20 @@ python cli.py arms plugin-delta \
 The command writes a `plugin_delta.v1` artifact plus a Markdown report with
 judge-score deltas, token/cost deltas, and answer-length deltas. It refuses
 confounded comparisons where model, provider, harness, arms, baseline arm, or
-question IDs/order differ. For judged artifacts it also requires both runs to
-carry the same stamped judge model, provider and `judge_context`.
+question IDs, order or text differ, including when only one run records question
+text. It also refuses runs whose `run_config` budgets or sampling settings
+differ, or where only one run pinned a seed; seed values may differ. A pair
+where only one run records `run_config` gets a warning instead.
+For each arm, the sets of recorded profile prompt digests must match if
+both runs record any. Digests must also match within each paired answer that
+has a digest in both runs. A check with digests on just one side is skipped
+without a warning. Judged artifacts
+must carry the same judge model, provider, context protocol, reference answers,
+and any recorded judge prompt digest, temperature and resolved model snapshots.
+Pairs are refused when only one run records a non-null judge setting. An
+omitted setting and an explicit null compare as equal. The plugin-delta and
+matrix rollup reports warn about omitted setting fields and null judge prompt
+digests. Missing question text in both runs for a pair also gives a warning.
 
 > **Naming:** an *agent profile* (`profile:`) is the answering agent's system
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic

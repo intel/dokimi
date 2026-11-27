@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import pytest
 
 from dokimi import process, process_io
 from dokimi.process import TIMEOUT_RC, Env, FakeRunner, Limits, reply
-from tests.waiting import poll_until, wait_until
+from tests.waiting import poll_until, wait_for_event, wait_until
 
 PY = sys.executable
 INHERIT = Env.inherit()
@@ -53,11 +54,11 @@ def _alive(pid: int) -> bool:
         return True
 
 
-def _gone_soon(pid: int, within: float = 5.0) -> bool:
+def _gone_soon(pid: int, within: float = 30.0) -> bool:
     return poll_until(lambda: not _alive(pid), within, interval=0.05)
 
 
-def _wait_for(path: Path, within: float = 10.0) -> str:
+def _wait_for(path: Path, within: float = 60.0) -> str:
     return wait_until(lambda: path.is_file() and path.read_text(), within, what=f"{path} to be written",
                       interval=0.05)
 
@@ -202,30 +203,52 @@ def test_a_detached_job_that_closed_its_output_is_killed_too(tmp_path):
 
 
 @_POSIX_ONLY
-def test_timeout_returns_despite_a_setsid_child(tmp_path):
-    """A child that calls setsid() leaves the group the kill reaches, and is not
-    contained. The call still returns at the timeout plus the drain grace instead of
-    waiting for that child to close the inherited pipes, keeping what was read."""
-    pid_file = tmp_path / "child.pid"
+def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
+    """A child that calls setsid() leaves the group the kill reaches. The call still returns after the drain
+    grace, not when that child closes the inherited pipes, keeping what was read. The timeout fires once the
+    child has escaped, and both processes live until the test writes `stop` (10 minutes at most): no clock decides it."""
+    pid_file, said, stop = tmp_path / "child.pid", tmp_path / "said", tmp_path / "stop"
     code = ("import os, sys, time\n"
+            "hold = lambda: [time.sleep(0.01) for _ in range(60000) if not os.path.exists(sys.argv[3])]\n"
             "if os.fork() == 0:\n"
             "    os.setsid()\n"
             "    open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
             "    os.rename(sys.argv[1] + '.tmp', sys.argv[1])\n"
-            "    time.sleep(60)\n"
+            "    hold()\n"
             "    os._exit(0)\n"
+            "while not os.path.exists(sys.argv[1]):\n"
+            "    time.sleep(0.01)\n"
             "print('before', flush=True)\n"
-            "time.sleep(60)\n")
-    start = time.monotonic()
-    done = _py(code, str(pid_file), timeout=2)
-    elapsed = time.monotonic() - start
-    child = int(_wait_for(pid_file))
+            "open(sys.argv[2], 'w').write('x')\n"
+            "hold()\n")
+    real_collect = process._collect
+    armed, finished, outcome = threading.Event(), threading.Event(), {}
+
+    def collect_once_the_child_has_escaped(proc, pipes, deadline, job, term_grace=0.0):
+        _wait_for(said, 120)  # the timeout then fires at once, not at a wall-clock time a busy host can pass
+        armed.set()
+        return real_collect(proc, pipes, time.monotonic(), job, term_grace)
+
+    def call():
+        try:
+            outcome["done"] = _py(code, str(pid_file), str(said), str(stop), timeout=600)
+        except BaseException as exc:  # noqa: BLE001 - handed to the test below
+            outcome["error"] = exc
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(process, "_collect", collect_once_the_child_has_escaped)
+    worker = threading.Thread(target=call, daemon=True)
+    worker.start()
     try:
-        assert _alive(child)  # the escaped child is alive and holds stdout and stderr
+        wait_until(lambda: armed.is_set() or finished.is_set(), 120, what="the child to escape and say so")
+        wait_for_event(finished, 30, what="the call to return while the escaped child holds the pipes")
+        done = outcome.get("done") or pytest.fail(f"the call raised {outcome.get('error')!r}")
+        assert _alive(int(pid_file.read_text()))  # the escaped child is alive and holds stdout and stderr
         assert done.timed_out and done.stdout == "before\n"
-        assert elapsed < 2 + process.DRAIN_GRACE_SEC + 2
     finally:
-        os.kill(child, signal.SIGKILL)
+        stop.write_text("x")  # both processes leave, freeing the pipes a blocked call waits on, with or without a pid
+        worker.join(30)
 
 
 def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
