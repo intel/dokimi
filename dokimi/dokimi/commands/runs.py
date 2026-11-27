@@ -135,7 +135,7 @@ def cmd_runs_list(args: argparse.Namespace) -> None:
         # `runs show` opens a file named like the run id before it looks the run up: skip a run id it would not read as one
         named = next((r for r in runs if names_a_run(root.path, r["run_id"])), None)
         steps = [cli_output.free_step(["runs", "show", named["run_id"]],
-                                      "Show the artifacts of the newest run.")] if named and not status else []
+                                      "Show the artifacts of the newest run.")] if named and not result.unreadable else []
         cli_output.emit_leaf("runs list", {
             "root": root.path.as_posix(), "artifacts": [a.to_json() for a in shown],
             "runs": runs,

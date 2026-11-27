@@ -680,8 +680,25 @@ def _guidance_repo(tmp_path):
     (repo / "AGENTS.md").write_text("# Guidance\n\nRun `make test` before a commit.\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+    identity = ["-c", "user.name=dokimi-test", "-c", "user.email=dokimi-test@example.invalid"]
+    subprocess.run(["git", "-C", str(repo), *identity, "commit", "-q", "-m", "init"], check=True)
     return repo
+
+
+def test_the_guidance_repo_commits_without_a_configured_git_identity(monkeypatch, tmp_path):
+    # a global config that refuses to guess an identity: the helper must carry its own
+    config = tmp_path / "gitconfig"
+    config.write_text("[user]\n\tuseConfigOnly = true\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(name, raising=False)
+    import subprocess
+
+    repo = _guidance_repo(tmp_path)
+    subject = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%s"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    assert subject == "init"
 
 
 def _exit_code(monkeypatch, argv):
