@@ -77,7 +77,7 @@ def _inside(root: Path, text: str) -> str:
         if hops > 40:
             raise _LinkLoop(f"too many levels of symbolic links: {text}")
         link = _link_target(here)
-        slash = ("/" if link.endswith("/") else "") if not pending else slash
+        slash = "/" if slash or (not pending and link.endswith("/")) else ""
         here, more = _start(link, here.parent)
         pending = more + pending
     raise SourceArgumentError(f"path escapes the repository: {text}")

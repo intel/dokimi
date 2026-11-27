@@ -47,7 +47,7 @@ from typing import Any
 
 from dokimi.repos.rule_frontmatter import _FRONTMATTER, _has_paths, _without_frontmatter
 from dokimi.repos.skill_overlap import candidate_pairs
-from dokimi.repos.source import RepoTree
+from dokimi.repos.source import NotRegularFileError, RepoTree
 from dokimi.skills.listing import listing_description, listing_text_chars
 from dokimi.repos.unlisted_rules import RULES_ENTRY as _RULES_ENTRY, unlisted_rules
 
@@ -426,7 +426,7 @@ def _is_resolvable(tree: RepoTree, path: str) -> bool:
 def _unreadable_reason(err: Exception) -> str:
     if isinstance(err, UnicodeDecodeError):
         return "non-UTF-8 or binary"
-    if "is not a regular file" in str(err):  # a FIFO, socket or device (#1272)
+    if isinstance(err, NotRegularFileError):  # a FIFO, socket or device (#1272)
         return "not a regular file"
     return "not found, broken link, or outside tree"  # dangling symlink, loop, escape, source error
 

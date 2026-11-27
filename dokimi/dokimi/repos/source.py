@@ -112,6 +112,10 @@ class RepoTree(Protocol):
         ...
 
 
+class NotRegularFileError(SourceArgumentError):
+    """A path that exists but is a FIFO, socket or device, which is never opened (#1272)."""
+
+
 class WorkTree:
     """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
@@ -193,14 +197,15 @@ class WorkTree:
             return False
 
     def _readable(self, path: str) -> Path:
-        """The file ``path`` names, which is opened only if it is a regular file: opening a FIFO waits for a writer (#1272)."""
+        """The file or directory ``path`` names; :class:`NotRegularFileError` if it is a FIFO, socket or device, as
+        opening a FIFO waits for a writer (#1272). A directory is let through so that opening it reports its own error."""
         target = self._resolve(path)
         try:
             mode = os.stat(target).st_mode
         except OSError:
             return target  # the open reports it
         if not stat.S_ISREG(mode) and not stat.S_ISDIR(mode):
-            raise SourceArgumentError(f"{path} is not a regular file (#1272: opening a FIFO waits for a writer)")
+            raise NotRegularFileError(f"{path} is not a regular file (#1272: opening a FIFO waits for a writer)")
         return target
 
     def read_text(self, path: str) -> str:
@@ -221,7 +226,7 @@ class WorkTree:
         if not target.is_file():
             rel = target.relative_to(self.root).as_posix()
             if target.exists():  # a FIFO, socket or device: present, but not a file to read (#1272)
-                raise SourceArgumentError(f"{rel} is not a regular file")
+                raise NotRegularFileError(f"{path} is not a regular file: {rel}")
             raise SourceArgumentError(f"{path} links to nothing: {rel}")
         return target.relative_to(self.root).as_posix()
 

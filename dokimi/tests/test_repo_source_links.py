@@ -257,7 +257,7 @@ def _cli(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_a_link_to_a_file_with_a_trailing_slash_names_no_file_in_both_trees(tmp_path):
-    """#1272: ``nul.md -> real.md/`` is ENOTDIR in a checkout, so neither tree resolves it."""
+    """#1272: ``nul.md -> real.yaml/`` is ENOTDIR in a checkout, so neither tree resolves it."""
     root = _repo(tmp_path, {"nul.md": "real.yaml/", "dirlink": "sub/"})
     for tree in _trees(root):
         with pytest.raises(SourceError):
@@ -303,6 +303,7 @@ def test_scan_of_a_revision_with_a_non_utf8_link_reports_it(tmp_path):
     assert "guidance file not scanned: AGENTS.md" in run.stdout + run.stderr
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a bytes link target is not portable to Windows")
 def test_a_directory_link_with_non_utf8_text_raises_no_decode_error(tmp_path):
     """#1272: a path through ``.github/instructions -> r\\xe9al`` gives a refusal, not ``UnicodeDecodeError``."""
     root = tmp_path / "repo"
@@ -389,3 +390,22 @@ def test_a_slash_link_followed_through_an_outside_link_still_names_no_file(tmp_p
     skipped: dict[str, str] = {}
     assert tree.read_many(["AGENTS.md", "direct.md"], skipped=skipped) == {}
     assert set(skipped) == {"AGENTS.md", "direct.md"}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs absolute symlinks")
+def test_a_trailing_slash_survives_a_link_that_leaves_the_tree_and_returns(tmp_path):
+    """#1272: ``AGENTS.md -> <out>/bad/`` and ``<out>/bad -> <root>/real.yaml`` is ENOTDIR, so it names no file."""
+    root = _repo(tmp_path, {})
+    out = tmp_path / "out"
+    out.mkdir()
+    os.symlink(root / "real.yaml", out / "bad")
+    os.symlink(str(out / "bad") + "/", root / "AGENTS.md")
+    with pytest.raises(SourceError):
+        WorkTree(root).resolve("AGENTS.md")
+
+
+def test_unreadable_reason_goes_by_the_error_type_not_its_words():
+    """#1272: a non-regular file is named by its exception type, whatever the message says."""
+    from dokimi.repos.budget import _unreadable_reason
+    assert _unreadable_reason(source.NotRegularFileError("x")) == "not a regular file"
+    assert _unreadable_reason(SourceArgumentError("is not a regular file")) != "not a regular file"
