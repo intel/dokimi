@@ -376,8 +376,9 @@ class _BlankedLine:
         self.line = line
         self.before = before
         self.ranges: list[tuple[int, int]] = []
-        self._head = len(before) + 1 if before else 0
-        self._found = [m.start() for m in re.finditer(r"\]\(", (before + "\n" if before else "") + line)]
+        self._prefix_text = before + "\n" if before else ""  # the paragraph above, newline-terminated, built once
+        self._head = len(self._prefix_text)
+        self._found = [m.start() for m in re.finditer(r"\]\(", self._prefix_text + line)]
         self._next = 0
         self._last: int | None = None  # the last ``](`` before the scan point that no blank touched
         self._links = _LinkCache(final=False)
@@ -417,9 +418,8 @@ class _BlankedLine:
         self._advance(pos)
         if self._last is None:
             return None
-        head = self.before + "\n" if self.before else ""
-        end = self._links.end(lambda: head + self._so_far(), self._last, len(head) + pos)
-        return end - len(head) if end is not None else None
+        end = self._links.end(lambda: self._prefix_text + self._so_far(), self._last, self._head + pos)
+        return end - self._head if end is not None else None
 
 
 def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "") -> tuple[str, str, re.Match | None]:

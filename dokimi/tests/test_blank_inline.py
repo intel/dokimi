@@ -142,6 +142,25 @@ def test_the_opener_of_a_link_is_looked_up_once_not_once_per_span(monkeypatch: p
     assert len(calls) == 2  # once while the spans are blanked, once for the unpaired run left at the end
 
 
+class _CountingBefore(str):
+    """A paragraph above that counts how often a newline is appended to it, as a copy of the paragraph."""
+
+    appended = 0
+
+    def __add__(self, other: str) -> str:
+        if other == "\n":
+            type(self).appended += 1
+        return str.__add__(self, other)
+
+
+def test_the_paragraph_above_is_copied_with_its_newline_once_not_once_per_span() -> None:
+    _CountingBefore.appended = 0
+    before = _CountingBefore("[open " + "x" * 1000)
+    out, _, _ = _blank_inline("](<y>) " + _ticks(500) + "`b", False, 0, before)
+    assert out.startswith("](<y>) ")
+    assert _CountingBefore.appended == 2  # one for the blanked line, one for the unpaired run left at the end
+
+
 def test_the_backtick_runs_of_one_destination_are_checked_against_one_lookup_of_its_opener(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
     real = store._has_opener
