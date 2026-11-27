@@ -117,7 +117,10 @@ The command writes a `plugin_delta.v1` artifact plus a Markdown report with
 judge-score deltas, token/cost deltas, and answer-length deltas. It refuses
 confounded comparisons where model, provider, harness, arms, baseline arm, or
 question IDs, order or text differ, including when only one run records question
-text. For each arm, the sets of recorded profile prompt digests must match if
+text. It also refuses runs whose `run_config` budgets or sampling settings
+differ, or where only one run pinned a seed; seed values may differ. A pair
+where only one run records `run_config` gets a warning instead.
+For each arm, the sets of recorded profile prompt digests must match if
 both runs record any. Digests must also match within each paired answer that
 has a digest in both runs. A check with digests on just one side is skipped
 without a warning. Judged artifacts

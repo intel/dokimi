@@ -58,16 +58,29 @@ def compare_plugin_runs(control: Dict[str, Any], plugin: Dict[str, Any]) -> Dict
     }
 
 
-def _validate_session_config(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
-    """Request-shaping settings of a multi-turn session run; absent on a single-turn run."""
+def _validate_run_config(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
+    """Budgets, sampling and session settings must match, as in ``replicate_key``."""
+    before, after = control.get("run_config") or {}, plugin.get("run_config") or {}
     for field in ("session_turns", "turn_reminder"):
-        before = (control.get("run_config") or {}).get(field)
-        after = (plugin.get("run_config") or {}).get(field)
-        if before != after:
+        if before.get(field) != after.get(field):
             raise PluginDeltaError(
                 f"cannot compute plugin delta across different {field}: "
-                f"{before!r} vs {after!r}"
+                f"{before.get(field)!r} vs {after.get(field)!r}"
             )
+    if bool(before) != bool(after):
+        return ["run_config was recorded by only one run; budgets and sampling were not compared"]
+    for field in sorted((before.keys() | after.keys()) - {"seed"}):
+        if before.get(field) != after.get(field):
+            raise PluginDeltaError(
+                f"cannot compute plugin delta across different {field}: "
+                f"{before.get(field)!r} vs {after.get(field)!r}"
+            )
+    if (before.get("seed") is None) != (after.get("seed") is None):
+        raise PluginDeltaError(
+            "cannot compute plugin delta between a seeded and an unseeded run: "
+            f"seed {before.get('seed')!r} vs {after.get('seed')!r}"
+        )
+    return []
 
 
 def _validate_run_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
@@ -94,13 +107,13 @@ def _validate_run_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
 
 def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
     _validate_run_pair(control, plugin)
-    _validate_session_config(control, plugin)
+    run_config_warnings = _validate_run_config(control, plugin)
     judged = "evaluations" in control
     if judged != ("evaluations" in plugin):
         with_scores, without_scores = ("baseline", "plugin") if judged else ("plugin", "baseline")
         raise PluginDeltaError(f"{without_scores} artifact has no evaluations to pair with {with_scores}")
     sections = ("answers", "evaluations") if judged else ("answers",)
-    warnings = [
+    warnings = run_config_warnings + [
         f"{section} question text was not recorded for every pair"
         for section in sections if _validate_question_pair(control, plugin, section)
     ]

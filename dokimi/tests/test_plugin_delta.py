@@ -363,6 +363,51 @@ def test_compare_plugin_runs_warns_about_a_setting_one_run_omits():
     assert "judge settings were not fully recorded (judge_temperature)" in payload["warnings"]
 
 
+def _run_config(**changes) -> dict:
+    config = {"max_tokens": 1024, "max_iterations": 8, "grounded_from_topics": False,
+              "temperature": None, "seed": None}
+    return {**config, **changes}
+
+
+@pytest.mark.parametrize(("field", "after"), [
+    ("max_tokens", 64), ("max_iterations", 1), ("temperature", 1.0), ("grounded_from_topics", True),
+])
+def test_compare_plugin_runs_refuses_a_changed_answer_budget_or_sampling(field, after):
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline["run_config"], plugin["run_config"] = _run_config(), _run_config(**{field: after})
+
+    with pytest.raises(PluginDeltaError, match=f"different {field}: "):
+        compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_refuses_a_seeded_run_against_an_unseeded_one():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline["run_config"], plugin["run_config"] = _run_config(), _run_config(seed=7)
+
+    with pytest.raises(PluginDeltaError, match="seeded and an unseeded run: seed None vs 7"):
+        compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_pairs_runs_whose_seeds_differ_only_in_value():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline["run_config"], plugin["run_config"] = _run_config(seed=1), _run_config(seed=2)
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert payload["score_deltas"]["skill"]["aggregate_delta"] == 0.0
+    assert not any("run_config" in warning for warning in payload["warnings"])
+
+
+def test_compare_plugin_runs_warns_when_only_one_run_records_run_config():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    plugin["run_config"] = _run_config(max_tokens=64)
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert ("run_config was recorded by only one run; budgets and sampling were not compared"
+            in payload["warnings"])
+
+
 @pytest.mark.parametrize(("field", "before", "after"), [
     ("judge_prompt_sha256", "a" * 64, "b" * 64),
     ("judge_prompt_sha256", "a" * 64, None),
