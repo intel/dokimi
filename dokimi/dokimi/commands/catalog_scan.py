@@ -505,8 +505,10 @@ class ListingTotal:
         self.digests: dict[str, set] = {}
         self.unkeyed = 0  # rows with no digest or no loaded name: each counts on its own
         self.unkeyed_entries: list[tuple[str, int]] = []
+        self._ranked_cache: Optional[list[tuple[str, int]]] = None
 
     def add(self, row: dict) -> None:
+        self._ranked_cache = None
         chars = row.get("listing_chars")
         if chars is None:
             return
@@ -522,8 +524,13 @@ class ListingTotal:
     def total(self) -> int:
         return self.unkeyed + sum(chars for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1)
 
-
     def _ranked(self) -> list[tuple[str, int]]:
+        """The entries by size, then name; sorted once until the next ``add`` (#970)."""
+        if self._ranked_cache is None:
+            self._ranked_cache = self._sort_entries()
+        return self._ranked_cache
+
+    def _sort_entries(self) -> list[tuple[str, int]]:
         entries = list(self.unkeyed_entries)
         entries += [(name, chars) for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1]
         return sorted(entries, key=lambda e: (-e[1], e[0]))

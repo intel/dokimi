@@ -361,26 +361,17 @@ def test_resume_refuses_a_finding_without_a_string_code(tmp_path, capsys, findin
     assert code == 2
 
 
-def _sized(root: Path, lengths: list[int]) -> list[dict]:
+def _sized(root: Path, lengths: list[int], capsys) -> list[dict]:
     for i, n in enumerate(lengths):
         _skill(root, f"s{i}", "Use when " + "x" * (n - 9))
-    out, _ = _run(["--root", str(root), "--format", "json"], _CAPS)
+    out, _ = _run(["--root", str(root), "--format", "json"], capsys)
     return sorted(json.loads(out)["skills"], key=lambda r: (-r["listing_chars"], r["name"]))
-
-
-_CAPS = None  # set by the fixture below: `_run` needs capsys
-
-
-@pytest.fixture(autouse=True)
-def _bind_caps(capsys):
-    global _CAPS
-    _CAPS = capsys
 
 
 @pytest.mark.parametrize("scan", [[], ["--per-skill"]])
 def test_over_budget_names_the_fewest_largest_entries_that_cover_the_excess(tmp_path, capsys, scan):
     """#970: three names cover only part of an overrun; the warning names as many (at most five) as the excess needs."""
-    rows = _sized(tmp_path, [100, 90, 80, 70, 60, 50])
+    rows = _sized(tmp_path, [100, 90, 80, 70, 60, 50], capsys)
     total = sum(r["listing_chars"] for r in rows)
     cap = total - sum(r["listing_chars"] for r in rows[:3]) - 20
     expected = [r["name"] for r in rows[:4]]
@@ -468,3 +459,36 @@ def test_the_docs_describe_the_named_entries():
     guide = (docs / "external-content.md").read_text(encoding="utf-8")
     assert "largest entries:" in guide and "at most five" in guide and "accents: Use when checking café prices." in guide
     assert "`largest`" in (docs / "catalog-jsonl.md").read_text(encoding="utf-8")
+
+
+def test_the_ranking_is_sorted_once_per_warning_and_again_after_a_new_row(monkeypatch):
+    """#970: `largest` and `covered` share one sort of the entries; `add` makes the next call sort again."""
+    from dokimi.commands.catalog_scan import ListingTotal
+
+    calls = []
+    real = ListingTotal._sort_entries
+    monkeypatch.setattr(ListingTotal, "_sort_entries", lambda self: calls.append(1) or real(self))
+    total = ListingTotal()
+    total.add({"listing_chars": 10, "content_sha256": "a", "listing_name": "a"})
+    total.largest(5), total.covered(5, 3), total.covered(5, 5)
+    assert len(calls) == 1
+    total.add({"listing_chars": 20, "content_sha256": "b", "listing_name": "b"})
+    assert total.largest(5) == [{"name": "b", "chars": 20}]
+    assert len(calls) == 2
+
+
+def test_an_entry_that_covers_the_excess_exactly_is_the_last_one_named(tmp_path, capsys):
+    """#970: `largest` stops once the named entries reach the excess, not only once they pass it."""
+    rows = _sized(tmp_path, [100, 90, 80], capsys)
+    cap = sum(r["listing_chars"] for r in rows) - rows[0]["listing_chars"] - rows[1]["listing_chars"]
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", str(cap), "--format", "json"], capsys)
+
+    assert [e["name"] for e in json.loads(out)["listing"]["largest"]] == [r["name"] for r in rows[:2]]
+
+
+def test_the_listing_row_says_the_largest_fields_are_absent_when_the_warning_is_ignored():
+    """#970: docs/catalog-jsonl.md qualifies the fields with `--ignore listing-over-budget`."""
+    text = (Path(__file__).resolve().parents[1] / "docs" / "catalog-jsonl.md").read_text(encoding="utf-8")
+    row = next(line for line in text.splitlines() if line.startswith("| `listing`"))
+    assert "the warning is not ignored" in row

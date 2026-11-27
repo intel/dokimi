@@ -479,7 +479,7 @@ A large catalog is easier to scan one skill at a time:
   still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
   (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
   Over the cap, the warning also names the largest entries, as many of the biggest as it takes to cover the
-  excess and at most five (equal sizes by name): `largest entries: name (chars), ...`; the same entries are
+  excess and at most five (equal sizes by name): `largest entries: name (N chars), ...`; the same entries are
   `listing.largest` (`name`, `chars`) in the JSON report, followed by how many of the excess characters they account
   for (`covered` of `excess`). When five entries do not cover the excess, the rest is still over the cap: `covered` says
   by how much. `top3_covered` and `top5_covered` are what the three and the five largest entries cover (at most `excess`), and `top3_share` and `top5_share` the same as a share of `excess`; the warning prints both.
