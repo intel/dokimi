@@ -668,7 +668,8 @@ def test_every_leaf_in_the_next_set_prints_a_step_on_a_real_run(monkeypatch, cap
     for leaf, extra in real.items():
         doc = _json_run(monkeypatch, capsys, [*leaf, *extra])
         assert doc["next"], leaf
-        assert _exit_code(monkeypatch, [*doc["next"][0]["argv"], "--json"]) == 0
+        assert doc["next"][0]["argv"][0] == "dokimi", leaf
+        assert _exit_code(monkeypatch, [*doc["next"][0]["argv"][1:], "--json"]) == 0
         capsys.readouterr()
 
 
@@ -719,7 +720,7 @@ def _check_free_step(monkeypatch, capsys, doc, argv):
     [step] = doc["next"]
     assert step["argv"] == argv
     assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
-    assert _exit_code(monkeypatch, [*step["argv"], "--json"]) == 0
+    assert _exit_code(monkeypatch, [*step["argv"][1:], "--json"]) == 0
 
 
 @pytest.mark.parametrize("leaf", ["scan", "inspect"])
@@ -731,7 +732,7 @@ def test_repo_scan_and_inspect_name_repo_budget_and_it_runs(monkeypatch, capsys,
     monkeypatch.setenv("DOKIMI_REPO_CACHE", str(tmp_path / "default-cache"))
     doc = _json_run(monkeypatch, capsys, ["repo", leaf, str(repo), *cache])
     assert doc["status"] == "complete"
-    _check_free_step(monkeypatch, capsys, doc, ["repo", "budget", str(repo), *cache])
+    _check_free_step(monkeypatch, capsys, doc, ["dokimi", "repo", "budget", str(repo), *cache])
 
 
 @pytest.mark.parametrize("leaf", ["scan", "inspect"])
@@ -742,8 +743,8 @@ def test_a_cache_dir_starting_with_a_dash_gives_a_step_that_runs(monkeypatch, ca
     monkeypatch.chdir(tmp_path)
     doc = _json_run(monkeypatch, capsys, ["repo", leaf, str(repo), "--cache-dir=-cache"])
     [step] = doc["next"]
-    assert step["argv"] == ["repo", "budget", str(repo), "--cache-dir=-cache"]
-    assert _exit_code(monkeypatch, [*step["argv"], "--json"]) == 0
+    assert step["argv"] == ["dokimi", "repo", "budget", str(repo), "--cache-dir=-cache"]
+    assert _exit_code(monkeypatch, [*step["argv"][1:], "--json"]) == 0
 
 
 def test_a_failed_repo_inspect_has_no_next_step(monkeypatch, capsys, tmp_path):
@@ -785,7 +786,7 @@ def test_runs_list_skips_a_run_id_that_runs_show_would_read_as_a_file(monkeypatc
     doc = _json_run(monkeypatch, capsys, ["runs", "list"])
     assert [r["run_id"] for r in doc["data"]["runs"]][:1] == ["target.json"]
     [step] = doc["next"]
-    assert step["argv"] == ["runs", "show", "older"]
+    assert step["argv"] == ["dokimi", "runs", "show", "older"]
 
 
 def _runs_root(monkeypatch, tmp_path):
@@ -808,7 +809,7 @@ def test_runs_list_names_runs_show_of_the_newest_run_and_it_runs(monkeypatch, ca
     monkeypatch.delenv("DOKIMI_RUN_ID")
     doc = _json_run(monkeypatch, capsys, ["runs", "list"])
     assert doc["status"] == "complete"
-    _check_free_step(monkeypatch, capsys, doc, ["runs", "show", doc["data"]["runs"][0]["run_id"]])
+    _check_free_step(monkeypatch, capsys, doc, ["dokimi", "runs", "show", doc["data"]["runs"][0]["run_id"]])
 
 
 def test_runs_list_without_a_run_has_no_next_step(monkeypatch, capsys, tmp_path):

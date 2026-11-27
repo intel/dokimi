@@ -212,7 +212,7 @@ def _budget_step(args: argparse.Namespace) -> dict:
     source, with ``--cache-dir`` when it was given (#941)."""
     from dokimi import cli_output
 
-    argv = ["repo", "budget", args.source]
+    argv = ["dokimi", "repo", "budget", args.source]
     if args.cache_dir:  # a value starting with "-" would be read as an option unless it is joined with "="
         argv += [f"--cache-dir={args.cache_dir}"] if args.cache_dir.startswith("-") else ["--cache-dir", args.cache_dir]
     return cli_output.free_step(argv, "Count the characters of guidance this source loads at the start of a session.")
