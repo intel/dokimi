@@ -131,7 +131,7 @@ from dokimi.utils import same_model
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
                              read_judged)
 from .compare_leak import format_leak, leak_check
-from .compare_interval import format_interval, format_value, includes_zero
+from .compare_interval import COLUMNS, column_widths, format_interval, includes_zero, table_cells, table_line
 from .compare_reach import holm_family, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -634,18 +634,12 @@ def format_compare(summary: dict[str, Any]) -> str:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in summary["comparisons"]:
         groups[(row["treatment"], row["model"])].append(row)
-    width = max([len(r["measure"]) for r in summary["comparisons"]] + [7])
+    widths = column_widths([table_cells(r) for r in summary["comparisons"]])
     family = sum(r["p_holm"] is not None for r in summary["comparisons"])  # the rows Holm corrected together
     for (treatment, model), rows in groups.items():
         lines += ["", f"{treatment} vs {summary['baseline']}, model {model}",
-                  f"  {'measure':<{width}}  {'tasks':>5}  {'baseline':>9}  {'treatment':>9}  "
-                  f"{'delta [95% CI]':<26}  {'p':>6}  {'p_holm':>6}  up/down/tied"]
-        for r in rows:
-            d = r["delta"]
-            delta = format_value(d["mean"], signed=True) + " " + format_interval(d["lo"], d["hi"])
-            lines.append(f"  {r['measure']:<{width}}  {r['n_tasks']:>5}  {_num(r['baseline_mean']):>9}  "
-                         f"{_num(r['treatment_mean']):>9}  {delta:<26}  {_p(r['p']):>6}  {_p(r['p_holm']):>6}  "
-                         f"{r['up']}/{r['down']}/{r['tied']}")
+                  table_line([header for header, _, _ in COLUMNS] + ["up/down/tied"], widths)]
+        lines += [table_line(table_cells(r), widths) for r in rows]
         for r in rows:
             if r["measure"] in PRIMARY:
                 moved = [t for t in r["tasks"] if round(t["delta"], 6)]  # below 5e-7 is float noise, not a change
@@ -789,10 +783,3 @@ def _round(value: float | None) -> float | None:
     number = float(value)  # a numpy float64 would warn on overflow while rounding
     return round_off_zero(number, 6) if math.isfinite(number) else None
 
-
-def _num(value: float | None) -> str:
-    return format_value(value)
-
-
-def _p(value: float | None) -> str:
-    return "-" if value is None else f"{value:.3f}"
