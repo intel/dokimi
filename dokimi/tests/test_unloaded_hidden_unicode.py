@@ -135,3 +135,21 @@ def test_missing_description_skill_with_clean_files_gets_no_review(tmp_path):
     (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\nbody\n", encoding="utf-8")
     (tmp_path / "skills" / "bad" / "notes.md").write_text("hi there\n", encoding="utf-8")
     assert review_skills(read_skill_manifest(tmp_path)) == [None]
+
+
+def test_not_utf8_skill_reports_bidi_character_in_bundled_file(tmp_path):
+    """#1089: a SKILL.md that is not UTF-8 (a UTF-16 save) fails to load, and its bundled file is still read."""
+    (tmp_path / "skills" / "u16").mkdir(parents=True)
+    (tmp_path / "skills" / "u16" / "SKILL.md").write_bytes("---\nname: u16\n---\n".encode("utf-16"))
+    (tmp_path / "skills" / "u16" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    [message] = _hidden(tmp_path)
+    assert message.startswith("notes.md line 1: U+202E")
+
+
+def test_empty_skill_reports_bidi_character_in_bundled_file(tmp_path):
+    """#1089: an empty SKILL.md fails to load, and its bundled file is still read."""
+    (tmp_path / "skills" / "e").mkdir(parents=True)
+    (tmp_path / "skills" / "e" / "SKILL.md").write_text("", encoding="utf-8")
+    (tmp_path / "skills" / "e" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    [message] = _hidden(tmp_path)
+    assert message.startswith("notes.md line 1: U+202E")

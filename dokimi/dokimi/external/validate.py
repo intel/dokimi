@@ -383,6 +383,21 @@ def _kept_load_error_review(entry: SkillCatalogEntry, candidate: Path, standalon
     return SkillReview(findings=own + content)
 
 
+def _unloaded_text(entry: SkillCatalogEntry) -> Optional[tuple[Path, str]]:
+    """An unloaded entry's ``SKILL.md`` inside the scanned root and its text, "" when not UTF-8; None when unreadable."""
+    if entry.path is None:
+        return None
+    try:
+        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
+        if candidate.name != "SKILL.md" or not candidate.is_file() or not _within(candidate, entry.source_root):
+            return None
+        return candidate, candidate.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return candidate, ""
+    except OSError:
+        return None
+
+
 def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
     """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
     has broken YAML; else None.
@@ -390,19 +405,12 @@ def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Opti
     A ``SKILL.md`` that resolves outside the scanned root is not read: the YAML message quotes
     the offending line, and the catalog must not get a file outside it into the report.
     """
-    if entry.path is None:
-        return None
-    try:
-        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
-        if candidate.name != "SKILL.md" or not candidate.is_file():
-            return None
-        if not _within(candidate, entry.source_root):
-            return None
-        text = candidate.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    read = _unloaded_text(entry)
+    if read is None:
         return None  # the loader already reported why the skill did not load
+    candidate, text = read
     if not text.lstrip("\ufeff").strip():
-        return None  # an empty file is not prose: the loader's error stands
+        return _kept_load_error_review(entry, candidate, standalone)  # empty or not UTF-8: not prose, the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
     unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
