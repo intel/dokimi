@@ -138,7 +138,8 @@ _LEADING_SPELLED_NEGATION = re.compile(
     re.I,
 )
 _LEADING_IMPERATIVE_DONT = re.compile(
-    r"^\s*don't\s+(?!(?:it|they|you|we|i|he|she|that|this|these|those|there|the|a|an)\b)(?P<verb>[\w'-]+)",
+    r"^\s*don't\s+(?:(?:ever|always|just|still|also|even|really|actually|simply|again)\s+)*"
+    r"(?!(?:it|they|you|we|i|he|she|that|this|these|those|there|the|a|an)\b)(?P<verb>[\w'-]+)",
     re.I,
 )
 # A trailing tag ("..., doesn't it?") is question phrasing too, not a negation of the claim.

@@ -734,6 +734,15 @@ def test_a_question_that_keeps_the_leading_dont_of_a_spelled_out_source_restates
     assert check_wording("reversal", source=source, candidate=candidate) == ["restates_source"]
 
 
+@pytest.mark.parametrize("adverb", ["ever", "always", "just", "really"])
+def test_a_dont_question_with_an_adverb_before_the_verb_is_no_inversion_of_a_do_not_source(adverb):
+    # The adverb is new wording, so the diagnostic is polarity_not_flipped, not restates_source.
+    candidate = f"Don't {adverb} run the installer as root?"
+    assert check_wording("reversal", source="Do not run the installer as root.", candidate=candidate) == [
+        "polarity_not_flipped"
+    ]
+
+
 @pytest.mark.parametrize(
     "candidate",
     ["Should the installer be run as root?", "Is it fine to run the installer as root?",
