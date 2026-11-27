@@ -418,8 +418,15 @@ def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Opti
     meta, parse_error = _strict_meta(text)
     if parse_error is not None:
         return SkillReview(findings=[parse_error] + _unloaded_content(candidate, entry.source_root, standalone))
+    return _gap_review(entry, candidate, fmt, meta, standalone)
+
+
+def _gap_review(entry: SkillCatalogEntry, candidate: Path, fmt, meta: dict, standalone: bool) -> Optional[SkillReview]:
+    """The review of a skill whose block parsed: the format's gaps with the safety checks, else the kept load error."""
     gap = format_findings(fmt, meta, loaded=False)
-    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone)) if gap else None
+    if not gap:  # nothing the format adds: the loader's error stands, and the bundled files are still read (#1089)
+        return _kept_load_error_review(entry, candidate, standalone)
+    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone))
 
 
 def _relative_to_root(path: Path, root: Path) -> str:

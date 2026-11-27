@@ -90,3 +90,12 @@ def test_standalone_review_of_indented_closing_delimiter_skill_keeps_load_error(
     codes = [f.code for f in review.findings]
     assert review.state == "error"
     assert "not-loaded" in codes and "hidden-unicode" in codes
+
+
+def test_missing_description_skill_reports_hidden_unicode_in_bundled_file(tmp_path):
+    """#1089: a closed block with no description fails to load, and its bundled file is still read."""
+    (tmp_path / "skills" / "bad").mkdir(parents=True)
+    (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\nbody\n", encoding="utf-8")
+    (tmp_path / "skills" / "bad" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    [message] = _hidden(tmp_path)
+    assert message.startswith("notes.md line 1: U+202E")
