@@ -32,9 +32,24 @@ _ITEM = r"(?:[-*+]|\d{1,9}[.)])"
 _FENCE = re.compile(rf"^ {{0,3}}(?:{_ITEM} {{1,4}})?(`{{3,}}(?=[^`]*$)|~{{3,}})")
 _LIST = re.compile(rf"^ {{0,3}}{_ITEM} ")
 _TICKS = re.compile(r"`+")
+_THEMATIC = re.compile(r"^ {0,3}([-*_])(?: *\1){2,} *$")
 _HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
 # A heading, a bullet, a ``1.`` item (only 1 interrupts a paragraph) or an HTML comment at the start of a line ends the paragraph a code span lives in.
 _BLOCK = re.compile(rf"^(?: {0,3}(?:#{1,6}(?:\s|$)|<!--)|\s*(?:[-*+]|1[.)]) \S)")
+
+
+def _interrupts(line: str) -> bool:
+    """Whether a list item line may interrupt a paragraph: a bullet or item ``1`` may, ``2.`` may not."""
+    return bool(re.match(r" {0,3}(?:[-*+]|1[.)]) ", line))
+
+
+def _in_list(line: str, in_list: bool, para: bool) -> bool:
+    """Whether the unindented ``line`` is in a list item: an item, or a lazy continuation of one."""
+    if _THEMATIC.match(line):
+        return False
+    if _LIST.match(line) or not (para and in_list) or _BLOCK.match(line):
+        return bool(_LIST.match(line))
+    return True
 
 
 def _closes(lines: list[str], row: int, col: int, size: int) -> bool:
@@ -94,30 +109,38 @@ def _scan(lines: list[str]) -> list[tuple[bool, str]]:
     scanned, opener, in_comment, span = [], "", False, 0
     base = 0   # the open fence's container indent: a line less indented ends the fence
     in_list, code = False, False   # in a list item; the last line was indented code
+    para = False   # the last line was paragraph text a following line may lazily continue
     for row, line in enumerate(lines):
         if opener and line.strip() and len(line) - len(line.lstrip(" ")) < base:
             opener = ""   # the list item holding the fence ended
         if opener:
             scanned.append((False, ""))
-            if re.match(rf"^ {{{base},{base + 3}}}([`~]{{3,}})\s*$", line) and (
-                    line.strip()[0] == opener[0] and len(line.strip()) >= len(opener)):
+            para = False
+            if re.match(rf"^ {{{base},{base + 3}}}({re.escape(opener[0])}{{3,}})\s*$", line) and (
+                    len(line.strip()) >= len(opener)):
                 opener = ""
             continue
         fence = None if in_comment or span else _FENCE.match(line)
+        if fence and para and not in_list and _LIST.match(line) and not _interrupts(line):
+            fence = None   # ``2. ~~~`` inside a paragraph is text, not a list item holding a fence
         if fence:
-            opener, base = fence[1], (fence.start(1) if _LIST.match(line) else 0)
+            listed = bool(_LIST.match(line))
+            opener, base, para = fence[1], (fence.start(1) if listed else 0), False
+            in_list = listed or (in_list and fence.start(1) > 0)   # an indented fence stays in its item
             scanned.append((False, ""))
             continue
         if not (in_comment or span) and line.startswith(("    ", "\t")) and not in_list and (
                 code or row == 0 or not lines[row - 1].strip()):
-            code = True   # indented code: its comment markers and backticks are literal
+            code, para = True, False   # indented code: its comment markers and backticks are literal
             scanned.append((True, ""))
             continue
         code = False
         if line.strip() and not line.startswith(("    ", "\t")):
-            in_list = bool(_LIST.match(line))
+            in_list = _in_list(line, in_list, para)
         starts_visible = not in_comment
         text, in_comment, span = _inline(lines, row, in_comment, span)
+        # a heading, a thematic break or a line of only comment is no paragraph text
+        para = bool(text.strip()) and not _HEADING.match(line) and not _THEMATIC.match(line)
         scanned.append((starts_visible, text))
     return scanned
 

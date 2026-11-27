@@ -272,6 +272,48 @@ def test_a_triple_backtick_span_is_not_a_fence(tmp_path):
     assert cr.release_notes("## [0.2.0]\n```js x\n## h\n```\n- y\n", "0.2.0") == "```js x\n## h\n```\n- y"
 
 
+def test_a_mixed_delimiter_line_does_not_close_a_fence():
+    assert not cr._has_entry("~~~\n~``\n- Hidden entry\n~~~")
+
+
+def test_an_ordered_item_two_cannot_open_a_fence_inside_a_paragraph():
+    assert not cr._has_entry("Example\n2. ~~~\n   <!-- draft\n- Hidden entry\n-->")
+
+
+def test_a_nested_bullet_after_a_list_item_fence_counts():
+    text = "## [0.2.0]\n\n- ```markdown\n  example\n  ```\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_a_nested_bullet_after_a_lazy_continuation_counts():
+    text = "## [0.2.0]\n\n1. Top.\nContinuation.\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_an_ordered_item_two_after_a_heading_opens_a_fence(tmp_path):
+    text = "## [0.2.0]\n2. ~~~\n   <!-- example\n   ~~~\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_fence_on_a_continuation_line_keeps_the_item(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n   ~~~\n   example\n   ~~~\n\n    - Nested entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_ordered_item_two_after_a_comment_line_opens_a_fence(tmp_path):
+    text = "## [0.2.0]\n<!-- example -->\n2. ~~~\n   <!-- literal\n   ~~~\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_thematic_break_ends_the_list_item(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n---\n\n    - Code example only.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries" in problem for problem in found)
+
+
 def test_an_unclosed_fence_runs_to_the_end():
     """#1290: an unclosed fence hides the rest of the file, as Markdown renders it."""
     text = "## [0.3.0]\n\n- a\n```\n## [0.2.0]\n- b\n"
