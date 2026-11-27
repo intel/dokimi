@@ -319,7 +319,8 @@ CENTRAL = ("arms run", "skill novelty analyze", "tasks run", "repo compare", "be
 FILLER_INT = re.compile(r"(int|usd|fraction|interval|age|floor|threshold|alpha)", re.I)
 # Fillers for required options whose type checks a shape, and file contents that get past a first check.
 FILLERS = {"--judge": "openai/m"}
-FILE_FILLERS = {"--eval": '{"evaluations": [{"question_id": "q1"}]}'}
+MANIFEST_FILLER = '{"schema": "repo_manifest.v1", "id": "toy", "guidance": {"globs": ["**/AGENTS.md"]}}'
+FILE_FILLERS = {"--eval": '{"evaluations": [{"question_id": "q1"}]}', "--manifest": MANIFEST_FILLER}
 DEMO_SKILL = "---\nname: demo-skill\ndescription: A fixture skill.\n---\n# Demo skill\n"
 
 

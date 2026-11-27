@@ -222,6 +222,8 @@ def reached(case: cli_faults.Case, result: Result, base: Path, answer: tuple[int
     """
     if result.model_calls and (case.fault in UNREADABLE or case.fault == "truncated-json"):
         return True
+    if result.left:  # a run that changed files must reach the filesystem checks, whatever it answered
+        return True
     if case.fault in cli_faults.CONTENT:  # read as text, or not read at all: the file's JSON was never parsed
         return _answer(result, base) != answer
     return answer[0] == 0 or _answer(result, base) != answer

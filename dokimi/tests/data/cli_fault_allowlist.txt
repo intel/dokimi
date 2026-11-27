@@ -19,7 +19,6 @@ catalog check | --tasks-subdir | dotdot | exit 0: a `..` tasks directory outside
 catalog check | --tasks-subdir | link-out-of-root | exit 0: a link leading out of --root is followed
 catalog check | --tasks-subdir | missing | exit 0, nothing on stderr: a missing tasks directory is not refused
 catalog check | --tasks-subdir | not-a-directory | exit 0, nothing on stderr: a file as the tasks directory is not refused
-catalog check | --tasks-subdir | unreadable | python >=3.14: exit 0, nothing on stderr: an unreadable tasks directory reads as a missing one
 catalog check | --upstream | unreadable | exit 5 with a traceback (PermissionError on the upstream checkout)
 catalog eval | catalog_root | dangling-link | exit 2 but leaves --out-dir/report.md behind
 catalog eval | catalog_root | missing | exit 2 but leaves --out-dir/report.md behind

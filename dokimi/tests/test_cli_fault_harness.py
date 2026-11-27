@@ -12,10 +12,19 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.repos.manifest import parse_manifest
 from tests import cli_faults
 from tests import test_cli_fault_contract as contract
 
 CASES = {case.id: case for case in contract.CASES}
+
+
+def _symlink(link: Path, target: str) -> None:
+    """A symlink, or a skipped test where the platform does not allow one."""
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"no symlink here: {exc}")
 
 
 def _case(case_id: str) -> cli_faults.Case:
@@ -51,7 +60,10 @@ def test_git_is_on_the_path_on_windows_too(tmp_path, monkeypatch):
 
 def test_git_is_the_only_thing_on_the_path_elsewhere(tmp_path, monkeypatch):
     monkeypatch.setattr(contract.shutil, "which", lambda name: "/opt/tools/git")
-    path = contract._git_only_path(tmp_path / "bin", windows=False)
+    try:
+        path = contract._git_only_path(tmp_path / "bin", windows=False)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"no symlink here: {exc}")
     assert path == str(tmp_path / "bin")
     assert os.readlink(tmp_path / "bin" / "git") == "/opt/tools/git"
 
@@ -77,13 +89,13 @@ def test_a_converter_that_makes_a_path_of_its_text_is_still_a_path_parameter():
 def test_an_overwrite_a_removal_and_a_new_file_all_count_as_changes(tmp_path):
     (tmp_path / "kept.json").write_text("one", encoding="utf-8")
     (tmp_path / "gone.json").write_text("two", encoding="utf-8")
-    (tmp_path / "link").symlink_to("kept.json")
+    _symlink(tmp_path / "link", "kept.json")
     before = cli_faults.tree(tmp_path)
     (tmp_path / "kept.json").write_text("one", encoding="utf-8")  # the same bytes, written again
     os.utime(tmp_path / "kept.json", ns=(1, 1))
     (tmp_path / "gone.json").unlink()
     (tmp_path / "link").unlink()
-    (tmp_path / "link").symlink_to("elsewhere")
+    _symlink(tmp_path / "link", "elsewhere")
     (tmp_path / "new.json").write_text("{}", encoding="utf-8")
     assert cli_faults.changes(before, cli_faults.tree(tmp_path)) == [
         "new.json", "removed gone.json", "changed kept.json", "changed link"]
@@ -127,8 +139,10 @@ def test_a_root_relative_path_is_built_under_the_root_the_command_gets(tmp_path)
         except cli_faults.Unbuildable:
             continue
     assert operand["not-a-directory"].is_file()
-    assert operand["dangling-link"].is_symlink() and not operand["dangling-link"].exists()
-    assert operand["link-out-of-root"].resolve() == (outside / "dir").resolve()
+    if "dangling-link" in operand:
+        assert operand["dangling-link"].is_symlink() and not operand["dangling-link"].exists()
+    if "link-out-of-root" in operand:
+        assert operand["link-out-of-root"].resolve() == (outside / "dir").resolve()
     assert operand["dotdot"].resolve() == (outside / "dir").resolve()
     if "unreadable" in operand:
         assert stat.S_IMODE(operand["unreadable"].stat().st_mode) == 0
@@ -140,7 +154,7 @@ def test_an_escape_is_valid_input_where_a_root_confines_it_and_malformed_elsewhe
     root.mkdir()
     outside.mkdir()
     confined = cli_faults.build(_case("repo scan | --manifest | absolute"), root, outside)
-    assert json.loads(Path(confined).read_text(encoding="utf-8")) == {}
+    parse_manifest(json.loads(Path(confined).read_text(encoding="utf-8")))  # the reader accepts it: only the root can refuse
     other = cli_faults.build(_case("baseline save | --from-eval | absolute"), root, outside)
     with pytest.raises(ValueError):
         json.loads(Path(other).read_text(encoding="utf-8"))
@@ -153,7 +167,10 @@ def test_a_skill_file_fault_is_a_file_called_skill_md(tmp_path):
     root.mkdir()
     outside.mkdir()
     for fault in ("invalid-utf8", "empty", "json-list", "truncated-json", "dangling-link"):
-        value = cli_faults.build(_case(f"skill novelty analyze | --artifact | {fault}"), root, outside)
+        try:
+            value = cli_faults.build(_case(f"skill novelty analyze | --artifact | {fault}"), root, outside)
+        except cli_faults.Unbuildable:
+            continue
         assert Path(value).name == "SKILL.md", fault
     bad = root / cli_faults.build(_case("skill novelty analyze | --artifact | invalid-utf8"), root, outside)
     with pytest.raises(UnicodeDecodeError):
@@ -161,6 +178,13 @@ def test_a_skill_file_fault_is_a_file_called_skill_md(tmp_path):
     good = cli_faults.build(cli_faults.Case(_case("skill novelty analyze | --artifact | empty").param, cli_faults.GOOD),
                             root, outside)
     assert (root / good / "SKILL.md").is_file()
+
+
+def test_a_run_that_changed_files_is_reached_even_if_answered_like_the_control(tmp_path):
+    case = _case("baseline save | --from-eval | missing")
+    changed = contract.Result(2, "invalid filler", ["changed fixture.json"], 0)
+    assert contract.reached(case, changed, tmp_path, (2, "invalid filler"))
+    assert not contract.reached(case, contract.Result(2, "invalid filler", [], 0), tmp_path, (2, "invalid filler"))
 
 
 def test_cut_short_json_that_gets_a_model_call_is_reached_even_if_answered_like_the_control(tmp_path):
