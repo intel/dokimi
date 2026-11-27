@@ -216,7 +216,7 @@ jobs:
               // A check that could not run its tests is not a clean result, and is said even with no comment yet.
               const total = STATUSES.reduce((n, s) => n + c[s], 0);
               const incomplete = r.untested.failing_tests > 0 || r.untested.tests_not_run > 0 ||
-                (total === 0 && r.untested.uncovered_lines > 0);
+                c['not run'] > 0 || (total === 0 && r.untested.uncovered_lines > 0);
               if (!r.survivors.length && !existing && !incomplete) return;
               const parts = [`${marker}\n## Mutation of changed lines\n`,
                 `${total} mutants of the lines this PR changes, at ${sha}: ${c.killed} killed, ` +
@@ -238,7 +238,8 @@ jobs:
               if (incomplete) {
                 parts.push(`The check was incomplete: ${r.untested.failing_tests} candidate tests fail without a mutant ` +
                   `and were left out, ${r.untested.tests_not_run} candidate test files were not run, and ` +
-                  `${r.untested.uncovered_lines} changed lines were not mutated; ` +
+                  `${r.untested.uncovered_lines} changed lines were not mutated, ` +
+                  `${c['not run']} mutants were not run before the time budget ended; ` +
                   `${r.survivors.length ? 'the survivors above are not the whole picture' : 'this is not a clean result'}.\n`);
               }
               if (r.waived.length) {

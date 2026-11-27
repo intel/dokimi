@@ -73,6 +73,15 @@ def test_a_run_that_could_not_test_is_not_shown_as_clean(tmp_path):
         assert "not a clean result" in body
 
 
+def test_a_run_that_ran_out_of_time_is_not_shown_as_clean(tmp_path):
+    result = _result(survivors=(), waived=())
+    result["result"] = {**result["result"], "counts": {**COUNTS, "not run": 1}}
+    for comments in (OLD, []):
+        body = _bodies(_post(tmp_path, result, comments=comments))[0]
+        assert "No surviving mutants" not in body and "1 mutants were not run" in body
+        assert "not a clean result" in body
+
+
 def test_a_run_that_mutated_nothing_because_no_line_was_covered_is_not_shown_as_clean(tmp_path):
     zero = {k: 0 for k in COUNTS}
     untested = {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 5}
