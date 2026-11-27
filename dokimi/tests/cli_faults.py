@@ -39,8 +39,11 @@ CONTENT = ("truncated-json", *SHAPES)
 # Not a fault: the value a parameter gets when another one is under test. The contract test runs it once
 # for each parameter, to tell a case that reached its path from one the command refused before reading it.
 GOOD = "good"
+# Where the filler of a required directory is made, and so what a confined path is relative to.
+ROOT_DIR = "fixture"
 # Faults that are valid input for this parameter, by case id, with the help text that says so.
-INAPPLICABLE = {"eval inspect | path | not-a-directory": "A task directory, a dataset file, or a tree holding either"}
+INAPPLICABLE = {"eval inspect | path | not-a-directory": "A task directory, a dataset file, or a tree holding either",
+                "skill novelty analyze | --placebo-text | truncated-json": "A text file: its content is read as text, never as JSON"}
 
 # Parameters whose help names a path but whose value is not one, or is one only behind a scheme
 # (`local:<path>`) or another flag (`--kind subject`): an option string, or "command operand".
@@ -71,6 +74,7 @@ class Param:
     role: Role
     prefix: str
     confined: bool
+    under: str = ""  # the directory, under the working directory, that a confined path is relative to
 
 
 @dataclass(frozen=True)
@@ -118,8 +122,8 @@ def _is_path(action: argparse.Action, key: str, help_text: str, command: str) ->
         return False
     if action.type is Path:
         return True
-    if action.type is not None:
-        return False
+    if action.type in (int, float, bool) or FILLER_INT.search(getattr(action.type, "__name__", "")):
+        return False  # a converter that makes a path of its text, like `_skill_ref`, still goes on to the checks below
     if str(action.metavar) in _DIR_METAVARS | _FILE_METAVARS or _DIR_DESTS.search(f"_{action.dest}"):
         return True
     if _PATH_DESTS.search(action.dest) or (isinstance(action.default, str) and _PATH_DEFAULT.search(action.default)):
@@ -130,7 +134,8 @@ def _is_path(action: argparse.Action, key: str, help_text: str, command: str) ->
 def _prefix(action: argparse.Action, help_text: str) -> str:
     if str(action.metavar) == "NAME=PATH":
         return "c="
-    return "skill:" if help_text.startswith("skill:<path") else ""
+    named = getattr(action.type, "__name__", "")
+    return "skill:" if help_text.startswith("skill:<path") or named == "_skill_ref" else ""
 
 
 def path_params(command: str, parser: argparse.ArgumentParser) -> list[Param]:
@@ -142,9 +147,16 @@ def path_params(command: str, parser: argparse.ArgumentParser) -> list[Param]:
         key = _key(action)
         help_text = action.help or ""
         if _is_path(action, key, help_text, command):
-            found.append(Param(command, key, _role(action, help_text),
-                               _prefix(action, help_text), bool(_CONFINED.search(help_text))))
+            confined = bool(_CONFINED.search(help_text))
+            found.append(Param(command, key, _role(action, help_text), _prefix(action, help_text), confined,
+                               ROOT_DIR if confined and _has_root(command, parser, key) else ""))
     return found
+
+
+def _has_root(command: str, parser: argparse.ArgumentParser, key: str) -> bool:
+    """Whether another required parameter of the command is a directory: the root a confined path is relative to."""
+    return any(_key(a) != key and _is_path(a, _key(a), a.help or "", command) and _role(a, a.help or "") == "input-dir"
+               for a in _required(parser, key))
 
 
 def cases(parser: argparse.ArgumentParser) -> list[Case]:
@@ -183,63 +195,113 @@ def _locked(path: Path, mode: int) -> Path:
     return path
 
 
-def _outside(outside: Path, is_dir: bool) -> Path:
-    if is_dir:
-        target = outside / "dir"
-        target.mkdir(exist_ok=True)
-        (target / "junk.txt").write_text("not a fixture\n", encoding="utf-8")
-        return target
-    target = outside / "bad.json"
-    target.write_text("{ not json", encoding="utf-8")
+def _catalog(directory: Path) -> Path:
+    """A catalog of one skill, so a command that needs a SKILL.md gets past it."""
+    skill = directory / "demo-skill"
+    skill.mkdir(parents=True, exist_ok=True)
+    (skill / "SKILL.md").write_text(DEMO_SKILL, encoding="utf-8")
+    return directory
+
+
+def _outside(outside: Path, param: Param, name: str) -> Path:
+    """Something outside the root. For a parameter confined to a root it is valid input, so that only the
+    confinement can refuse it; any other reader may open it, and gets a file it must refuse as malformed."""
+    if param.role.endswith("dir"):
+        if param.confined:
+            return _catalog(outside / "dir")
+        (outside / "dir").mkdir(exist_ok=True)
+        (outside / "dir" / "junk.txt").write_text("not a fixture\n", encoding="utf-8")
+        return outside / "dir"
+    target = outside / name / ("SKILL.md" if _is_skill_file(param) else "outside.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    good = DEMO_SKILL if _is_skill_file(param) else FILE_FILLERS.get(param.key, "{}")
+    target.write_text(good if param.confined else "{ not json", encoding="utf-8")
     return target
 
 
-def build(fault: str, role: Role, root: Path, outside: Path) -> str:
+def _is_skill_file(param: Param) -> bool:
+    """A skill reader takes a directory or a file named SKILL.md, whatever the fault."""
+    return param.prefix == "skill:" and param.role == "input-file"
+
+
+def build(case: Case, root: Path, outside: Path) -> str:
     """Make the fault under ``root`` (the working directory) and return the argument that names it."""
+    param, fault = case.param, case.fault
+    base = root / param.under
+    base.mkdir(parents=True, exist_ok=True)
     if fault == GOOD:
-        return _path_filler("good", role, root)
-    is_dir = role.endswith("dir")
-    builders = {
-        "missing": lambda: "missing.json",
-        "directory": lambda: (root / "a_dir").mkdir() or "a_dir",
-        "not-a-directory": lambda: (root / "a_file.txt").write_text("text\n", encoding="utf-8") and "a_file.txt",
-        "unreadable": lambda: _unreadable(root, is_dir),
-        "unwritable-parent": lambda: _unwritable_parent(root, is_dir),
-        "dangling-link": lambda: _link(root / "dangling", root / "nowhere").name,
-        "link-out-of-root": lambda: _link(root / "escape", _outside(outside, is_dir)).name,
-        "dotdot": lambda: os.path.relpath(_outside(outside, is_dir), root),
-        "absolute": lambda: str(_outside(outside, is_dir)),
-        "empty": lambda: (root / "empty.json").write_bytes(b"") or "empty.json",
-        "invalid-utf8": lambda: (root / "bad_utf8.json").write_bytes(b"\xff\xfe\x80{") and "bad_utf8.json",
-        "truncated-json": lambda: (root / "truncated.json").write_text('{"a": ', encoding="utf-8") and "truncated.json",
-        "json-list": lambda: (root / "a_list.json").write_text("[]\n", encoding="utf-8") and "a_list.json",
-        "json-null": lambda: (root / "a_null.json").write_text("null\n", encoding="utf-8") and "a_null.json",
-        "json-text": lambda: (root / "a_text.json").write_text('"text"\n', encoding="utf-8") and "a_text.json",
-    }
-    return str(builders[fault]())
+        if _is_skill_file(param):
+            _catalog(root / ROOT_DIR)
+            return f"{ROOT_DIR}/demo-skill"
+        return _path_filler("good", param.role, base)
+
+    def slot(name: str) -> Path:
+        """Where the fault's file is made: a skill file must be called SKILL.md, so it gets a directory of its own."""
+        if _is_skill_file(param):
+            (base / fault).mkdir(exist_ok=True)
+            return base / fault / "SKILL.md"
+        return base / name
+
+    if fault in ("missing", "dangling-link", "link-out-of-root", "dotdot", "absolute"):
+        return _reference(case, base, outside, slot)
+    if fault in CONTENT_BYTES:
+        path = slot(CONTENT_NAMES[fault])
+        path.write_bytes(CONTENT_BYTES[fault])
+        return str(path.relative_to(base))
+    return _state(case, base, slot)
 
 
-def _unreadable(root: Path, is_dir: bool) -> str:
-    target = root / ("locked_dir" if is_dir else "locked.json")
-    if is_dir:  # empty: the entries of a locked directory are not in the before-and-after tree
-        target.mkdir()
-    else:
-        target.write_text("{}", encoding="utf-8")
-    return _locked(target, 0).name
+def _reference(case: Case, base: Path, outside: Path, slot) -> str:
+    """A path that names nothing, a link to nothing, or a way out of the root."""
+    fault = case.fault
+    if fault == "missing":
+        return "missing.json"
+    if fault == "dangling-link":
+        return str(_link(slot("dangling"), base / "nowhere").relative_to(base))
+    target = _outside(outside, case.param, fault)
+    if fault == "link-out-of-root":
+        return str(_link(slot("escape"), target).relative_to(base))
+    return os.path.relpath(target, base) if fault == "dotdot" else str(target)
 
 
-def _unwritable_parent(root: Path, is_dir: bool) -> str:
-    parent = root / "readonly"
-    parent.mkdir()
-    _locked(parent, 0o555)
-    return str(Path("readonly") / ("out_dir" if is_dir else "out.json"))
+def _state(case: Case, base: Path, slot) -> str:
+    """A directory where a file belongs, a file where a directory does, or a mode that refuses access."""
+    is_dir = case.param.role.endswith("dir")
+    if case.fault == "not-a-directory":
+        path = base / "a_file.txt"
+        path.write_text("text\n", encoding="utf-8")
+    elif case.fault == "directory":
+        path = slot("a_dir")
+        path.mkdir()
+    elif case.fault == "unreadable":
+        path = slot("locked_dir" if is_dir else "locked.json")
+        if is_dir:  # empty: the entries of a locked directory are not in the before-and-after tree
+            path.mkdir()
+        else:
+            path.write_text("{}", encoding="utf-8")
+        _locked(path, 0)
+    else:  # unwritable-parent
+        _locked(_dir(base / "readonly"), 0o555)
+        return str(Path("readonly") / ("out_dir" if is_dir else "out.json"))
+    return str(path.relative_to(base))
+
+
+def _dir(path: Path) -> Path:
+    path.mkdir()
+    return path
+
+
+CONTENT_BYTES = {"empty": b"", "invalid-utf8": b"\xff\xfe\x80{", "truncated-json": b'{"a": ',
+                 "json-list": b"[]\n", "json-null": b"null\n", "json-text": b'"text"\n'}
+CONTENT_NAMES = {"empty": "empty.json", "invalid-utf8": "bad_utf8.json", "truncated-json": "truncated.json",
+                 "json-list": "a_list.json", "json-null": "a_null.json", "json-text": "a_text.json"}
 
 
 def unlock(root: Path) -> None:
-    """Give back the modes a fault took away, so the tmp directory can be removed."""
+    """Give back the modes a fault took away, so the tmp directory can be removed: 0o755 to a directory, 0o644 to a file."""
     for path in [root, *root.rglob("*")] if root.exists() else []:
-        if not path.is_symlink() and path.name in ("locked_dir", "locked.json", "readonly"):
-            path.chmod(0o755)
+        if not path.is_symlink() and path.stat().st_mode & 0o777 in (0, 0o555):
+            path.chmod(0o755 if path.is_dir() else 0o644)
 
 
 # Exit codes a command's own section of docs/quickstart.md ("Exit codes") gives a bad input, where it is not 2 alone.
@@ -284,11 +346,9 @@ def _path_filler(key: str, role: Role, root: Path) -> str:
         name = f"fixture_{key.strip('-')}.json"
         (root / name).write_text(FILE_FILLERS.get(key, "{}"), encoding="utf-8")
         return name
-    if role == "input-dir":  # a catalog of one skill, so a command that needs a SKILL.md gets past it
-        skill = root / "fixture" / "demo-skill"
-        skill.mkdir(parents=True, exist_ok=True)
-        (skill / "SKILL.md").write_text(DEMO_SKILL, encoding="utf-8")
-        return "fixture"
+    if role == "input-dir":
+        _catalog(root / ROOT_DIR)
+        return ROOT_DIR
     return "filler_out" if role == "output-dir" else "filler_out.json"
 
 
@@ -322,6 +382,21 @@ def _key(action: argparse.Action) -> str:
     return max(action.option_strings, key=len) if action.option_strings else action.dest
 
 
-def tree(base: Path) -> set[str]:
-    """Every path under ``base``, relative, links not followed."""
-    return {str(p.relative_to(base)) for p in base.rglob("*")} if base.exists() else set()
+def tree(base: Path) -> dict[str, str]:
+    """Every path under ``base``, relative, links not followed, with what tells a changed file from an untouched one."""
+    found = {}
+    for path in base.rglob("*") if base.exists() else []:
+        info = path.lstat()
+        if path.is_symlink():
+            what = f"link to {os.readlink(path)}"
+        else:
+            what = "directory" if path.is_dir() else f"file of {info.st_size} bytes, written at {info.st_mtime_ns}"
+        found[str(path.relative_to(base))] = what
+    return found
+
+
+def changes(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """What a run added, removed or changed, by path."""
+    return ([p for p in sorted(after) if p not in before]
+            + [f"removed {p}" for p in sorted(before) if p not in after]
+            + [f"changed {p}" for p in sorted(before) if p in after and before[p] != after[p]])

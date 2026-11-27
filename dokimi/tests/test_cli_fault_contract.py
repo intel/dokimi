@@ -10,7 +10,7 @@ without a new test. For each case the command runs in-process as `cli.main` runs
   unreadable or malformed input file ... an output file that cannot be written", or 1 too for
   `repo run` and `eval check`, which that section says still exit 1 for some input refusals;
 - print no ``Traceback`` (the table's exit 5, a crash);
-- leave nothing behind, in the working directory or outside it;
+- leave nothing behind and change nothing, in the working directory or outside it;
 - make no model call before it refuses a path it cannot read.
 
 A readable file gets four more values: JSON cut short, which is a malformed input (exit 2), and a JSON list,
@@ -36,6 +36,7 @@ answer False from 3.14 on.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import io
 import os
@@ -79,11 +80,23 @@ def _on_this_python(reason: str, version: tuple[int, int]) -> bool:
     return version < bound if tag[1] == "<" else version >= bound
 
 
+@functools.lru_cache(maxsize=None)
+def _parsed(path: Path) -> tuple[tuple[str, str, str, str], ...]:
+    """Every row of the allowlist file, read and checked once per process."""
+    rows = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = tuple(part.strip() for part in line.split("|", 3))
+        if len(parts) != 4:
+            raise ValueError(f"{path.name}:{number}: expected `command | parameter | fault | reason`, got {line!r}")
+        rows.append(parts)
+    return tuple(rows)  # type: ignore[arg-type]
+
+
 def _rows(path: Path, version: tuple[int, int] | None = sys.version_info[:2]) -> list[tuple[str, str, str, str]]:
     """The rows that describe Python ``version``; every row when it is None."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    rows = [tuple(part.strip() for part in line.split("|", 3)) for line in lines if line.strip() and not line.startswith("#")]
-    return [row for row in rows if version is None or _on_this_python(row[3], version)]  # type: ignore[misc]
+    return [row for row in _parsed(path) if version is None or _on_this_python(row[3], version)]
 
 
 def load_allowlist(path: Path = ALLOWLIST, version: tuple[int, int] | None = sys.version_info[:2]) -> dict[str, str]:
@@ -111,16 +124,22 @@ def _exit_code(exc: SystemExit) -> int:
     return exc.code or 0
 
 
+def _git_only_path(bin_dir: Path, windows: bool = os.name == "nt") -> str:
+    """A PATH that holds git and nothing else: a link to it in ``bin_dir``, or on Windows the directory of ``git.exe``."""
+    git = shutil.which("git")
+    if git and windows:
+        return str(Path(git).parent)
+    bin_dir.mkdir()
+    if git:
+        (bin_dir / "git").symlink_to(git)
+    return str(bin_dir)
+
+
 def _hermetic(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, root: Path) -> None:
     for name in list(os.environ):
         if _SECRET_ENV.search(name):
             monkeypatch.delenv(name)
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    git = shutil.which("git")
-    if git and os.name != "nt":
-        (bin_dir / "git").symlink_to(git)
-    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PATH", _git_only_path(tmp_path / "bin"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "home" / ".cache"))
     monkeypatch.chdir(root)
@@ -136,7 +155,7 @@ def run_case(case: cli_faults.Case, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     capsys.readouterr()
     del fake_llm.requests[:]
     try:
-        value = cli_faults.build(case.fault, case.param.role, root, outside)
+        value = cli_faults.build(case, root, outside)
     except cli_faults.Unbuildable as exc:
         pytest.skip(str(exc))
     args = cli_faults.argv(case, LEAVES[case.param.command], value, root)
@@ -147,12 +166,14 @@ def run_case(case: cli_faults.Case, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         cli.main()
         code = 0
     except SystemExit as exc:
+        if isinstance(exc.code, str):  # the interpreter prints it on the way out; this run never gets there
+            print(exc.code, file=sys.stderr)
         code = _exit_code(exc)
     finally:
         cli_faults.unlock(tmp_path)
     err = capsys.readouterr().err
-    left = sorted(cli_faults.tree(root) - before[0]) + [
-        f"../outside/{p}" for p in sorted(cli_faults.tree(outside) - before[1])]
+    left = cli_faults.changes(before[0], cli_faults.tree(root)) + [
+        f"../outside/{p}" for p in cli_faults.changes(before[1], cli_faults.tree(outside))]
     return Result(code, err, left, len(fake_llm.requests))
 
 
@@ -166,12 +187,14 @@ def problems(case: cli_faults.Case, result: Result) -> list[str]:
         return [f"exit {result.code} with a traceback ({lines[-1][:160] if lines else 'empty'})"] if crashed else []
     if result.model_calls and case.fault in UNREADABLE:
         found.append(f"{result.model_calls} model call(s) before the refusal")
+    if result.model_calls and case.fault == "truncated-json":  # cut-short JSON is no input: a call made on it is not a refusal
+        return [f"{result.model_calls} model call(s) on JSON cut short, which is not refused"]
     if result.code not in allowed:
         found.append(f"exit {result.code}, not {sorted(allowed)} (stderr: {lines[-1][:160] if lines else 'empty'})")
     if "Traceback" in result.err:
         found.append(f"traceback ({lines[-1][:160]})")
     if result.left:
-        found.append(f"left behind {', '.join(result.left[:4])}")
+        found.append(f"left behind or changed {', '.join(result.left[:4])}")
     return found
 
 
@@ -195,9 +218,9 @@ def control(param: cli_faults.Param, tmp_path: Path, monkeypatch, capsys, fake_l
 def reached(case: cli_faults.Case, result: Result, base: Path, answer: tuple[int, str]) -> bool:
     """Whether the hostile value changed anything: not when the control was refused and this run was refused in the same words.
 
-    A model call with a path no command can read past is a break whatever came next, so that run counts as reached.
+    A model call with a path no command can read past, or with JSON cut short, is a break whatever came next, so that run counts as reached.
     """
-    if result.model_calls and case.fault in UNREADABLE:
+    if result.model_calls and (case.fault in UNREADABLE or case.fault == "truncated-json"):
         return True
     if case.fault in cli_faults.CONTENT:  # read as text, or not read at all: the file's JSON was never parsed
         return _answer(result, base) != answer
@@ -230,7 +253,7 @@ def test_a_hostile_path_is_refused_cleanly(case, tmp_path, monkeypatch, capsys, 
     if not reached(case, result, base, answer):
         assert known is None, f"{case.id} is not reached: delete its row from {ALLOWLIST.name} ({known})"
         pytest.skip(f"not reached: a good value is refused in the same words ({_last(answer[1])})")
-    if result.model_calls and case.fault not in UNREADABLE:
+    if result.model_calls and case.fault not in UNREADABLE and case.fault != "truncated-json":
         pytest.skip("the file reads as valid input here: the command went on to a model call")
     found = problems(case, result)
     if known is None:
