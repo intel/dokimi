@@ -181,6 +181,41 @@ def test_a_name_with_differing_copies_is_left_out_of_the_total(tmp_path, capsys)
         assert _listing(tmp_path, capsys, *scan)["chars"] == len("bravo: Use when bravo runs.")
 
 
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_a_name_with_differing_copies_is_not_named_to_shorten(tmp_path, capsys, scan):
+    """#970: `largest` names only entries the total counts, so a conflicting name, however large, is not one to shorten."""
+    _alpha(tmp_path)
+    for parent in ("skills", "other"):
+        copy = tmp_path / parent / "dup"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(
+            f"---\nname: dup\ndescription: Use when {parent} {'x' * 200}.\n---\n# dup\n", encoding="utf-8")
+
+    listing = _listing(tmp_path, capsys, "--listing-budget", "1", *scan)
+
+    assert listing["chars"] == len(ENTRY)
+    assert listing["largest"] == [{"name": "alpha", "chars": len(ENTRY)}]
+
+
+def test_a_resumed_row_without_a_digest_is_named_as_the_total_counts_it(tmp_path, capsys):
+    """#970: a kept row with `content_sha256: null` counts on its own in the total, so `largest` names it too."""
+    _alpha(tmp_path)
+    _skill(tmp_path, "bravo", "Use when bravo runs.")
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    rows = [json.loads(line) for line in receipt.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["name"] == "bravo":
+            row["content_sha256"] = None
+    receipt.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    out, _ = _run([*base, "--resume", "--listing-budget", "1"], capsys)
+
+    assert "2 resumed" in out
+    assert "largest entries: alpha (27 chars), bravo (27 chars) (together 53 of the 53 characters" in out
+
+
 def test_json_names_the_budget_as_the_reason_a_scan_failed(tmp_path, capsys):
     """#966: `catalog check --json` under `--strict` says the listing is over the cap, not 'nothing to scan'."""
     _alpha(tmp_path)
