@@ -669,6 +669,21 @@ def test_a_bare_name_shared_by_two_runs_is_refused_even_when_it_resolves_in_the_
         apply_outcomes(runs, {"1": True, str(tmp_path / "base/1.jsonl"): False})
 
 
+def test_a_key_naming_one_run_by_path_does_not_also_judge_another_by_name(tmp_path, monkeypatch):
+    """#936: `1.jsonl` is a symlink to `other/2.jsonl` and also the file name of `base/1.jsonl`."""
+    (tmp_path / "base").mkdir()
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other/2.jsonl").write_text("")
+    try:
+        (tmp_path / "1.jsonl").symlink_to(tmp_path / "other/2.jsonl")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available here")
+    monkeypatch.chdir(tmp_path)
+    runs = [_run(str(tmp_path / "base/1.jsonl"), EDIT), _run(str(tmp_path / "other/2.jsonl"), EDIT)]
+    with pytest.raises(ValueError, match="by path"):
+        apply_outcomes(runs, {"1.jsonl": True})
+
+
 def test_keys_equal_to_each_runs_relative_path_judge_each_run(tmp_path, monkeypatch):
     """A key that is a run's own path as given is no shared name: each verdict goes to its run."""
     (tmp_path / "base").mkdir()

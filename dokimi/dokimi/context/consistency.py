@@ -403,6 +403,7 @@ def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     by_path: dict[str, list[str]] = {}  # resolved path -> the keys that spell it
     for k in outcomes:
         by_path.setdefault(os.path.realpath(k), []).append(k)
+    owner = {k: r.name for r in runs for k in by_path.get(os.path.realpath(r.name), [])}  # key -> run it names by path
     missing = []
     for run, name, stem in zip(runs, names, stems, strict=True):
         here = os.path.realpath(run.name)  # one file, however the path is spelled (symlinks, `..`)
@@ -416,6 +417,9 @@ def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
             continue
         for key, same in ((name, names), (stem, stems)):
             if key in outcomes:
+                if key in owner:
+                    raise ValueError(f"outcome key {key!r} names {owner[key]!r} by path, so it cannot also "
+                                     f"match {run.name!r} by file name; use the full path of each trace")
                 if same.count(key) > 1:
                     raise ValueError(f"outcome key {key!r} matches {same.count(key)} runs; "
                                      "use the full path of the trace")
