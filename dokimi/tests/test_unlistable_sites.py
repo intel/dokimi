@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import hashlib
 import os
 from pathlib import Path
@@ -23,7 +24,7 @@ from dokimi.harnesses.skill_treatment import check_skill
 from dokimi.repos.arms import _uncopyable
 from dokimi.repos.conformance import scenarios_of
 from dokimi.skills.formats import detect_skill_packages
-from dokimi.skills.loader import load_skill
+from dokimi.skills.loader import _not_listed_as_resource, load_skill
 from dokimi.treatments.factory import create_treatment
 from dokimi.utils import InputError
 
@@ -122,6 +123,49 @@ def test_a_skill_arm_with_a_folder_that_cannot_be_listed_is_refused_as_a_value_e
         create_treatment(f"{kind}:{skill}")
 
 
+def _eio_when_listing(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    real = os.scandir
+
+    def scandir(path):
+        if Path(path).name == name:
+            raise OSError(errno.EIO, "Input/output error", str(path))
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+
+
+@pytest.mark.parametrize("kind", ["skill", "skill-agent"])
+def test_a_skill_arm_whose_folder_fails_to_list_with_an_io_error_is_a_value_error(tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch):
+    skill = _skill(tmp_path)
+    _eio_when_listing(monkeypatch, "references")
+    with pytest.raises(ValueError, match=f"'{kind}:' folder cannot be listed.*Input/output error.*references"):
+        create_treatment(f"{kind}:{skill}")
+
+
+def test_a_skill_catalog_arm_whose_folder_fails_to_list_with_an_io_error_is_a_value_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    skill = _skill(tmp_path / "catalog")
+    _eio_when_listing(monkeypatch, "references")
+    with pytest.raises(ValueError, match="'skill-catalog:' folder cannot be listed.*Input/output error.*references"):
+        create_treatment(f"skill-catalog:{skill.parent}")
+
+
+@pytest.mark.parametrize("kind", ["skill", "skill-agent"])
+def test_a_skill_arm_with_no_skill_md_is_still_a_file_not_found_error(tmp_path: Path, kind: str):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(FileNotFoundError):
+        create_treatment(f"{kind}:{tmp_path / 'empty'}")
+
+
+def test_not_listed_as_resource_answers_a_bool_for_each_kind_of_entry(tmp_path: Path):
+    _write(tmp_path, {"__pycache__/m": "x", "plain/x": "x", ".open/x": "x", ".shut/x": "x", ".file": "f"})
+    assert _not_listed_as_resource(tmp_path / "__pycache__") is True
+    assert _not_listed_as_resource(tmp_path / "plain") is False
+    assert _not_listed_as_resource(tmp_path / ".file") is False
+    assert _not_listed_as_resource(tmp_path / ".open") is False
+    with unlistable(tmp_path / ".shut"):
+        assert _not_listed_as_resource(tmp_path / ".shut") is True
+
+
 def test_a_skill_catalog_arm_with_a_folder_that_cannot_be_listed_is_refused_as_a_value_error(tmp_path: Path):
     skill = _skill(tmp_path / "catalog")
     with unlistable(skill / "references"), pytest.raises(ValueError, match="'skill-catalog:' folder cannot be listed.*references"):
@@ -189,3 +233,9 @@ def test_leak_output_guard_refuses_when_it_cannot_list_the_skill(tmp_path: Path)
         _refuse_clobber(_clobber_args(skill, skill / "references" / "a.md"), None)
     with unlistable(skill / "references"), pytest.raises(InputError, match="references"):
         _refuse_clobber(_clobber_args(skill, elsewhere), None)
+
+
+def test_leak_output_guard_accepts_an_existing_output_beside_a_skill_folder(tmp_path: Path):  # test-quality: ok must-not-raise: the guard returns nothing when it accepts
+    skill = _skill(tmp_path)
+    other = _write(tmp_path / "other", {"leak.json": "{}"})
+    _refuse_clobber(_clobber_args(skill, other / "leak.json"), None)
