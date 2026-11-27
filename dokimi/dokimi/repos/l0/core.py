@@ -22,7 +22,7 @@ from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
 from ..source import GitTree, RepoTree, SourceError
-from . import branches, workflows
+from . import branches, own_repo, workflows
 from .gitignore import GitIgnore, Rule
 from .held import held_dirs
 from .identifiers import is_identifier
@@ -150,8 +150,7 @@ class Scan:
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        url = (self.repo_url or "").removesuffix(".git").rstrip("/")
-        self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
+        self._own_slug, self._own_link = own_repo.patterns(self.repo_url)
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
         self._cd_stack: list[list[str] | None] = []  # saved at `(`
 
@@ -276,16 +275,17 @@ class Scan:
         self.claims.append(Claim(file, line, kind, claim, status, why, ctx.strip()))
 
     # ---------- generic checks ----------
-    def resolve_path(self, file: str, raw: str) -> tuple[str, str] | None:
+    def resolve_path(self, file: str, raw: str, *, prose: bool = False) -> tuple[str, str] | None:
         """(status, why) for a path claim made in ``file``, or ``None`` if it is not a path claim.
 
         Tried at the file's directory and each ancestor. Not found there, a path is ``fail``
         when its parent directory exists at one of those bases (a rename or a deleted file),
         ``ok_suffix`` when it ends some path in the tree (a root file naming paths inside a
-        subproject), and ``unresolved`` otherwise (a build output, say).
+        subproject), and ``unresolved`` otherwise (a build output, say). Only a ``prose`` span can be
+        this repository's ``owner/name``.
         """
         p = raw.strip().rstrip(".,:;")
-        if not p or p.startswith(("http", "~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
+        if not p or own_repo.is_url_start(p, self._own_slug, prose) or p.startswith(("~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
             return None
         bases = ancestors(file)
         head, _, rest = p.partition("/")
@@ -303,7 +303,7 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        held = self._submodule_or_action(p, cands)
+        held = (own_repo.verdict(self._own_slug, p, cands, self.exists) if prose else None) or self._submodule_or_action(p, cands)
         if held:
             return held
         verdict = self._glob(bases, rel) if any(c in rel for c in "*<>{") else self._lookup(p, rel, cands)
@@ -564,7 +564,7 @@ class Scan:
         if "//" in span and adapters.label_claims(self, file, line, span):
             return
         if _PATHLIKE.match(span) or span in ROOT_FILES:
-            r = self.resolve_path(file, span)
+            r = self.resolve_path(file, span, prose=True)
             if r:
                 self.add(file, line, "path", span, r[0], r[1], ctx)
         elif is_identifier(span) and span not in CONVENTION_WORDS:
