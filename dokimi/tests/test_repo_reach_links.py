@@ -15,7 +15,7 @@ import pytest
 from dokimi.artifacts import validate_artifact
 from dokimi.repos import SourceError, WorkTree, load_manifest
 from dokimi.repos.harness_profile import load_profile
-from dokimi.repos.reach import run_reach
+from dokimi.repos.reach import ReachError, check_files, run_reach
 from test_repo_reach import _commit_links, _profile, _repo, _write
 
 
@@ -94,3 +94,38 @@ def test_resolve_names_a_fifo_as_not_a_regular_file(tmp_path, name):
         tree.resolve(name)
     with pytest.raises(SourceError, match="links to nothing"):
         tree.resolve("gone.md")
+
+
+@needs_fifo
+def test_an_unreadable_file_is_skipped_not_named_not_regular(tmp_path, monkeypatch):
+    """#1273: a path that cannot be looked at is named in skipped only; not_regular holds just FIFOs and the like."""
+    (tmp_path / "a.md").write_text("x\n", encoding="utf-8")
+    (tmp_path / "bad.md").write_text("x\n", encoding="utf-8")
+    os.mkfifo(tmp_path / "pipe.md")
+    real = os.lstat
+
+    def lstat(path, *a, **k):
+        if str(path).endswith("bad.md"):
+            raise PermissionError(13, "denied", str(path))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    tree = WorkTree(tmp_path)
+    assert tree.files() == ["a.md"]
+    assert tree.not_regular == ["pipe.md"]
+    assert tree.skipped_paths == ["bad.md"]
+
+
+@needs_fifo
+def test_check_files_names_a_fifo_guidance_file_when_nothing_else_matches(tmp_path):
+    """#1273: with no guidance file left, check_files says `is not a regular file` for a FIFO of a guidance name."""
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "cfg").mkdir()
+    os.mkfifo(tmp_path / "repo" / "CLAUDE.md")
+    tree = WorkTree(tmp_path / "repo")
+    profile = load_profile(_profile(tmp_path / "cfg"))
+    assert tree.files() == []
+    with pytest.raises(ReachError, match="each is not a regular file: CLAUDE.md"):
+        check_files([], profile, tree)
+    with pytest.raises(ReachError, match="no guidance files to probe"):
+        check_files([], profile)

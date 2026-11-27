@@ -179,8 +179,12 @@ class WorkTree:
                 links = [d for d in dirnames if (Path(dirpath) / d).is_symlink()]
                 # A FIFO, socket or device is no file to read (a read of a FIFO with no writer blocks), as in git (#1273).
                 paths = [(rel / name).as_posix().removeprefix("./") for name in filenames]
-                self.not_regular += [p for p in paths if not self._is_entry(p)]
-                out.extend(p for p in paths if p not in self.not_regular)
+                for p in paths:
+                    seen = len(self.skipped)
+                    if self._is_entry(p):
+                        out.append(p)
+                    elif len(self.skipped) == seen:  # one that could not be looked at is in ``skipped``, not here
+                        self.not_regular.append(p)
                 out.extend((rel / name).as_posix() for name in links)
             self._files = sorted(p.removeprefix("./") for p in out)
         return self._files

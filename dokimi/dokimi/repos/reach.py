@@ -223,10 +223,10 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
 
 
 def check_files(files: list[str], profile: HarnessProfile, tree: RepoTree | None = None) -> None:
-    """Refuse a tree with no guidance file to probe (``files``: probe_files), before any scenario is selected."""
+    """Refuse a tree with no guidance file to probe (``files``: probe_files); ``tree`` names its FIFOs and the like (#1273)."""
     if not files:
         if odd := [p for p in getattr(tree, "not_regular", []) if PurePosixPath(p).name in profile.guidance_names]:
-            raise ReachError("no guidance file to probe: each is not a regular file: " + "; ".join(sorted(odd)))  # #1273
+            raise ReachError("no guidance file to probe: each is not a regular file: " + "; ".join(sorted(odd)))
         raise ReachError(f"no guidance files to probe: the manifest's globs and the {profile.name} guidance names match nothing")
 
 
