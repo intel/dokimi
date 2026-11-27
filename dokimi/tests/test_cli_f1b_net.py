@@ -44,7 +44,7 @@ def test_a_canonical_timeout_or_network_spelling_is_not_moved(argv):
     assert cli_routes.moved_flags_argv(argv) is None
 
 
-REPO_RUN = ["repo", "run", "src", "--arm", "guidance:none", "--model", "m", "--batch", "b"]
+REPO_RUN = ["repo", "run", "src", "--arm", "guidance:none", "--model", "m", "--name", "b"]
 
 
 @pytest.mark.parametrize(("argv", "dest", "value"), [
