@@ -14,24 +14,31 @@ from collections import Counter
 from typing import Any
 
 
+_FIELDS = ("level", "code", "message")
+_BAD = ("not a `catalog check --format json` report: each skill is an object with a string `relpath` whose `findings` is a list of objects "
+        "with a string `level`, `code` and `message` (#960, docs/external-content.md, Repair receipt)")
+
+
 def _rows(report: dict) -> list[dict[str, Any]]:
-    """Every finding of the report as ``{"skill", "level", "code", "message"}``."""
+    """Every finding of the report as ``{"skill", "level", "code", "message"}``; other finding fields are left out."""
     skills = report.get("skills")
     if not isinstance(skills, list):
         raise ValueError("not a `catalog check --format json` report: it has no `skills` list (#960)")
     rows = []
     for skill in skills:
-        findings = skill.get("findings", []) if isinstance(skill, dict) else None  # absent is none; null/false is invalid
-        if not isinstance(findings, list) or not all(isinstance(f, dict) for f in findings):
-            raise ValueError("not a `catalog check --format json` report: each skill is an object whose `findings` "
-                             "is a list of objects (#960, docs/external-content.md, Repair receipt)")
+        findings = skill.get("findings") if isinstance(skill, dict) else None  # `catalog check` always writes it
+        name = skill.get("relpath") or skill.get("path") if isinstance(skill, dict) else None
+        if not isinstance(findings, list) or not (name is None or isinstance(name, str)):
+            raise ValueError(_BAD)
         for finding in findings:
-            rows.append({"skill": skill.get("relpath") or skill.get("path"), **finding})
+            if not isinstance(finding, dict) or not all(isinstance(finding.get(k), str) for k in _FIELDS):
+                raise ValueError(_BAD)
+            rows.append({"skill": name, **{k: finding[k] for k in _FIELDS}})
     return rows
 
 
-def _key(row: dict) -> str:
-    return repr(sorted(row.items()))
+def _key(row: dict) -> tuple:
+    return (row["skill"], *(row[k] for k in _FIELDS))
 
 
 def _minus(rows: list[dict], other: list[dict]) -> list[dict]:
@@ -39,8 +46,9 @@ def _minus(rows: list[dict], other: list[dict]) -> list[dict]:
     pool = Counter(map(_key, other))
     left = []
     for row in rows:
-        if pool[_key(row)] > 0:
-            pool[_key(row)] -= 1
+        key = _key(row)
+        if pool[key] > 0:
+            pool[key] -= 1
         else:
             left.append(row)
     return left

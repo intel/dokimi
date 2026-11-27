@@ -13,6 +13,7 @@ from dokimi.cli import build_parser
 from dokimi.external import online_checks
 from dokimi.external.repair_receipt import repair_receipt
 from dokimi.utils import InputError
+# `_no_environment_proxy` is an autouse fixture: importing it applies it to every test in this module.
 from tests.test_catalog_online import Web, _no_environment_proxy, _one_skill, _scan_capture  # noqa: F401
 from tests.test_catalog_validate import _scan_json, _skill
 
@@ -69,6 +70,15 @@ def test_the_same_finding_in_two_skills_is_two_rows_and_a_repeat_is_counted_once
     assert receipt["counts"] == {"cleared": 1, "added": 0, "retained": 1}
 
 
+def test_a_field_beyond_level_code_and_message_is_not_part_of_the_row():
+    """#960 (docs/external-content.md, Repair receipt): a `script` field that differs between scans is the same row."""
+    old = {"skills": [{"relpath": "s", "findings": [{"level": "warn", "code": "x", "message": "m", "script": "a.sh"}]}]}
+    new = {"skills": [{"relpath": "s", "findings": [{"level": "warn", "code": "x", "message": "m", "script": "b.sh"}]}]}
+    receipt = repair_receipt(old, new, "f")
+    assert receipt["counts"] == {"cleared": 0, "added": 0, "retained": 1}
+    assert receipt["retained"] == [{"skill": "s", "level": "warn", "code": "x", "message": "m"}]
+
+
 def test_empty_reports_give_an_empty_receipt_and_a_non_report_is_refused():
     """#960: no findings give an empty receipt; a report without `skills` is refused (docs/external-content.md, Repair receipt)."""
     assert repair_receipt({"skills": []}, {"skills": []}, "f")["counts"] == {"cleared": 0, "added": 0, "retained": 0}
@@ -113,6 +123,10 @@ def test_the_command_refuses_a_missing_file_a_non_report_and_an_unwritable_out(t
     '{"skills": [{"relpath": "s", "findings": [null]}]}',
     '{"skills": [{"relpath": "s", "findings": 3}]}',
     '{"skills": [{"relpath": "s", "findings": ["x"]}]}',
+    '{"skills": [{"relpath": "s"}]}',
+    '{"skills": [{"relpath": "s", "findings": [{}]}]}',
+    '{"skills": [{"relpath": "s", "findings": [{"level": "warn", "code": "x"}]}]}',
+    '{"skills": [{"relpath": "s", "findings": [{"level": "warn", "code": "x", "message": 3}]}]}',
 ])
 def test_a_malformed_row_is_a_usage_error_and_not_a_traceback(tmp_path, body):
     """#960 (docs/external-content.md, Repair receipt): a file that is not a `catalog check` report is a usage error."""
@@ -123,6 +137,17 @@ def test_a_malformed_row_is_a_usage_error_and_not_a_traceback(tmp_path, body):
         _cmd([str(bad), str(good), "f"])
     with pytest.raises(InputError, match="not a `catalog check --format json` report"):
         _cmd([str(good), str(bad), "f"])
+
+
+@pytest.mark.parametrize("name", ['["s"]', '{"a": 1}', "3"])
+def test_a_skill_path_that_is_not_a_string_is_a_usage_error_and_not_a_traceback(tmp_path, name):
+    """#960 (docs/external-content.md, Repair receipt): an unhashable `relpath` must not raise a TypeError."""
+    bad, good = tmp_path / "bad.json", tmp_path / "good.json"
+    bad.write_text('{"skills": [{"relpath": %s, "findings": [{"level": "warn", "code": "x", "message": "m"}]}]}' % name,
+                   encoding="utf-8")
+    good.write_text('{"skills": []}', encoding="utf-8")
+    with pytest.raises(InputError, match="not a `catalog check --format json` report"):
+        _cmd([str(bad), str(good), "f"])
 
 
 @pytest.mark.parametrize("findings", ["false", "null", "0", '""', "{}"])
