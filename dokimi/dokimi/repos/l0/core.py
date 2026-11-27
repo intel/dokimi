@@ -553,7 +553,6 @@ class Scan:
 
     def check_span(self, file: str, line: int, span: str, ctx: str) -> None:
         from . import adapters
-
         toks = tokens(span)
         if toks and toks[0] in adapters.COMMANDS:
             self.check_command(file, line, span, ctx)
@@ -564,7 +563,8 @@ class Scan:
         if _PATHLIKE.match(span) or span in ROOT_FILES:
             r = self.resolve_path(file, span)
             if r:
-                if r[0] == "unresolved" and r[1].startswith("tried ") and ";" not in r[1] and _LITERAL_CONFIG.fullmatch(span):
+                if r[0] == "unresolved" and r[1].startswith("tried ") and ";" not in r[1] and _LITERAL_CONFIG.fullmatch(span) and (
+                        len(top := posixpath.normpath(span).strip("/").split("/")) <= 2 or top[0] == ".." or self.exists(top[0])):
                     r = "fail", f"{span} does not exist"
                 self.add(file, line, "path", span, r[0], r[1], ctx)
         elif is_identifier(span) and span not in CONVENTION_WORDS:
