@@ -27,11 +27,14 @@ _ENTRY = re.compile(r"^\s*[-*] \S", re.MULTILINE)
 
 
 # A backtick fence's info string has no backtick: ```x``` is an inline span.
-_FENCE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
+# A fence may open on a list item's own line (``- ```md``).
+_ITEM = r"(?:[-*+]|\d{1,9}[.)])"
+_FENCE = re.compile(rf"^ {{0,3}}(?:{_ITEM} {{1,4}})?(`{{3,}}(?=[^`]*$)|~{{3,}})")
+_LIST = re.compile(rf"^ {{0,3}}{_ITEM} ")
 _TICKS = re.compile(r"`+")
 _HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
-# A heading, a list item or an HTML comment at the start of a line ends the paragraph a code span lives in.
-_BLOCK = re.compile(r"^(?: {0,3}(?:#{1,6}(?:\s|$)|<!--)|\s*[-*+] \S)")
+# A heading, a bullet, a ``1.`` item (only 1 interrupts a paragraph) or an HTML comment at the start of a line ends the paragraph a code span lives in.
+_BLOCK = re.compile(rf"^(?: {0,3}(?:#{1,6}(?:\s|$)|<!--)|\s*(?:[-*+]|1[.)]) \S)")
 
 
 def _closes(lines: list[str], row: int, col: int, size: int) -> bool:
@@ -89,19 +92,30 @@ def _scan(lines: list[str]) -> list[tuple[bool, str]]:
     escaped ``\\<`` mean nothing; backticks inside a comment are literal.
     """
     scanned, opener, in_comment, span = [], "", False, 0
+    base = 0   # the open fence's container indent: a line less indented ends the fence
+    in_list, code = False, False   # in a list item; the last line was indented code
     for row, line in enumerate(lines):
+        if opener and line.strip() and len(line) - len(line.lstrip(" ")) < base:
+            opener = ""   # the list item holding the fence ended
         if opener:
-            fence = _FENCE.match(line)
             scanned.append((False, ""))
-            if (fence and fence[1][0] == opener[0] and len(fence[1]) >= len(opener)
-                    and not line.strip().strip(opener[0])):
+            if re.match(rf"^ {{{base},{base + 3}}}([`~]{{3,}})\s*$", line) and (
+                    line.strip()[0] == opener[0] and len(line.strip()) >= len(opener)):
                 opener = ""
             continue
         fence = None if in_comment or span else _FENCE.match(line)
         if fence:
-            opener = fence[1]
+            opener, base = fence[1], (fence.start(1) if _LIST.match(line) else 0)
             scanned.append((False, ""))
             continue
+        if not (in_comment or span) and line.startswith(("    ", "\t")) and not in_list and (
+                code or row == 0 or not lines[row - 1].strip()):
+            code = True   # indented code: its comment markers and backticks are literal
+            scanned.append((True, ""))
+            continue
+        code = False
+        if line.strip() and not line.startswith(("    ", "\t")):
+            in_list = bool(_LIST.match(line))
         starts_visible = not in_comment
         text, in_comment, span = _inline(lines, row, in_comment, span)
         scanned.append((starts_visible, text))

@@ -210,6 +210,60 @@ def test_an_indented_code_example_is_not_a_fence(tmp_path):
     assert found == []
 
 
+def test_an_ordered_item_ends_the_paragraph_a_code_span_lives_in(tmp_path):
+    """#1290: ``1.`` interrupts a paragraph, so its comment is not closed by an earlier backtick."""
+    text = "## [0.2.0]\n\nExample `literal\n1. <!-- draft `\n   - Hidden entry\n   -->\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries" in problem for problem in found)
+
+
+def test_a_fence_opened_on_a_list_item_line_is_tracked():
+    """#1290: ``- ```md`` opens a fence, so its closer is not read as a new opener."""
+    text = "## [0.2.0]\n\n- ```markdown\n  example\n  ```\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- ```markdown\n  example\n  ```\n\n- Real entry."
+
+
+def test_a_comment_marker_in_indented_code_is_literal(tmp_path):
+    """#1290: an indented code line opens no comment, so the entry after it counts."""
+    text = "## [0.2.0]\n\n    <!-- literal example\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "    <!-- literal example\n\n- Real entry."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_indented_nested_bullet_still_counts(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_a_fence_on_a_multi_digit_item_closes_at_its_content_indent(tmp_path):
+    text = "## [0.2.0]\n\n10. ```markdown\n    example\n    ```\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == text.split("\n## [0.1.0]")[0][len("## [0.2.0]\n\n"):].rstrip()
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_fence_in_a_list_item_ends_with_the_item(tmp_path):
+    text = "## [0.2.0]\n\n- ~~~markdown\n  example\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- ~~~markdown\n  example\n\n- Real entry."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_list_fence_closer_is_at_most_three_spaces_past_the_item(tmp_path):
+    text = ("## [0.2.0]\n\n- ~~~markdown\n      ~~~\n  <!-- literal example\n  ~~~\n\n"
+            "- Real entry.\n\n## [0.1.0]\n- Old entry.\n")
+    assert "Old entry" not in cr.release_notes(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_only_item_one_interrupts_a_paragraph(tmp_path):
+    text = "## [0.2.0]\n\nExample `literal\n2. <!-- literal`\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
 def test_a_triple_backtick_span_is_not_a_fence(tmp_path):
     """#1290: ```example``` closes on its line, so it opens no fence."""
     text = "## [0.2.0]\n\n```example```\n\n- Real entry.\n"
