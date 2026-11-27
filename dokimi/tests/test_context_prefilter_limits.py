@@ -32,6 +32,8 @@ def test_a_limit_in_words_with_a_number_is_kept_protected(rule):
     "Run `make test-50` after each change to the build.",
     "Keep 50 as the default.",
     "Store reports under reports/2026/.",
+    "Store reports under `2026.d/`.",
+    "Store reports under `2026\\archive`.",
 ])
 def test_a_rule_with_no_limit_is_not_protected_by_a_number_alone(rule):
     """#937: only a limit word with a number, or a counted noun, reads as a threshold."""

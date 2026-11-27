@@ -130,7 +130,8 @@ def test_a_skipped_line_of_a_subagent_transcript_named_alone_makes_the_report_pa
     assert _json_status(tmp_path, capsys, good, lone) == "partial"
 
 
-_PAGE = " ".join((Path(__file__).resolve().parent.parent / "docs" / "session-prefilter.md").read_text(encoding="utf-8").split())
+def _page():
+    return " ".join((Path(__file__).resolve().parent.parent / "docs" / "session-prefilter.md").read_text(encoding="utf-8").split())
 
 
 def test_a_log_that_cannot_be_read_alone_is_refused_not_partial(tmp_path):
@@ -142,7 +143,7 @@ def test_a_log_that_cannot_be_read_alone_is_refused_not_partial(tmp_path):
     args = build_parser().parse_args(["trace", "prefilter", str(guide), str(bad), "--json"])
     with pytest.raises(InputError, match="no session could be read"):
         args.func(args)
-    assert re.search(r"When no session can be read at all.{0,80}exit 2.{0,80}`failed` document", _PAGE)
+    assert re.search(r"When no session can be read at all.{0,80}exit 2.{0,80}`failed` document", _page())
 
 
 def test_a_failed_subagent_transcript_is_a_warning_with_exit_0(tmp_path, capsys):
@@ -152,4 +153,4 @@ def test_a_failed_subagent_transcript_is_a_warning_with_exit_0(tmp_path, capsys)
     (tmp_path / "s1" / "subagents").mkdir(parents=True)
     (tmp_path / "s1" / "subagents" / "agent-a.jsonl").write_text('{"type":"summary","summary":"x"}\n', encoding="utf-8")
     assert _json_status(tmp_path, capsys, a, b) == "partial"  # returns, so the exit code stays 0
-    assert re.search(r"files named on the command line failed\. A failed subagent transcript.{0,200}exit code stays 0", _PAGE)
+    assert re.search(r"files named on the command line failed\. A failed subagent transcript.{0,200}exit code stays 0", _page())

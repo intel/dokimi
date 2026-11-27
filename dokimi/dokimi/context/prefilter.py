@@ -51,8 +51,8 @@ _BACKTICK = re.compile(r"`([^`\n]+)`")
 _LIMIT = re.compile(
     r"\b(?:under|over|above|below|at\s+most|at\s+least|up\s+to|no\s+more\s+than|no\s+fewer\s+than|fewer\s+than|"
     r"less\s+than|more\s+than|max(?:imum)?|min(?:imum)?|limit(?:ed)?)\s+(?:[a-z]+\s+){0,8}?"
-    r"(?<![\w/.-])\d+(?:\.\d+)?(?![\w/-])"  # words only up to the number: ``under reports/2026/`` is a place
-    r"|(?<![\w/.-])\d+\s+(?:[a-z-]+\s+)?(?:lines?|retry|retries|attempts?|files?|characters?|chars?|words?|steps?|"
+    r"(?<![\w/\\.-])\d+(?:\.\d+)?(?![\w/\\-])(?!\.\w)"  # words only up to the number: ``under reports/2026/`` is a place
+    r"|(?<![\w/\\.-])\d+\s+(?:[a-z-]+\s+)?(?:lines?|retry|retries|attempts?|files?|characters?|chars?|words?|steps?|"
     r"items?|commits?|rows?|columns?|minutes?|hours?|days?)\b", re.I)
 _BACKTICK_NUMBER = re.compile(r"`(\d[^`\n]*)`")  # ``50`` or ``50 lines`` is a quantity written as code, not a command
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")

@@ -79,7 +79,7 @@ memory echo of a rule would otherwise trigger that rule on every session.
 | `in_use` | Triggered in at least `--in-use-rate` of the sessions, or acted on in at least that share (`sessions_acted`: a tool call ran its command or touched its path anywhere in the session, triggered or not). | no |
 | `rare_not_ranked` | Triggered in 1 through `--rare-max` sessions. Few sessions are too little evidence to call a rule unused. | no |
 | `not_measurable` | The rule names no words and no key a session can be matched on (only globs or `~` paths), so it cannot trigger; its zero count says nothing. | no |
-| `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses; the prefilter also reads a limit in words with a number, such as `under 50 lines`, `at most 3 retries` or `limit ... to 400`, as a threshold). Its failure case is rare by design. | no |
+| `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses; the prefilter also reads a limit in words with a number, such as `under 50 lines`, `at most 3 retries` or `limit the PR to 400`, as a threshold). Its failure case is rare by design. | no |
 | `insufficient_corpus` | Fewer than `--min-sessions` sessions were read. | no |
 
 Precedence: `kept_protected`, then `insufficient_corpus`, then `not_measurable`, then `in_use` by acted share, then a rule with no trigger
