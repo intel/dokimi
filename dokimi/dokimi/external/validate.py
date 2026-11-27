@@ -368,9 +368,17 @@ def _unloaded_safety(candidate: Path, meta: dict, root: Path, standalone: bool) 
 
 
 def _unloaded_content(candidate: Path, root: Path, standalone: bool) -> list[Finding]:
-    """The content findings of an unloaded ``SKILL.md`` whose broken YAML is its only other finding (#1089)."""
+    """The content findings of an unloaded ``SKILL.md`` and its bundled files (#1089)."""
     at_root = candidate.parent.resolve() == root.resolve() and not standalone
     return [Finding("warn", code, message) for code, message in skill_md_content_findings(candidate, at_root=at_root)]
+
+
+def _kept_load_error_review(entry: SkillCatalogEntry, candidate: Path, standalone: bool) -> Optional[SkillReview]:
+    """The loader's error plus the content findings of a broken skill's bundled files; None when there are none."""
+    content = _unloaded_content(candidate, entry.source_root, standalone)
+    if not content:
+        return None
+    return SkillReview(findings=[Finding("error", "not-loaded", entry.error or "the skill did not load")] + content)
 
 
 def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
@@ -399,7 +407,7 @@ def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Opti
     fmt = skill_format(candidate, entry.source_root)
     if keeps_load_error(fmt, lines, first, unquoted):
         # a broken skill, not prose or a missing description; the loader's error stands, and its bundled files are still read (#1089)
-        return SkillReview(findings=content) if (content := _unloaded_content(candidate, entry.source_root, standalone)) else None
+        return _kept_load_error_review(entry, candidate, standalone)
     if first.strip() != "---" or not opens_frontmatter(unquoted):  # a rule or prose, not a broken block
         loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
         if loaded:

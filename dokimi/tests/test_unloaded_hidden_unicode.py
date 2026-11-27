@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external import read_skill_manifest, review_skill_dir, review_skills
 
 BROKEN = "---\nname: [broken\ndescription: x: y: [\n---\nbody\n"
 VALID = "---\nname: parent\ndescription: Use when testing.\n---\nbody\n"
@@ -63,7 +63,7 @@ def test_unsupported_host_note_says_content_was_checked(tmp_path):
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
     (skill / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
-    findings = [f for r in review_skills(read_skill_manifest(tmp_path)) for f in r.findings]
+    findings = [f for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
     assert any(f.code == "hidden-unicode" for f in findings)
     [note] = [f.message for f in findings if f.code == "unsupported-skill-format"]
     assert "only its commands and its Bash grant" not in note
@@ -78,3 +78,15 @@ def test_indented_closing_delimiter_skill_reports_bidi_character_under_unsupport
     (parent / "bad" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
     [message] = _hidden(tmp_path)
     assert message.startswith("notes.md line 1: U+202E")
+
+
+def test_standalone_review_of_indented_closing_delimiter_skill_keeps_load_error(tmp_path):
+    """#1089: `review_skill_dir` on a skill that fails to load stays `error` when a bundled file has a hidden character."""
+    bad = tmp_path / ".cursor" / "skills" / "parent" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\nname: [broken\ndescription: x\n  ---\nbody\n", encoding="utf-8")
+    (bad / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    review = review_skill_dir(bad)
+    codes = [f.code for f in review.findings]
+    assert review.state == "error"
+    assert "not-loaded" in codes and "hidden-unicode" in codes
