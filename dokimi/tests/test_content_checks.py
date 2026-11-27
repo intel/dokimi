@@ -602,7 +602,27 @@ def test_visible_neighbours_of_the_fillers_are_not_reported(tmp_path, neighbour)
 def test_more_than_three_script_fillers_on_a_line_are_all_reported(tmp_path, letters, cp):
     """#1274: seven fillers beside script letters on one line carry hidden bits; each is reported."""
     text = "Review code. " + "".join(c + chr(cp) for c in letters) + " Use it."
-    assert len(_hidden(tmp_path, text)) == 6  # five listed plus the count row
+    from dokimi.external.content_checks import REPORT_PER_FILE
+
+    hits = _hidden(tmp_path, text)
+    assert len(hits) == REPORT_PER_FILE + 1
+    assert hits[-1].endswith(f"{len(letters) - REPORT_PER_FILE} more hidden characters not listed")
+
+
+def test_filler_grouping_does_not_rescan_a_long_line():
+    """#1274: finding each filler's line must not search the text from its start: the work stays linear."""
+    from dokimi.external.content_checks import _hidden_hits
+
+    spans = []
+
+    class Counting(str):
+        def rfind(self, sub, start=0, end=None):
+            spans.append((len(self) if end is None else end) - start)
+            return super().rfind(sub, start, end)
+
+    text = Counting("α\u034f" * 2000)
+    assert len(_hidden_hits("a.txt", text)) == 6
+    assert sum(spans) <= 4 * len(text)
 
 
 @pytest.mark.parametrize("count,reported", [(3, 0), (4, 4)], ids=["three", "four"])
