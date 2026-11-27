@@ -884,3 +884,12 @@ def test_many_escaped_braille_blanks_are_scanned_in_linear_time(tmp_path):
     start = time.perf_counter()
     _messages(tmp_path, "hidden-unicode")
     assert time.perf_counter() - start < 5
+
+
+def test_escaped_exempt_fillers_beyond_the_line_limit_are_reported(tmp_path):
+    """#1285: four U+034F beside Greek letters are reported when written as escapes, as they are when literal."""
+    _escaped_skill(tmp_path, '"Use for \\u03b1\\u034F\\u03b1\\u034F\\u03b1\\u034F\\u03b1\\u034F"')
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 4
+    assert all("front matter description: U+034F" in m for m in messages)

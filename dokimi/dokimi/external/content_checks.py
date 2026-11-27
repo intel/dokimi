@@ -230,13 +230,10 @@ def _is_hidden(text: str, index: int, bidi_exempt: set[int], runs: dict[int, tup
 
 
 def _hidden_indexes(text: str) -> list[int]:
+    """Every hidden index of ``text``, with the exempt fillers of a line that holds more than FILLERS_PER_LINE."""
     bidi_exempt = _bidi_mark_exempt(text)
     runs = _braille_runs(text)
-    return [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt, runs)]
-
-
-def _hidden_hits(where: str, text: str) -> list[Hit]:
-    found = _hidden_indexes(text)
+    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt, runs)]
     kept: dict[int, list[int]] = {}  # line number -> fillers exempt as script text (not Braille: a run of blanks is normal)
     line_no = 0
     for i, ch in enumerate(text):
@@ -244,7 +241,11 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
             line_no += 1
         elif ord(ch) in (0x034F, 0x115F, 0x1160) and _filler_exempt(text, i):
             kept.setdefault(line_no, []).append(i)
-    found = sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+    return sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+
+
+def _hidden_hits(where: str, text: str) -> list[Hit]:
+    found = _hidden_indexes(text)
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
