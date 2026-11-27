@@ -343,6 +343,26 @@ def test_compare_plugin_runs_refuses_profile_digests_swapped_between_questions()
         compare_plugin_runs(baseline, plugin)
 
 
+def test_compare_plugin_runs_refuses_edited_profile_digests_on_different_questions():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline["answers"][0]["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": "sha256:before"}
+    plugin["answers"][1]["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": "sha256:after"}
+
+    with pytest.raises(PluginDeltaError, match=r"different profile prompt digests for arm 'skill'$"):
+        compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_warns_about_a_setting_one_run_omits():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    for artifact in (baseline, plugin):
+        artifact.update(judge_prompt_sha256="a" * 64, judge_resolved_models=["judge-2026-11-01"])
+    plugin["judge_temperature"] = None
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert "judge settings were not fully recorded (judge_temperature)" in payload["warnings"]
+
+
 @pytest.mark.parametrize(("field", "before", "after"), [
     ("judge_prompt_sha256", "a" * 64, "b" * 64),
     ("judge_prompt_sha256", "a" * 64, None),
