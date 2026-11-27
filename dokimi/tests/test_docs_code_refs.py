@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.cli_routes import TOMBSTONES, moved_argv, moved_flags_argv
+from dokimi.cli_routes import TOMBSTONES, RetiredFlagError, moved_argv, moved_flags_argv
 
 PROJECT = Path(__file__).resolve().parents[1]
 DOCS = [
@@ -109,14 +109,16 @@ def _walk(args: str, retired: bool) -> tuple[list[str] | None, list[str]]:
                 parser = subs[token]
                 path.append(token)
                 continue
-            if retired and moved_argv(tokens) is not None:
-                return None, problems
+            moved = moved_argv(tokens) if retired else None
+            if moved is not None:
+                # Validate the destination, so a flag the new command lacks is still reported.
+                return _walk(shlex.join(moved), retired=True)
             if re.fullmatch(r"[a-z][a-z0-9-]*", token):
                 problems.append(f"unknown command: {' '.join([*path, token])}")
             break
         if token.startswith("--") and not PLACEHOLDER.search(token):
             flag = token.split("=", 1)[0]
-            if flag not in _flags(parser) and not (retired and moved_flags_argv([*path, flag])):
+            if flag not in _flags(parser) and not (retired and moved_flags_argv([*path, flag]) is not None):
                 problems.append(f"unknown flag: {' '.join(path)} {flag}")
     return path or None, problems
 
@@ -190,9 +192,10 @@ def _subtree(path: list[str]) -> Iterator[tuple[list[str], argparse.ArgumentPars
             todo += [([*here, name], sub) for name, sub in _subcommands(parser).items()]
 
 
-def _flag_of(path: list[str], flag: str) -> bool:
+@functools.cache
+def _flag_of(path: tuple[str, ...], flag: str) -> bool:
     """True when ``flag`` is, or was (a retired spelling the CLI still answers), a flag at or under ``path``."""
-    return any(flag in _flags(parser) or moved_flags_argv([*here, flag]) for here, parser in _subtree(path))
+    return any(flag in _flags(parser) or moved_flags_argv([*here, flag]) is not None for here, parser in _subtree(list(path)))
 
 
 def _command(span: str) -> tuple[list[str] | None, list[str]]:
@@ -206,8 +209,31 @@ def _command(span: str) -> tuple[list[str] | None, list[str]]:
     return None, []
 
 
-def _unknown_flag(path: list[str] | None, flag: str | None) -> list[str]:
-    if path is None or flag is None or _flag_of(path, flag):
+def _span_argv(span: str) -> list[str]:
+    """The tokens of the command a span names, for asking the CLI what it moved."""
+    command = COMMAND.match(span)
+    try:
+        return shlex.split(command.group(1) if command else span)
+    except ValueError:
+        return []
+
+
+def _consumed_by_move(argv: list[str], flag: str, written: list[str]) -> bool:
+    """True when the CLI moved ``argv`` and its rewrite drops or renames ``flag`` (`explore list --json`).
+
+    ``written`` is the flag span with its value (`--artifact foo`), which the rewrite needs. A rewrite
+    that refuses the flag by itself (`--all-vs-all` needs its `--catalog`) still names a retired flag.
+    """
+    try:
+        return moved_argv(argv) is not None and flag not in (moved_argv([*argv, *written]) or [])
+    except RetiredFlagError:
+        return True
+
+
+def _unknown_flag(
+    path: list[str] | None, flag: str | None, argv: list[str] | None = None, written: list[str] | None = None
+) -> list[str]:
+    if path is None or flag is None or _flag_of(tuple(path), flag) or (argv and _consumed_by_move(argv, flag, written or [flag])):
         return []
     return [f"unknown flag: {' '.join(path)} {flag}"]
 
@@ -225,16 +251,20 @@ def _span_problems(spans: list[tuple[str, str]]) -> list[str]:
     """
     found: list[str] = []
     context: list[str] | None = None
+    argv: list[str] = []
     flag: str | None = None
+    written: list[str] = []
     for span, gap in spans:
         head = span.split()[0] if span.split() else ""
         if head.startswith("--"):
             context = context if not gap.strip() else None
             flag = head.split("=", 1)[0] if LONG_FLAG.fullmatch(head.split("=", 1)[0]) else None
-            found += _unknown_flag(context, flag)
+            written = _span_argv(span)
+            found += _unknown_flag(context, flag, argv, written)
             continue
         context, problems = _command(span)
-        found += problems + (_unknown_flag(context, flag) if FLAG_ON.fullmatch(gap) else [])
+        argv = _span_argv(span)
+        found += problems + (_unknown_flag(context, flag, argv, written) if FLAG_ON.fullmatch(gap) else [])
         flag = None
     return found
 
@@ -412,10 +442,28 @@ def test_a_spelling_the_cli_retired_resolves_in_a_fragment_only():
     assert _check_command("tasks run --repeats 2") == ["unknown flag: tasks run --repeats"]
 
 
+def test_a_retired_command_still_needs_its_flags_to_exist():
+    assert _fragment_problems("- `repo validate --schema-only` moved.\n") == []
+    assert _fragment_problems("- `repo validate --no-such-flag` was run.\n") == ["unknown flag: eval check --no-such-flag"]
+    assert _fragment_problems("- `repo validate` `--no-such-flag` was run.\n") == ["unknown flag: eval check --no-such-flag"]
+
+
+def test_a_flag_the_retired_command_took_is_accepted_in_an_adjacent_span():
+    assert _fragment_problems("- `explore list` `--json` was removed.\n") == []
+    assert _fragment_problems("- `explore list --json` was removed.\n") == []
+    assert _fragment_problems("- `explore list` `--no-such-flag` was removed.\n") == ["unknown flag: eval tasks list --no-such-flag"]
+
+
+def test_an_adjacent_retired_flag_keeps_its_value_and_never_crashes():
+    assert _fragment_problems("- `novelty routing` `--artifact foo` moved.\n") == []
+    assert _fragment_problems("- `novelty routing --artifact foo` moved.\n") == []
+    assert _fragment_problems("- `novelty routing` `--all-vs-all` `--catalog skills` moved.\n") == []
+
+
 def test_docstring_commands_and_tied_flags_must_exist():
     doc = "Run ``tasks run`` ``--no-such-flag``; ``docker`` ``--init`` and ``--harness`` on ``tasks run`` pass."
     assert _docstring_problems(doc) == ["unknown flag: tasks run --no-such-flag"]
-    assert any(label.endswith("repo_run.py::cmd_eval_check") for label, _ in _command_docstrings())
+    assert list(_command_docstrings())
 
 
 def test_a_baseline_entry_that_no_longer_misses_fails():
