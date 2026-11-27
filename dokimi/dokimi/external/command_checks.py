@@ -303,16 +303,25 @@ def _installed_npm(rest: str, value_options: frozenset[str]) -> set[str]:
 
 
 NON_INSTALLING = frozenset({"--package-lock-only", "--lockfile-only", "--dry-run"})
+DEV_ONLY = frozenset({"--save-dev", "-D", "--dev"})  # with ``--omit=dev`` the package is recorded but not put on disk
 
 
 def _installs(call: str) -> bool:
-    """Whether an ``npm``/``pnpm`` install puts packages on disk: ``--package-lock-only``, ``--lockfile-only`` and
-    ``--dry-run`` (unless ``=false``) write no executable."""
+    """Whether an ``npm``/``pnpm`` install puts a runnable executable on disk: ``--package-lock-only``,
+    ``--lockfile-only`` and ``--dry-run`` write nothing, ``--no-bin-links`` / ``--bin-links=false`` leave no ``.bin``
+    link for ``npx`` to find, and a ``--save-dev`` install with ``--omit=dev`` / ``--production`` skips the package.
+    ``=false`` turns a flag off."""
     try:
         words = shlex.split(call)
     except ValueError:  # an unbalanced quote: the words as written
         words = call.split()
-    return not any(name in NON_INSTALLING and value != "false" for name, _, value in (w.partition("=") for w in words))
+    flags = {name: value for name, _, value in (w.partition("=") for w in words)}
+    on = lambda name: name in flags and flags[name] != "false"  # noqa: E731
+    omits_dev = flags.get("--omit") == "dev" or on("--production") or flags.get("--only") in ("prod", "production")
+    if "--omit" in words and words.index("--omit") + 1 < len(words):
+        omits_dev = omits_dev or words[words.index("--omit") + 1] == "dev"
+    return not (any(on(name) for name in NON_INSTALLING) or "--no-bin-links" in flags
+                or flags.get("--bin-links") == "false" or (omits_dev and any(on(name) for name in DEV_ONLY)))
 
 
 def _installs_here(call: str, pnpm: bool = False) -> bool:
@@ -350,19 +359,33 @@ def _install_dir(call: str) -> str | None:
     return None
 
 
-def _entered(code: str, start: int, end: int, directory: str) -> bool:
-    """Whether ``code[start:end]`` holds a ``cd`` into ``directory``, so a later ``npx`` runs where it was installed."""
-    here, saved = ".", []  # a subshell's ``cd`` ends at its ``)``: the directory before the ``(`` comes back
-    for m in re.finditer(r"[()]|(?<![\w.-])cd[ \t]+['\"]?([^\s;&|'\"()]+)", code[start:end]):
+CD = re.compile(r"""[()]|'[^']*'|"[^"]*"|(?:\A|(?<=[\n;&|({])|(?<=\bthen)|(?<=\bdo)|(?<=\belse))[ \t]*cd[ \t]+['"]?([^\s;&|'"()]+)['"]?""")
+
+
+def _cwd(code: str, start: int, end: int, here: str = ".") -> str | None:
+    """The directory in force at ``end`` after the ``cd`` commands of ``code[start:end]``, from ``here`` at ``start``;
+    None when a ``cd`` goes where this cannot follow (``-``, or ``..`` out of a ``$VAR`` directory); ``cd $VAR`` is
+    followed as that name, so an install and an ``npx`` after the same ``cd $VAR`` meet. Only a ``cd`` that starts a command
+    counts: ``message="cd tools"`` is data. A subshell's ``cd`` ends at its ``)``."""
+    saved: list[str] = []
+    for m in CD.finditer(code, start, end):
         if m.group(0) == "(":
             saved.append(here)
         elif m.group(0) == ")":
             here = saved.pop() if saved else here
-        elif m.group(1).startswith(("~", "$", "-")):
-            return False  # a place this cannot follow: the install is not taken as found
+        elif m.group(1) is None:
+            continue  # a quoted string
+        elif m.group(1) == "-" or (here.startswith(("~", "$")) and m.group(1).startswith("..")):
+            return None
         else:
             here = posixpath.normpath(posixpath.join(here, m.group(1)))  # an absolute target replaces ``here``
-    return here == posixpath.normpath(directory)
+            here = m.group(1) if m.group(1).startswith(("~", "$")) else here  # so does a variable or ``~``
+    return here
+
+
+def _entered(code: str, start: int, end: int, directory: str) -> bool:
+    """Whether ``code[start:end]`` holds a ``cd`` into ``directory``, so a later ``npx`` runs where it was installed."""
+    return _cwd(code, start, end) == posixpath.normpath(directory)
 
 
 def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
@@ -538,6 +561,22 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
+def _within(here: str, where: str | None) -> bool:
+    """Whether ``here`` is ``where`` or below it: ``npx`` finds ``node_modules/.bin`` of an ancestor directory."""
+    if where is None or posixpath.isabs(here) != posixpath.isabs(where):
+        return False
+    rel = posixpath.relpath(here, where)
+    return rel != ".." and not rel.startswith("../")  # a name like ``..src`` is a child
+
+
+def _provided(code: str, npx: re.Match, installs: list) -> set[str]:
+    """The packages installed where this ``npx`` runs: in the same directory (any position in the file), or in
+    one an earlier ``--prefix``/``--dir``/``-C`` install named; a directory below it finds it too."""
+    here = _cwd(code, 0, npx.start())
+    return {n for end, where, names, current in installs if here is not None and _within(here, where)
+            and (current or end <= npx.start()) for n in names}
+
+
 def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
@@ -545,19 +584,22 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     offset moves."""
     code = _without_printed(code)
     installers = [(NPM, NPM_VALUE_OPTIONS, False), (PNPM, PNPM_VALUE_OPTIONS, True)]
-    installed = {n for pattern, options, pnpm in installers for m in pattern.finditer(code)
-                 if _installs(m.group(0)) and _installs_here(m.group(0), pnpm) for n in _installed_npm(m.group(1), options)}
-    elsewhere = [(m.end(), _install_dir(m.group(0)), _installed_npm(m.group(1), options))
-                 for pattern, options, pnpm in installers for m in pattern.finditer(code)
-                 if _installs(m.group(0)) and not _installs_here(m.group(0), pnpm)]
+    installs = []  # (offset, directory the packages land in or None, names, whether it is the current directory's)
+    for pattern, options, pnpm in installers:
+        for m in pattern.finditer(code):
+            if not _installs(m.group(0)):
+                continue
+            base, here = _cwd(code, 0, m.start()), _installs_here(m.group(0), pnpm)
+            target = None if here else _install_dir(m.group(0))
+            where = base if here else (posixpath.normpath(posixpath.join(base, target)) if base and target else None)
+            installs.append((m.end(), where, _installed_npm(m.group(1), options), here))
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
     found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=installed | {
-        n for end, d, names in elsewhere if d and end <= m.start() and _entered(code, end, m.start(), d) for n in names})])
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=_provided(code, m, installs))])
               for m in NPX.finditer(code)]
     return found
 

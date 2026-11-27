@@ -953,3 +953,48 @@ def test_an_install_into_an_absolute_directory_provides_tsc_after_entering_it():
     """`--prefix /tmp/tools` and `cd /tmp/tools` name the same directory."""
     script = "npm install --prefix /tmp/tools typescript@5.9.3\ncd /tmp/tools\nnpx tsc --noEmit\n"
     assert _findings_in([("run.sh", script)]) == []
+
+
+@pytest.mark.parametrize("install", [
+    "npm install --save-dev --omit=dev typescript@5.9.3", "npm install -D --omit dev typescript@5.9.3",
+    "npm install --save-dev --production typescript@5.9.3", "npm install --bin-links=false typescript@5.9.3",
+    "npm install --no-bin-links typescript@5.9.3"])
+def test_an_install_that_leaves_no_usable_tsc_does_not_provide_it(install):
+    """#1317: a dev install with dev omitted, or one without bin links, leaves no `tsc` for `npx tsc` to find."""
+    found = _findings_in([("run.sh", install + "\nnpx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+def test_an_install_with_dev_omitted_but_not_saved_as_dev_provides_tsc():
+    """`npm install --omit=dev typescript@5.9.3` saves a regular dependency, which is installed."""
+    assert _findings_in([("run.sh", "npm install --omit=dev typescript@5.9.3\nnpx tsc --noEmit\n")]) == []
+
+
+@pytest.mark.parametrize("install", ["npm install --prefix tools typescript@5.9.3", "pnpm --dir tools add typescript@5.9.3"])
+def test_a_quoted_cd_is_not_a_directory_change(install):
+    """#1317: `message="cd tools"` is data, so `npx tsc` still runs in the parent directory."""
+    found = _findings_in([("run.sh", install + '\nmessage="cd tools"\nnpx tsc --noEmit\n')])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+@pytest.mark.parametrize("install", ["npm install typescript@5.9.3", "pnpm add typescript@5.9.3"])
+def test_an_install_in_one_directory_does_not_provide_tsc_in_a_sibling(install):
+    """#1317: `cd tools; <install>; cd ../other; npx tsc` runs where no typescript was installed."""
+    found = _findings_in([("run.sh", f"cd tools; {install}; cd ../other; npx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+def test_an_install_after_entering_a_directory_provides_tsc_there():
+    """`cd tools; npm install typescript@5.9.3; npx tsc` installs and runs in `tools`."""
+    assert _findings_in([("run.sh", "cd tools; npm install typescript@5.9.3; npx tsc --noEmit\n")]) == []
+
+
+def test_a_quoted_cd_target_is_followed_to_its_closing_quote():
+    """#1317: `cd "tools"` and `cd "../other"` are two directory changes, so `npx tsc` runs in `other`."""
+    found = _findings_in([("run.sh", 'cd "tools"\nnpm install typescript@5.9.3\ncd "../other"\nnpx tsc --noEmit\n')])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+def test_npx_in_a_child_directory_finds_the_typescript_installed_above_it():
+    """#1317: `npx` looks up the tree for `node_modules/.bin`, so `cd src; npx tsc` finds the parent's typescript."""
+    assert _findings_in([("run.sh", "npm install typescript@5.9.3\nmkdir -p src\ncd src\nnpx tsc --version\n")]) == []
