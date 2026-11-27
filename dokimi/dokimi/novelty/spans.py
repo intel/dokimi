@@ -141,32 +141,38 @@ def dangling_fence(text: str) -> str | None:
     marker: str | None = None
     lines = text.splitlines()
     in_list = False
+    fresh = 0  # the index where a code block last ended: a new block may start there
     i = 0
     while i < len(lines):
         line = lines[i]
         i += 1
         if marker is not None:
             marker = None if _closes(line, marker) else marker
+            if marker is None:
+                fresh = i
             continue
         in_list = in_list and not _leaves_list(line)
-        code_end = _indented_code_end(lines, i - 1, in_list)
+        code_end = _indented_code_end(lines, i - 1, in_list, fresh)
         if code_end:  # a fence line inside indented code is content, as in segment
-            i = code_end
+            i = fresh = code_end
             continue
         opened = _FENCE.match(line)
         if opened:
             marker = opened.group(1)
             continue
-        in_list = in_list or bool(_LIST_ITEM.match(line))
+        if _LIST_ITEM.match(line):  # its continuation lines belong to it, as in segment
+            i = _list_item_end(lines, i)
+            in_list = True
     return marker
 
 
-def _indented_ahead(lines: list[str], i: int) -> bool:
-    """Whether the blank line ``i`` is followed, after more blank lines, by an indented line."""
-    for row in lines[i:]:
-        if row.strip():
-            return row.startswith(_INDENTED)
-    return False
+def _list_item_end(lines: list[str], i: int) -> int:
+    """The index one past the list item whose first line is ``i - 1``: its indented follow-on lines."""
+    while i < len(lines) and lines[i].strip() and not _LIST_ITEM.match(lines[i]) \
+            and not _HEADING.match(lines[i]) and not _FENCE.match(lines[i]) \
+            and lines[i].startswith((" ", "\t")):
+        i += 1
+    return i
 
 
 def _fence_end(lines: list[str], i: int) -> int:
@@ -200,13 +206,19 @@ def _leaves_list(line: str) -> bool:
     return bool(line.strip()) and not line.startswith(_INDENTED) and not _LIST_ITEM.match(line)
 
 
-def _block_start(lines: list[str], i: int) -> bool:
-    """Whether a block may start at line ``i``: the first line, or after a blank line, a heading or an underline."""
+def _block_start(lines: list[str], i: int, fresh: int) -> bool:
+    """Whether a block may start at line ``i``.
+
+    That is the first line, a line after a blank line, a heading, an underline, or a code
+    block (``fresh`` is the index where the last one ended).
+    """
+    if i == 0 or i == fresh:
+        return True
     before = lines[i - 1]
-    return i == 0 or not before.strip() or bool(_HEADING.match(before) or _SETEXT.match(before))
+    return not before.strip() or bool(_HEADING.match(before) or _SETEXT.match(before))
 
 
-def _indented_code_end(lines: list[str], i: int, in_list: bool) -> int:
+def _indented_code_end(lines: list[str], i: int, in_list: bool, fresh: int) -> int:
     """The index one past the indented code block that starts at line ``i``, or 0 when none does.
 
     A block opens on a line indented four spaces or a tab that follows a blank line (or the
@@ -214,30 +226,35 @@ def _indented_code_end(lines: list[str], i: int, in_list: bool) -> int:
     """
     line = lines[i]
     if in_list or not line.strip() or not line.startswith(_INDENTED) \
-            or not _block_start(lines, i):
+            or not _block_start(lines, i, fresh):
         return 0
     end = i
     while end < len(lines):
-        row = lines[end]
-        if row.strip() and not row.startswith(_INDENTED):
+        if lines[end].strip():
+            if not lines[end].startswith(_INDENTED):
+                break
+            end += 1
+            continue
+        ahead = end + 1  # a run of blank lines continues the block only before an indented line
+        while ahead < len(lines) and not lines[ahead].strip():
+            ahead += 1
+        if ahead == len(lines) or not lines[ahead].startswith(_INDENTED):
             break
-        if not row.strip() and not _indented_ahead(lines, end):
-            break
-        end += 1
+        end = ahead
     return end
 
 
-def _setext(lines: list[str], i: int, front: int) -> tuple[int, int]:
+def _setext(lines: list[str], i: int, front: int, fresh: int) -> tuple[int, int]:
     """``(level, end)`` when lines ``i`` up to ``end`` are a Setext heading, else ``(0, i)``.
 
     The text is one or more lines of a paragraph over an underline of ``=`` (level 1) or ``-``
     (level 2). ``front`` is the index of the closing ``---`` of front matter, which underlines
-    nothing.
+    nothing. ``fresh`` is the index where the last code block ended.
     """
     structural = (_HEADING, _FENCE, _TABLE_ROW, _LIST_ITEM)
     line = lines[i]
     if not line.strip() or line.startswith(_INDENTED) or _SETEXT.match(line) \
-            or not _block_start(lines, i) or any(rule.match(line) for rule in structural):
+            or not _block_start(lines, i, fresh) or any(rule.match(line) for rule in structural):
         return 0, i
     for k in range(i + 1, len(lines)):
         row = lines[k]
@@ -263,6 +280,7 @@ def segment(text: str) -> list[Span]:
     offset = 0
     i = 0
     in_list = False
+    fresh = 0  # the index where a code block last ended: a new block may start there
     front = _front_matter_end(lines)
 
     def emit(kind: str, chunk: str, start: int) -> None:
@@ -287,11 +305,11 @@ def segment(text: str) -> list[Span]:
         start = offset
         in_list = in_list and not _leaves_list(line)
 
-        code_end = _indented_code_end(lines, i, in_list)
+        code_end = _indented_code_end(lines, i, in_list, fresh)
         if code_end:
             block = lines[i:code_end]
             offset += sum(len(row) for row in block)
-            i = code_end
+            i = fresh = code_end
             emit("code", "".join(block), start)
             continue
 
@@ -299,11 +317,11 @@ def segment(text: str) -> list[Span]:
             end = _fence_end(lines, i)
             block = lines[i:end]
             offset += sum(len(row) for row in block)
-            i = end
+            i = fresh = end
             emit("code", "".join(block), start)
             continue
 
-        level, end = _setext(lines, i, front)
+        level, end = _setext(lines, i, front, fresh)
         if level:
             block = lines[i:end]
             del heading_path[level - 1:]
@@ -331,15 +349,10 @@ def segment(text: str) -> list[Span]:
 
         if _LIST_ITEM.match(line):
             # A list item continues over indented follow-on lines.
-            block = [line]
-            offset += len(line)
-            i += 1
-            while i < len(lines) and lines[i].strip() and not _LIST_ITEM.match(lines[i]) \
-                    and not _HEADING.match(lines[i]) and not _FENCE.match(lines[i]) \
-                    and lines[i].startswith((" ", "\t")):
-                block.append(lines[i])
-                offset += len(lines[i])
-                i += 1
+            end = _list_item_end(lines, i + 1)
+            block = lines[i:end]
+            offset += sum(len(row) for row in block)
+            i = end
             emit("list_item", "".join(block), start)
             in_list = True
             continue

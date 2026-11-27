@@ -164,7 +164,59 @@ def test_front_matter_closing_dashes_do_not_underline_the_last_field():
     """#974: the closing `---` of front matter is not a Setext underline."""
     spans = segment(_FRONT + "The valve opens clockwise.\n")
     assert all(s.kind != "heading" for s in spans)
-    assert not segment("---\nname: s\n---\n\nHi there.\n")[0].kind == "heading"
+    assert segment("---\nname: s\n---\n\nHi there.\n")[0].kind != "heading"
+
+
+def test_dashes_under_a_field_line_that_is_not_front_matter_underline_it():
+    """#974: only a leading `---` opens front matter; `a: b` over `---` is a heading."""
+    spans = segment("a: b\n---\n\nBody.\n")
+    assert [s.kind for s in spans] == ["heading", "sentence"]
+    assert spans[1].heading_path == ("a: b",)
+    assert segment("") == []
+
+
+def test_a_setext_heading_or_indented_code_may_follow_a_closed_fence_directly():
+    """#974: a closing fence ends a block, so the next line may start one."""
+    spans = segment("```\nexample\n```\nTitle. More\n=====\n\nBody.\n")
+    assert [s.kind for s in spans] == ["code", "heading", "sentence"]
+    assert spans[2].heading_path == ("Title. More",)
+    assert [s.kind for s in segment("```\nx\n```\n    code. More\n")] == ["code", "code"]
+
+
+def test_a_fence_after_a_list_continuation_and_indented_code_is_seen_alike():
+    """#974: `dangling_fence` reads a list item's continuation as `segment` does."""
+    text = "- item\n  continuation\n\n    ```\n    example\n"
+    assert [s.kind for s in segment(text)] == ["list_item", "code"]  # the fence is open in a list
+    assert dangling_fence(text) == "```"
+    assert dangling_fence("- item\n  continuation\n```\nx\n") == "```"
+
+
+def test_indented_code_with_many_blank_lines_is_one_span():
+    """#974: a long indented block full of blank lines is one span, found in linear time."""
+    body = "    a\n" + "\n" * 3000 + "    b\n"
+    spans = segment("Intro.\n\n" + body + "\nAfter.\n")
+    assert [s.kind for s in spans] == ["sentence", "code", "sentence"]
+
+
+class _CountingLine(str):
+    """A line that counts how often its text is inspected."""
+
+    reads = 0
+
+    def strip(self, *args):
+        _CountingLine.reads += 1
+        return super().strip(*args)
+
+
+def test_indented_code_end_does_bounded_work_over_many_blank_lines():
+    """#974: a run of n blank lines is skipped once, not rescanned from each blank line."""
+    from dokimi.novelty.spans import _indented_code_end
+
+    n = 2000
+    lines = [_CountingLine(row) for row in ["    a\n"] + ["\n"] * n + ["    b\n"]]
+    _CountingLine.reads = 0
+    assert _indented_code_end(lines, 0, False, 0) == len(lines)
+    assert _CountingLine.reads < 4 * len(lines)
 
 
 def test_a_rule_after_a_blank_line_or_a_list_item_is_not_a_setext_underline():
