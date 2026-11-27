@@ -741,3 +741,10 @@ def test_a_question_that_keeps_the_leading_dont_of_a_spelled_out_source_restates
 )
 def test_a_genuine_inversion_of_a_do_not_source_is_still_accepted(candidate):
     assert check_wording("reversal", source="Do not run the installer as root.", candidate=candidate) == []
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"])
+@pytest.mark.parametrize("source", ["Do not run the installer as root.", "Never run the installer as root."])
+def test_an_isnt_it_true_frame_inverting_a_spelled_out_source_is_not_a_restatement(source, apostrophe):
+    candidate = f"Isn{apostrophe}t it true that I should run the installer as root?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []

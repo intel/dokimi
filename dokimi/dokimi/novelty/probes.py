@@ -131,11 +131,14 @@ _LEADING_NEGATIVE = re.compile(
     r"^\s*(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\b",
     re.I,
 )
-# A source that opens with a spelled-out negation ("Do not ...", "Never ...") keeps the
-# candidate's leading negative auxiliary too (#1232), as one that opens with "Don't" does.
+# A spelled-out negation source ("Do not ...", "Never ...") keeps a candidate's imperative
+# "Don't <verb>" (#1232), not a frame such as "Don't you ...?" or "Isn't it true that".
 _LEADING_SPELLED_NEGATION = re.compile(
     r"^\s*(?:(?:do|does|did|can|will|must|should|may)\s+not|cannot|never)\b",
     re.I,
+)
+_LEADING_IMPERATIVE_DONT = re.compile(
+    r"^\s*don't\s+(?!(?:it|they|you|we|i|he|she|that|this|these|those|there|the|a|an)\b)", re.I
 )
 # A trailing tag ("..., doesn't it?") is question phrasing too, not a negation of the claim.
 _TRAILING_TAG = re.compile(
@@ -425,7 +428,8 @@ def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     In a question, a trailing tag ("..., doesn't it?") is question phrasing and is never counted,
     and neither is a leading negative auxiliary, unless ``source`` itself opens with a negation,
     contracted ("Don't") or spelled out ("Do not", "Does not", "Never", "Cannot"; then both
-    sides keep it); a statement keeps its leading "Don't". A negation's
+    sides keep it, a candidate's only when it is an imperative "Don't <verb>", not a frame
+    such as "Isn't it true that"); a statement keeps its leading "Don't". A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
@@ -433,7 +437,10 @@ def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """
     claim = text
     if _is_question(text):
-        keep_leading = bool(_LEADING_NEGATIVE.search(source) or _LEADING_SPELLED_NEGATION.search(source))
+        keep_leading = bool(
+            _LEADING_NEGATIVE.search(source)
+            or (_LEADING_SPELLED_NEGATION.search(source) and _LEADING_IMPERATIVE_DONT.search(text))
+        )
         claim = _TRAILING_TAG.sub("?", text, count=1)
         if not keep_leading:
             claim = _LEADING_NEGATIVE.sub(" ", claim, count=1)
