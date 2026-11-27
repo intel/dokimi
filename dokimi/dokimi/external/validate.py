@@ -84,7 +84,6 @@ import hashlib
 import os
 import re
 import unicodedata
-from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
 
@@ -95,22 +94,21 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .description_overlap import (NEAR_DUPLICATE_JACCARD, NEAR_DUPLICATE_MIN_SHARED, SIMILAR_JACCARD,
                                   _candidate_pairs, _jaccard, _tokens)
-from .bundle_paths import path_missing
-from .link_files import _file_ref, _link_files
+from .link_files import _link_files
 from .catalog import SkillCatalogEntry, _within
 from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings, skill_md_content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
-from .finding_lines import key_line, path_needles, text_line
+from .bundle_findings import bundle_findings
+from .finding_lines import key_line
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import entry_chars, in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
-from .paths import _exists, _in_checkout, _inside, _resolved
-from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
+from .skill_markdown import QUOTE_MARK_RE
 from .upstream_codes import UPSTREAM_FINDING_CODES
 from .when_cues import when_clause_found
 
@@ -472,76 +470,6 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     return f"{where} in {o_entry.source_root.as_posix()}"
 
 
-def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
-    """The finding for one link destination (inline or reference), or None when it is fine."""
-    text = _file_ref(raw, link=True)
-    if text is None:
-        return None
-    named = skill_dir / text
-    if not _inside(named, skill_dir):
-        return _escapes_link(raw)
-    target = _resolved(named)
-    if target is not None and not target.is_relative_to(real_dir):
-        return _escapes_link(raw)
-    if target is not None and _exists(target):
-        return None
-    from_root = ""
-    rooted = _in_checkout(source_root / text, source_root)
-    if rooted is not None and _exists(rooted):
-        from_root = " (it exists from the catalog root: the base is wrong)"
-    return Finding("warn", "link-missing",
-                   f"link {raw!r} names no file relative to the skill directory{from_root}; "
-                   "fix the link or add the file")
-
-
-def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
-    """The finding for a code span that names an existing file outside the skill (``../``), or None."""
-    text = _file_ref(raw)
-    if text is None or not raw.startswith("../"):
-        return None
-    target = _in_checkout(skill_dir / text, source_root)
-    if target is None or not _exists(target) or target.is_relative_to(real_dir):
-        return None  # outside the checkout, as written or resolved: not read
-    return Finding(
-        "warn",
-        "path-escapes-skill",
-        f"{raw!r} points outside the skill directory; it breaks when the skill "
-        "is installed alone",
-    )
-
-
-def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
-    """Link and path checks on the body of ``skill``: missing targets, or targets outside it.
-
-    A target is classed by its written name, then by where it resolves, before any file is read:
-    one outside the skill directory is ``link-escapes-skill`` whether or not it exists, and one
-    outside the catalog checkout (through a symlink too) is never stat-ed.
-    """
-    skill_dir = skill.path.parent
-    real_dir = skill_dir.resolve()
-    targets, spans = link_pieces(outside_fences(skill.body))
-    found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
-    found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
-    linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
-    text = skill.path.read_text(encoding="utf-8")
-    # The line is the first line of SKILL.md that holds the written link or span (its quoted form for a path).
-    needles = [((f"({raw})", f"({raw} ", f"]: {raw}"), f"({raw}", raw) for raw in targets] + [(f"`{raw}`", raw) for raw in spans]
-    located = [replace(f, line=text_line(text, *needle)) for f, needle in zip(found, needles, strict=True) if f is not None]
-    return located + [
-        Finding("warn", "path-missing", message, line=text_line(text, *path_needles(message)))
-        for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
-    ]
-
-
-
-def _escapes_link(raw: str) -> Finding:
-    return Finding(
-        "warn",
-        "link-escapes-skill",
-        f"link {raw!r} points outside the skill directory; it breaks when the skill is installed alone",
-    )
-
-
 def _description_findings(skill: Skill) -> list[Finding]:
     """A ``warn`` when the description has no "when" clause. A script with no cue list gets a ``note``
     instead: the clause is not checked, and that must not read as a pass."""
@@ -742,7 +670,7 @@ def review_skills(
                     f for f in findings if f.code == "allowed-tools-unrestricted-bash"
                 ]
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
-            review.findings += _bundle_findings(skill, entry.source_root)
+            review.findings += bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)
             review.findings += [
                 Finding("warn", code, message)
