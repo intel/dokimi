@@ -275,40 +275,131 @@ def _front_matter(raw: str) -> str | None:
     return None
 
 
-def _scalar_sources(front: str) -> dict[str, str]:
-    """Key -> the text of its value as written in the front matter, for ``name`` and ``description``."""
+def _scalar_sources(front: str) -> dict[str, tuple[str, str | None]]:
+    """Key -> (text, style) of its value as written in the front matter, for ``name`` and ``description``.
+
+    Merge keys (``<<: *defaults``) are resolved the way the loader does, an explicit key beating a merged one.
+    """
     import yaml
 
     try:
-        root = yaml.compose(front, Loader=yaml.SafeLoader)
+        loader = yaml.SafeLoader(front)
+        try:
+            root = loader.get_single_node()
+            if isinstance(root, yaml.MappingNode):
+                loader.flatten_mapping(root)
+        finally:
+            loader.dispose()
     except (yaml.YAMLError, ValueError, RecursionError):
         return {}
-    sources: dict[str, str] = {}
+    sources: dict[str, tuple[str, str | None]] = {}
     if isinstance(root, yaml.MappingNode):
         for key_node, value_node in root.value:
             if isinstance(key_node, yaml.ScalarNode) and key_node.value in ("name", "description"):
-                sources[key_node.value] = front[value_node.start_mark.index : value_node.end_mark.index]
+                style = value_node.style if isinstance(value_node, yaml.ScalarNode) else None
+                sources[key_node.value] = (front[value_node.start_mark.index : value_node.end_mark.index], style)
     return sources
 
 
-def _escaped_hits(key: str, value: str, source: str) -> list[Hit]:
-    """#1285: hidden characters of a parsed front matter value beyond those ``source`` holds literally.
+_ESCAPES = "0abt\tnvfre \"\\/N_LP"  # the characters a backslash may precede, apart from x, u, U and a line break
+_BREAKS = "\r\n\x85  "
+
+
+class _QuotedOrigins:
+    """Walks a double-quoted scalar the way PyYAML's scanner does (escapes, line folding), noting what wrote each character."""
+
+    def __init__(self, src: str) -> None:
+        # the node's span starts at its anchor or tag (``&d "x"``, ``!!str "x"``), so begin after the opening quote
+        self.src, self.i, self.end = src, src.find('"') + 1, len(src) - 1
+        self.out: list[bool] = []
+
+    def line_break(self) -> str:
+        if self.src.startswith("\r\n", self.i):
+            self.i += 2
+            return "\n"
+        ch = self.src[self.i]
+        self.i += 1
+        return ch if ch in "  " else "\n"
+
+    def skip_blanks(self) -> bool:
+        """Skip spaces and tabs; whether a line break follows."""
+        while self.i < self.end and self.src[self.i] in " \t":
+            self.i += 1
+        return self.i < self.end and self.src[self.i] in _BREAKS
+
+    def breaks(self) -> list[str]:
+        found: list[str] = []
+        while self.skip_blanks():
+            found.append(self.line_break())
+        return found
+
+    def escape(self) -> bool:
+        """The escape after a backslash; False when it is not one PyYAML reads."""
+        ch = self.src[self.i] if self.i < self.end else ""
+        if ch and ch in _ESCAPES:
+            self.out.append(True)
+            self.i += 1
+        elif ch and ch in "xuU":
+            width = {"x": 2, "u": 4, "U": 8}[ch]
+            digits = self.src[self.i + 1 : self.i + 1 + width]
+            if len(digits) != width or any(d not in "0123456789abcdefABCDEF" for d in digits):
+                return False
+            self.out.append(True)
+            self.i += 1 + width
+        elif ch and ch in _BREAKS:
+            self.line_break()
+            self.out.extend(False for _ in self.breaks())
+        else:
+            return False
+        return True
+
+    def spaces(self) -> None:
+        start = self.i
+        if not self.skip_blanks():
+            self.out.extend(False for _ in self.src[start : self.i])
+            return
+        first = self.line_break()
+        rest = self.breaks()
+        if first != "\n" or not rest:
+            self.out.append(False)  # the break itself: kept as is when it is U+2028 or U+2029, else folded to a space
+        self.out.extend(False for _ in rest)
+
+    def run(self) -> list[bool] | None:
+        while self.i < self.end:
+            ch = self.src[self.i]
+            if ch == "\\":
+                self.i += 1
+                if not self.escape():
+                    return None
+            elif ch in " \t" or ch in _BREAKS:
+                self.spaces()
+            else:
+                self.out.append(False)
+                self.i += 1
+        return self.out
+
+
+def _double_quoted_origins(src: str) -> list[bool] | None:
+    """For each character of a double-quoted scalar's value, whether an escape wrote it; None if ``src`` is not understood."""
+    return _QuotedOrigins(src).run()
+
+
+def _escaped_hits(key: str, value: str, source: tuple[str, str | None] | None) -> list[Hit]:
+    """#1285: hidden characters of a parsed front matter value that a YAML escape wrote.
 
     A YAML escape (``\\u202E``, ``\\U000E0069``) is ASCII in the file but one hidden character in the value an agent reads.
-    ``source`` is the value as written in the front matter: a character that is in it is already reported with its
-    line by :func:`_hidden_hits`, and one elsewhere in the file (a comment, another key, the body) says nothing about it.
+    ``source`` is the value as written in the front matter: a hidden character typed there is already reported with its
+    line by :func:`_hidden_hits`, so only the ones an escape wrote are reported here. Only a double-quoted scalar has
+    escapes; when the source is unknown, every hidden character of the value is reported.
     """
     text = "\n" + value  # a value is not the start of a file: a leading U+FEFF is not a byte order mark
-    literal: dict[str, int] = {}  # hidden characters the file holds literally in this value: _hidden_hits reports those
-    literal_text = "\n" + source
-    for i in _hidden_indexes(literal_text):
-        literal[literal_text[i]] = literal.get(literal_text[i], 0) + 1
-    found = []
-    for i in _hidden_indexes(text):
-        if literal.get(text[i], 0) > 0:
-            literal[text[i]] -= 1
-        else:
-            found.append(i - 1)
+    found = [i - 1 for i in _hidden_indexes(text)]
+    if source is not None and source[1] != '"':
+        found = []
+    elif source is not None:
+        origins = _double_quoted_origins(source[0])
+        if origins is not None and len(origins) == len(value):
+            found = [i for i in found if origins[i]]
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = value[index]
@@ -379,7 +470,7 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
     sources = _scalar_sources(front)
     for key in ("name", "description"):  # the declared values: a missing name falls back to the directory's, not the file's
         if isinstance(meta.get(key), str):
-            hits += _escaped_hits(key, meta[key], sources.get(key, ""))
+            hits += _escaped_hits(key, meta[key], sources.get(key))
     return hits
 
 

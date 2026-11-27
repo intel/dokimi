@@ -893,3 +893,65 @@ def test_escaped_exempt_fillers_beyond_the_line_limit_are_reported(tmp_path):
     messages = _messages(tmp_path, "hidden-unicode")
     assert len(messages) == 4
     assert all("front matter description: U+034F" in m for m in messages)
+
+
+def test_literal_fillers_in_a_folded_description_are_not_reported_as_escapes(tmp_path):
+    """#1285: folding joins two lines of exempt fillers into one that is over the limit; none of them is an escape."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: esc\ndescription: >-\n  α͏α͏\n  α͏α͏\n---\n# B\n",
+        encoding="utf-8",
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert not any("escape" in m for m in messages)
+
+
+def test_escaped_character_in_a_double_quoted_scalar_folded_over_lines_is_reported(tmp_path):
+    """#1285: line folding of a double-quoted description does not move the escape's position."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\ndescription: "Use for\n  things \\u202E and\\\n  more."\n---\n# B\n', encoding="utf-8"
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+202E" in message
+
+
+def test_literal_character_in_a_description_inherited_by_a_merge_key_is_reported_once(tmp_path):
+    """#1285: ``<<: *d`` gives the description; its literal U+202E keeps one ``line N`` finding."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\ndefaults: &d\n  description: "Use for\u202e things."\nname: esc\n<<: *d\n---\n# B\n', encoding="utf-8"
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "line 3" in message
+
+
+def test_escaped_character_in_a_description_inherited_by_a_merge_key_is_reported(tmp_path):
+    """#1285: an escape in a merged description is reported; an explicit key would win over the merged one."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(
+        b'---\ndefaults: &d\n  description: "Use for\\u202E things."\nname: esc\n<<: *d\n---\n# B\n'
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+202E" in message
+
+
+def test_literal_character_in_an_anchored_or_tagged_double_quoted_description_is_reported_once(tmp_path):
+    """#1285: the scalar's source starts at its anchor or tag; that prefix must not hide which characters are escapes."""
+    for prop in ("&d ", "!!str ", "&d !!str "):
+        skill_dir = tmp_path / prop.strip().replace("&", "a").replace("!", "t").replace(" ", "_") / "esc"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f'---\nname: esc\ndescription: {prop}"Use for\u202e things."\n---\n# B\n', encoding="utf-8"
+        )
+
+        [message] = _messages(skill_dir.parent, "hidden-unicode")
+        assert "line 3" in message
