@@ -12,7 +12,6 @@ same LLM-as-judge used elsewhere.
 import logging
 import threading
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from functools import partial
@@ -35,9 +34,8 @@ from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
 from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
-from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
-from dokimi.eval.judge_context import SOURCE_STORED
-from dokimi.eval.judge_context import stamp_for as judge_context_stamp
+from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM, JUDGE_CONTEXT_BASELINE, PROTOCOL_WITHHELD
+from dokimi.eval.judge_context import SOURCE_STORED, shown_to_judge, stamp_judged_run
 from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import cite as cite_judge_materials
@@ -126,6 +124,7 @@ class ArmRunner:
         session_turns: Optional[int] = None,
         turn_reminder: Optional[str] = None,
         unsupported_seed: Optional[int] = None,
+        judge_context_mode: str = JUDGE_CONTEXT_ARM,
     ):
         if not treatments:
             raise ValueError("ArmRunner requires at least one treatment arm")
@@ -160,7 +159,7 @@ class ArmRunner:
         # Treatment material per (question, arm), handed from answering to
         # judging without going through the persisted record. See
         # :mod:`dokimi.eval.judge_context`.
-        self.judge_context = JudgeContextStore()
+        self.judge_context = JudgeContextStore(judge_context_mode)
         self.stop_error: Optional[Exception] = None  # a run-wide failure that ended the run
         self.questions_requested = 0
         self.plugin_set = plugin_set or {
@@ -168,6 +167,10 @@ class ArmRunner:
             "plugin_set_id": "sha256:e3b0c44298fc1c149afbf4c8996fb924",
             "plugins": [],
         }
+
+    @property
+    def judge_context_mode(self) -> str:
+        return self.judge_context.mode
 
     @property
     def arm_names(self) -> List[str]:
@@ -349,9 +352,10 @@ class ArmRunner:
             self.judge_context.put(
                 question_id,
                 treatment.name,
-                build_judge_context([] if cfg.is_agentic else cfg.injected_context,
-                                    cfg.judge_reference,
-                                    injected_chars=MAX_CONTEXT_CHARS),
+                shown_to_judge(self.judge_context_mode, lambda: build_judge_context(
+                    [] if cfg.is_agentic else cfg.injected_context,
+                    cfg.judge_reference,
+                    injected_chars=MAX_CONTEXT_CHARS)),
             )
 
         from dokimi.plugins import take_output_shapers
@@ -361,10 +365,12 @@ class ArmRunner:
             out = self._answer_agentic_arm(cfg, question_text, t0, shapers, cfg_metadata)
             if deferred:
                 loaded = ((out.get("tool_usage") or {}).get("skill") or {}).get("loaded") or []
-                assert cfg.judge_reference_for_loaded is not None
+                reference_for_loaded = cfg.judge_reference_for_loaded
+                assert reference_for_loaded is not None
                 self.judge_context.put(
                     question_id, treatment.name,
-                    build_judge_context([], cfg.judge_reference_for_loaded(loaded)),
+                    shown_to_judge(self.judge_context_mode, lambda: build_judge_context(
+                        [], reference_for_loaded(loaded))),
                 )
             return out
 
@@ -733,24 +739,14 @@ class ArmRunner:
                 for ev in as_records(evaluations, source="evaluations", kind="evaluations")
                 for s in ev.scores.values()
             ]
-            out["judge_context_sources"] = dict(sorted(Counter(
-                s for s in sources if s is not None).items()))
-            stamp = judge_context_stamp(sources)
-            if stamp is not None:
-                out["judge_context"] = stamp
-            if stamp != JUDGE_CONTEXT_PROTOCOL:
-                logger.warning(
-                    "Judge context for this run: %s — %s. Answer and judge in one "
-                    "process, with unique question ids, for treatment-material scores.",
-                    out["judge_context_sources"],
-                    "unstamped, so it pools only with pre-treatment-material runs"
-                    if stamp is None else f"stamped {stamp!r}, which pools with nothing",
-                )
+            stamp_judged_run(out, sources, self.judge_context_mode)
             if judge is not None:
                 out["judge_model"] = getattr(judge, "model", None)
                 out["judge_provider"] = getattr(judge, "provider", None)
                 out["judge_temperature"] = getattr(judge, "temperature", None)
                 out["judge_prompt_sha256"] = getattr(judge, "prompt_sha256", None)
+        elif self.judge_context_mode == JUDGE_CONTEXT_BASELINE:
+            out["judge_context"] = PROTOCOL_WITHHELD  # keep the judge mode when a partial artifact is reloaded
         # Judge-side token/cost telemetry, when a judge ran (mirrors the answer
         # cost_summary so a full run's spend is auditable from one artifact).
         if judge is not None and hasattr(judge, "usage_metrics"):
