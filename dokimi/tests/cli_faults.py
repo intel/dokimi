@@ -57,7 +57,8 @@ _OUTPUT = re.compile(r"^(output|write|where (to write|each)|also write|base outp
                      r"|\b(write (one|the|it)|to write)\b", re.I)
 _CONFINED = re.compile(r"\b(relative to|under the)\b", re.I)
 _DIR_METAVARS = frozenset({"DIR", "ROOT", "CHECKOUT"})
-_FILE_METAVARS = frozenset({"PATH", "FILE", "REACH_JSON", "SKILL", "NAME=PATH"})
+NAMED_DIR = "NAME=DIR"  # the metavar of `--cache`
+_FILE_METAVARS = frozenset({"PATH", "FILE", "REACH_JSON", "SKILL", NAMED_DIR})
 _OUTPUT_DESTS = re.compile(r"(^|_)(out|output)(_|$)|^(jsonl|cache_dir|cache_root|work_dir)$")
 _DIR_DESTS = re.compile(r"_(dir|root)$")
 # A parameter is a path by its name or default too, so one whose help is empty or names no file is still covered.
@@ -109,7 +110,7 @@ def _first(pattern: re.Pattern[str], text: str) -> int:
 
 def _role(action: argparse.Action, help_text: str) -> Role:
     metavar = str(action.metavar)
-    if metavar == "NAME=PATH":  # `--cache`: a host directory the command may create, so an unwritable parent refuses it
+    if metavar == NAMED_DIR:  # `--cache`: a host directory the command may create, so an unwritable parent refuses it
         return "output-dir"
     is_dir = metavar in _DIR_METAVARS or bool(_DIR_DESTS.search(action.dest)) or (
         metavar not in _FILE_METAVARS and _first(_DIR_WORDS, help_text) < _first(_FILE_WORDS, help_text))
@@ -134,7 +135,7 @@ def _is_path(action: argparse.Action, key: str, help_text: str, command: str) ->
 
 
 def _prefix(action: argparse.Action, help_text: str) -> str:
-    if str(action.metavar) == "NAME=PATH":
+    if str(action.metavar) == NAMED_DIR:
         return "c="
     named = getattr(action.type, "__name__", "")
     return "skill:" if help_text.startswith("skill:<path") or named == "_skill_ref" else ""
