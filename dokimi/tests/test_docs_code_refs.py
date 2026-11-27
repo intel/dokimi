@@ -240,11 +240,21 @@ def _consumed_by_move(argv: list[str], flag: str, written: list[str]) -> bool:
     """True when the CLI moved ``argv`` and its rewrite drops or renames ``flag`` (`explore list --json`).
 
     ``written`` is the flag span with its value (`--artifact foo`), which the rewrite needs. A rewrite
-    that refuses the flag by itself (`--all-vs-all` needs its `--catalog`) still names a retired flag.
+    that refuses the flag by itself (`--all-vs-all` needs its `--catalog`) still names a retired flag. A
+    refusal that only comes from a value the flag does not take (`--no-such-flag foo`) does not.
     """
     try:
         return moved_argv(argv) is not None and flag not in {t.split("=", 1)[0] for t in moved_argv([*argv, *written]) or []}
     except RetiredFlagError:
+        # A retired flag is refused by itself (`--all-vs-all`) or takes a plain value (`--artifact ''`).
+        try:
+            moved_argv([*argv, flag])
+        except RetiredFlagError:
+            return True
+        try:
+            moved_argv([*argv, flag, "x"])
+        except RetiredFlagError:
+            return False
         return True
 
 
@@ -470,6 +480,18 @@ def test_a_flag_the_retired_command_took_is_accepted_in_an_adjacent_span():
     assert _fragment_problems("- `explore list` `--json` was removed.\n") == []
     assert _fragment_problems("- `explore list --json` was removed.\n") == []
     assert _fragment_problems("- `explore list` `--no-such-flag` was removed.\n") == ["unknown flag: eval tasks list --no-such-flag"]
+
+
+def test_an_unknown_flag_with_a_value_after_a_moved_command_is_reported():
+    problem = ["unknown flag: skill routing --no-such-flag"]
+    assert _fragment_problems("- `novelty routing` `--no-such-flag foo` was run.\n") == problem
+    assert _fragment_problems("- `--no-such-flag foo` on `novelty routing`.\n") == problem
+
+
+def test_a_retired_value_flag_whose_value_is_refused_is_still_a_known_flag():
+    assert _fragment_problems("- `novelty routing` `--artifact ''` rejects an empty artifact.\n") == []
+    assert _fragment_problems("- `novelty routing` `--catalog ''` rejects an empty catalog.\n") == []
+    assert _fragment_problems("- `--artifact ''` on `novelty routing` is refused.\n") == []
 
 
 def test_an_adjacent_retired_flag_keeps_its_value_and_never_crashes():
