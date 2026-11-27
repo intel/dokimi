@@ -261,4 +261,5 @@
 --bootstrap-resamples  # catalog novelty: resamples per bootstrap interval; no registry concept yet
 --atom-labels  # skill novelty view (#1133): the labels file joined to --atom-verdicts; no registry concept yet
 --label-host  # host label mode (contract §4.3) has no registry concept yet; F1b moves it with --allow-unsupported
+--no-label-host  # the negation of --label-host (BooleanOptionalAction, manifest label_host override); F1b moves it with --label-host
 --fail-on-code  # catalog check (#942): selects finding codes, not the {warn,fail} severity of the fail_on concept

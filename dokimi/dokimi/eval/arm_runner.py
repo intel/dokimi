@@ -123,6 +123,7 @@ class ArmRunner:
         seed: Optional[int] = None,
         session_turns: Optional[int] = None,
         turn_reminder: Optional[str] = None,
+        unsupported_seed: Optional[int] = None,
         judge_context_mode: str = JUDGE_CONTEXT_ARM,
     ):
         if not treatments:
@@ -149,7 +150,7 @@ class ArmRunner:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.seed = seed
+        self.seed, self.unsupported_seed = seed, unsupported_seed
         self.session_turns = session_turns
         self.turn_reminder = turn_reminder
         self.grounded_from_topics = grounded_from_topics
@@ -198,6 +199,8 @@ class ArmRunner:
             "temperature": self.temperature,
             "seed": self.seed,
         }
+        if self.unsupported_seed is not None:  # not sent: the run is unseeded, and says so
+            config.update(seed_requested=self.unsupported_seed, seed_status="unsupported")
         # A session run and a single-turn run answer different questions of the model (the
         # history grows), so the pairing checks must be able to tell them apart.
         if self.session_turns is not None:

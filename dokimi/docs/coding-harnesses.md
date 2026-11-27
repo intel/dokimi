@@ -1146,9 +1146,9 @@ python cli.py tasks run --tasks <task-name> \
 
 `tasks run` writes a `task_runs.v1` JSON artifact. Important fields:
 
-- `results[]`: one row per `(task, harness, model, repeat)` cell. With
-  `--reps > 1` each row carries a `repeat` index and the run lands in a
-  `run<N>/` subdirectory.
+- `results[]`: one row per `(task, harness, model, repeat)` cell. Each run
+  lands under `<out-dir>/<task>/<harness>/run<N>/`. With `--reps > 1`
+  each row also carries a `repeat` index.
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
   partial credit such as `0.75`, is kept as the reward and counts as a fail.

@@ -118,6 +118,70 @@ def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replac
     assert replacement in message
 
 
+_CONDITIONAL = "if this text calls the model, use "
+
+
+def _about(root: Path, model_id: str) -> str:
+    """The one legacy-model-id message about `model_id`, whatever other IDs the text lists."""
+    [message] = [m for m in _messages(root, "legacy-model-id") if f"'{model_id}'" in m]
+    return message
+
+
+def _advice(message: str, model_id: str) -> str:
+    """The advice with the vendor's replacement shown as X; the replacement must be the catalog's for `model_id`."""
+    entries = tomllib.loads(DATA_FILE.read_text(encoding="utf-8"))["model"]
+    [expected] = {e["replacement"] for e in entries if model_id in e["ids"]}
+    assert expected and expected != model_id
+    _, _, advice = message.partition("; ")
+    head, sep, rest = advice.partition(_CONDITIONAL)
+    assert sep and not head, advice
+    replacement, _, tail = rest.partition(" (")
+    assert replacement == expected, advice
+    return f"{_CONDITIONAL}X ({tail}"
+
+
+def test_advice_helper_rejects_advice_that_recommends_the_input_model(tmp_path):
+    # The advice must carry the catalog's replacement: "use claude-2.1" for claude-2.1 is wrong, not just any "claude-" ID.
+    _skill(tmp_path / "skills", "migrate", body='# Before\nmodel="claude-2.1",\n')
+    message = _about(tmp_path, "claude-2.1")
+    expected = _advice(message, "claude-2.1")
+    [_, replacement] = message.split(_CONDITIONAL)[0:1] + [message.split(_CONDITIONAL)[1].split(" (")[0]]
+    assert replacement != "claude-2.1"
+    with pytest.raises(AssertionError):
+        _advice(message.replace(f"use {replacement}", "use claude-2.1"), "claude-2.1")
+    with pytest.raises(AssertionError):
+        _advice(message.replace(f"use {replacement}", "use claude-haiku-9"), "claude-2.1")
+    assert expected.startswith(f"{_CONDITIONAL}X (")
+
+
+def test_old_side_of_a_migration_is_reported_with_conditional_advice(tmp_path):
+    # #945: no skip rule for "# Before" lines (docs/external-content.md); the advice is conditional.
+    body = '```python\n# Before\nmodel="claude-2.1",\n# After\nmodel="claude-opus-5-5",\n```\n'
+    _skill(tmp_path / "skills", "migrate", body=body)
+
+    assert _advice(_about(tmp_path, "claude-2.1"), "claude-2.1").startswith(f"{_CONDITIONAL}X (")
+
+
+def test_retired_table_row_is_reported_with_conditional_advice(tmp_path):
+    # #945: a row that lists the model as retired is reported, and the advice does not order its replacement.
+    body = (
+        "## Retired Models (no longer available)\n\n| Model | Retired |\n|---|---|\n"
+        "| claude-3-7-sonnet-20250219 | 2026-02-19 |\n"
+    )
+    _skill(tmp_path / "skills", "models", body=body)
+
+    assert _advice(_about(tmp_path, "claude-3-7-sonnet-20250219"), "claude-3-7-sonnet-20250219").startswith(f"{_CONDITIONAL}X (")
+
+
+def test_docs_quote_the_conditional_advice_and_name_ignore(tmp_path):
+    # #945: docs/external-content.md quotes the advice the finding gives and names the way to leave the check out.
+    _skill(tmp_path / "skills", "migrate", body='# Before\nmodel="claude-2.1",\n')
+    advice = _advice(_about(tmp_path, "claude-2.1"), "claude-2.1")
+    text = (Path(__file__).resolve().parent.parent / "docs" / "external-content.md").read_text(encoding="utf-8")
+    assert advice.split(" (", 1)[0] in " ".join(text.split())
+    assert "`--ignore legacy-model-id`" in text
+
+
 def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
     # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
     # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.

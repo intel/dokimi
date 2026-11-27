@@ -737,10 +737,10 @@ def test_a_name_refusal_error_does_not_show_the_internal_reason(monkeypatch):
     from dokimi.llm_sampling import NAME_REFUSAL
     from dokimi.llm_cli import SamplingError
 
-    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"seed": NAME_REFUSAL})
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"temperature": NAME_REFUSAL})
     with pytest.raises(SamplingError) as exc:
-        judge_sampling.check_judge_sampling("anthropic", "claude-sonnet", None, 7)
-    assert "refuses seed=7 for model 'claude-sonnet'" in str(exc.value)
+        judge_sampling.check_judge_sampling("anthropic", "claude-sonnet", 0.5, None)
+    assert "refuses temperature=0.5 for model 'claude-sonnet'" in str(exc.value)
     assert NAME_REFUSAL not in str(exc.value)
 
 
