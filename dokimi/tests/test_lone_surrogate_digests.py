@@ -190,6 +190,12 @@ def _delta_artifact_name(baseline_name: str) -> str:
 
     cells = [(baseline_name, Path("a"), _arms_artifact(baseline_name)),
              ("p", Path("b"), _arms_artifact("p", "caveman:full"))]
+    for _, _, artifact in cells:
+        artifact.update(judge_prompt_sha256="a" * 64, judge_temperature=None,
+                        judge_resolved_models=["judge"])
+        for section in ("answers", "evaluations"):
+            for row in artifact[section]:
+                row["question_text"] = "How do I start a task?"
     deltas, warnings = _paired_plugin_deltas(cells, Path("/out"))
     assert warnings == [] and len(deltas) == 1
     return Path(deltas[0]["artifact"]).name

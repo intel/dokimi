@@ -9,8 +9,9 @@
 - ``hidden-unicode`` (warn): a bidi control, a Unicode tag character, or a stray zero-width character.
   Each is reported with its line and codepoint. Exempt: a zero-width joiner (U+200C, U+200D) next to an
   emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
-  order mark at the start of a file. A hidden character that the front matter ``name`` or ``description``
-  writes as a YAML escape (``\\u202E``) is reported too, against the front matter key instead of a line.
+  order mark at the start of a file. A line with more than :data:`FILLERS_PER_LINE` blank fillers that are
+  exempt beside Greek or Hangul reports all of them. A hidden character that the front matter ``name`` or
+  ``description`` writes as a YAML escape (``\\u202E``) is reported too, against the front matter key instead of a line.
 
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
 suffixes of :data:`TEXT_SUFFIXES`) in the skill
@@ -31,6 +32,7 @@ import unicodedata
 from pathlib import Path
 
 from dokimi.skills import Skill
+from dokimi.utils import parse_frontmatter
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 from .lookalikes import readings
@@ -44,6 +46,7 @@ TEXT_SUFFIXES = frozenset(
 )
 MAX_BYTES = 1 << 20  # a bundled file over a megabyte is data, not instructions the model reads
 REPORT_PER_FILE = 5  # hidden characters named per file; the rest are counted
+FILLERS_PER_LINE = 3  # exempt U+034F, U+115F or U+1160 fillers a line may hold; more than that carries hidden bits (#1274)
 
 BIDI_CONTROLS = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
 BIDI_MARKS = frozenset({0x200E, 0x200F, 0x061C})  # LRM, RLM, ALM: reported unless a right-to-left letter is beside them
@@ -163,17 +166,39 @@ def _is_hangul(cp: int) -> bool:
     return 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F or 0xA960 <= cp <= 0xA97F or 0xAC00 <= cp <= 0xD7FF or 0xFFA0 <= cp <= 0xFFDC
 
 
-def _filler_exempt(text: str, index: int) -> bool:
+def _braille_runs(text: str) -> dict[int, tuple[int, int]]:
+    """Index of each U+2800 -> ``(start, end)`` of the run of U+2800 it is in, found in one pass."""
+    runs: dict[int, tuple[int, int]] = {}
+    i = 0
+    while i < len(text):
+        if text[i] == "\u2800":
+            j = i
+            while j < len(text) and text[j] == "\u2800":
+                j += 1
+            for k in range(i, j):
+                runs[k] = (i, j)
+            i = j
+        else:
+            i += 1
+    return runs
+
+
+def _braille_run(text: str, index: int) -> tuple[int, int]:
+    start = end = index
+    while start > 0 and text[start - 1] == "\u2800":
+        start -= 1
+    while end < len(text) and text[end] == "\u2800":
+        end += 1
+    return start, end
+
+
+def _filler_exempt(text: str, index: int, runs: dict[int, tuple[int, int]] | None = None) -> bool:
     """U+034F, U+115F, U+1160 and U+2800 are text in Greek or other non-ASCII script, Hangul and Braille."""
     cp = ord(text[index])
     near = [ord(text[j]) for j in (index - 1, index + 1) if 0 <= j < len(text) and ord(text[j]) not in BLANK_FILLERS]
     if cp == 0x2800:  # a run of blank patterns is Braille when a pattern borders it
-        for step in (-1, 1):
-            j = index + step
-            while 0 <= j < len(text) and text[j] == "\u2800":
-                j += step
-            if 0 <= j < len(text):
-                near.append(ord(text[j]))
+        start, end = runs[index] if runs is not None else _braille_run(text, index)
+        near += [ord(text[j]) for j in (start - 1, end) if 0 <= j < len(text)]
     if cp in (0x115F, 0x1160):
         return any(_is_hangul(n) for n in near)
     if cp == 0x2800:
@@ -183,14 +208,14 @@ def _filler_exempt(text: str, index: int) -> bool:
     return False
 
 
-def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
+def _is_hidden(text: str, index: int, bidi_exempt: set[int], runs: dict[int, tuple[int, int]] | None = None) -> bool:
     cp = ord(text[index])
     if cp == SOFT_HYPHEN or cp in INVISIBLE_FORMAT:
         return True
     if cp in VARIATION_SELECTORS:
         return _selector_stray(text, index)
     if cp in BLANK_FILLERS:
-        return not _filler_exempt(text, index)
+        return not _filler_exempt(text, index, runs)
     if cp in BIDI_MARKS:
         return index not in bidi_exempt
     if cp in BIDI_CONTROLS or cp in TAG_CHARACTERS:
@@ -204,9 +229,22 @@ def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
     return False
 
 
-def _hidden_hits(where: str, text: str) -> list[Hit]:
+def _hidden_indexes(text: str) -> list[int]:
     bidi_exempt = _bidi_mark_exempt(text)
-    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
+    runs = _braille_runs(text)
+    return [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt, runs)]
+
+
+def _hidden_hits(where: str, text: str) -> list[Hit]:
+    found = _hidden_indexes(text)
+    kept: dict[int, list[int]] = {}  # line number -> fillers exempt as script text (not Braille: a run of blanks is normal)
+    line_no = 0
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            line_no += 1
+        elif ord(ch) in (0x034F, 0x115F, 0x1160) and _filler_exempt(text, i):
+            kept.setdefault(line_no, []).append(i)
+    found = sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
@@ -225,32 +263,51 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
     return hits
 
 
-def _hidden_counts(text: str) -> dict[str, int]:
-    bidi_exempt = _bidi_mark_exempt(text)
-    counts: dict[str, int] = {}
-    for i, ch in enumerate(text):
-        if _is_hidden(text, i, bidi_exempt):
-            counts[ch] = counts.get(ch, 0) + 1
-    return counts
+def _front_matter(raw: str) -> str | None:
+    """The text between the fences of ``raw``, cut the way :func:`dokimi.utils.parse_frontmatter` cuts it."""
+    lines = raw.lstrip("\ufeff").splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            return "\n".join(lines[1:idx])
+    return None
 
 
-def _escaped_hits(key: str, value: str, raw: str) -> list[Hit]:
-    """#1285: hidden characters of a parsed front matter value beyond those ``raw`` ``SKILL.md`` holds literally.
+def _scalar_sources(front: str) -> dict[str, str]:
+    """Key -> the text of its value as written in the front matter, for ``name`` and ``description``."""
+    import yaml
+
+    try:
+        root = yaml.compose(front, Loader=yaml.SafeLoader)
+    except (yaml.YAMLError, ValueError, RecursionError):
+        return {}
+    sources: dict[str, str] = {}
+    if isinstance(root, yaml.MappingNode):
+        for key_node, value_node in root.value:
+            if isinstance(key_node, yaml.ScalarNode) and key_node.value in ("name", "description"):
+                sources[key_node.value] = front[value_node.start_mark.index : value_node.end_mark.index]
+    return sources
+
+
+def _escaped_hits(key: str, value: str, source: str) -> list[Hit]:
+    """#1285: hidden characters of a parsed front matter value beyond those ``source`` holds literally.
 
     A YAML escape (``\\u202E``, ``\\U000E0069``) is ASCII in the file but one hidden character in the value an agent reads.
-    A character that is in the file is already reported with its line by :func:`_hidden_hits`.
+    ``source`` is the value as written in the front matter: a character that is in it is already reported with its
+    line by :func:`_hidden_hits`, and one elsewhere in the file (a comment, another key, the body) says nothing about it.
     """
-    front = raw.partition("\n---")[0]  # the front matter only: a character in the body says nothing about the value
     text = "\n" + value  # a value is not the start of a file: a leading U+FEFF is not a byte order mark
-    bidi_exempt = _bidi_mark_exempt(text)
-    literal = _hidden_counts(front)  # hidden characters the file holds literally: _hidden_hits reports those
+    literal: dict[str, int] = {}  # hidden characters the file holds literally in this value: _hidden_hits reports those
+    literal_text = "\n" + source
+    for i in _hidden_indexes(literal_text):
+        literal[literal_text[i]] = literal.get(literal_text[i], 0) + 1
     found = []
-    for i in range(1, len(text)):
-        if _is_hidden(text, i, bidi_exempt):
-            if literal.get(text[i], 0) > 0:
-                literal[text[i]] -= 1
-            else:
-                found.append(i - 1)
+    for i in _hidden_indexes(text):
+        if literal.get(text[i], 0) > 0:
+            literal[text[i]] -= 1
+        else:
+            found.append(i - 1)
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = value[index]
@@ -309,22 +366,35 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
 
     ``at_root``: the ``SKILL.md`` sits at the checkout root, so only that file is read (see the module docstring).
     """
-    skill_dir = skill.path.parent
-    paths = [skill.path]
+    hits = skill_md_content_findings(skill.path, at_root=at_root)
+    try:
+        raw = skill.path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return hits
+    front = _front_matter(raw)
+    if front is None:
+        return hits
+    meta, _ = parse_frontmatter(raw)
+    sources = _scalar_sources(front)
+    for key in ("name", "description"):  # the declared values: a missing name falls back to the directory's, not the file's
+        if isinstance(meta.get(key), str):
+            hits += _escaped_hits(key, meta[key], sources.get(key, ""))
+    return hits
+
+
+def skill_md_content_findings(skill_md: Path, *, at_root: bool = False) -> list[Hit]:
+    """:func:`content_findings` for a ``SKILL.md`` path, so a skill that did not load is checked too (#1089)."""
+    skill_dir = skill_md.parent
+    paths = [skill_md]
     if not at_root:
-        paths += [p for p in _text_files(skill_dir) if p != skill.path]
+        paths += [p for p in _text_files(skill_dir) if p != skill_md]
     hits: list[Hit] = []
-    raw = ""
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue  # unreadable or not UTF-8: a bundled file is skipped unread, SKILL.md is the loader's
-        if path == skill.path:
-            raw = text
         where = path.relative_to(skill_dir).as_posix()
         hits += _legacy_hits(where, text)
         hits += _hidden_hits(where, text)
-    for key, value in (("name", skill.name), ("description", skill.description)):
-        hits += _escaped_hits(key, value, raw)
     return hits

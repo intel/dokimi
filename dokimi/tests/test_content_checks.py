@@ -662,6 +662,50 @@ def test_visible_neighbours_of_the_fillers_are_not_reported(tmp_path, neighbour)
     assert _hidden(tmp_path, f"a{chr(neighbour)}b") == []
 
 
+@pytest.mark.parametrize("letters,cp", [("가나다라마바사", 0x115F), ("αβγδεζη", 0x034F)], ids=["hangul", "greek"])
+def test_more_than_three_script_fillers_on_a_line_are_all_reported(tmp_path, letters, cp):
+    """#1274: seven fillers beside script letters on one line carry hidden bits; each is reported."""
+    text = "Review code. " + "".join(c + chr(cp) for c in letters) + " Use it."
+    from dokimi.external.content_checks import REPORT_PER_FILE
+
+    hits = _hidden(tmp_path, text)
+    assert len(hits) == REPORT_PER_FILE + 1
+    assert hits[-1].endswith(f"{len(letters) - REPORT_PER_FILE} more hidden characters not listed")
+
+
+def test_filler_grouping_does_not_rescan_a_long_line():
+    """#1274: finding each filler's line must not search the text from its start: the work stays linear."""
+    from dokimi.external.content_checks import _hidden_hits
+
+    spans = []
+
+    class Counting(str):
+        def rfind(self, sub, start=0, end=None):
+            spans.append((len(self) if end is None else end) - start)
+            return super().rfind(sub, start, end)
+
+    text = Counting("α\u034f" * 2000)
+    assert len(_hidden_hits("a.txt", text)) == 6
+    assert sum(spans) <= 4 * len(text)
+
+
+@pytest.mark.parametrize("count,reported", [(3, 0), (4, 4)], ids=["three", "four"])
+def test_script_filler_limit_is_three_per_line(tmp_path, count, reported):
+    """#1274: three fillers on a line stay exempt, a fourth makes all four hidden."""
+    assert len(_hidden(tmp_path, "".join(c + "\u034f" for c in "αβγδ"[:count]))) == reported
+
+
+def test_script_fillers_are_counted_per_line(tmp_path):
+    """#1274: three fillers on each of two lines are exempt; the limit is per line."""
+    line = "".join(c + "\u034f" for c in "αβγ")
+    assert _hidden(tmp_path, f"{line}\n{line}") == []
+
+
+def test_braille_blank_run_is_not_limited(tmp_path):
+    """#1274: a run of Braille blanks is text and stays exempt however long."""
+    assert _hidden(tmp_path, "⠁" + "⠀" * 8 + "⠃") == []
+
+
 def test_fullwidth_version_step_is_not_a_retired_prefix():
     """#960: gpt-4.1 written with a Cyrillic letter and a fullwidth 1 is a version step, not the retired gpt-4."""
     from dokimi.external.content_checks import _legacy_hits
@@ -782,3 +826,61 @@ def test_escaped_joiner_is_reported_beside_an_exempt_literal_joiner_in_the_descr
 
     [message] = _messages(tmp_path, "hidden-unicode")
     assert "front matter description: U+200D" in message
+
+
+def test_escaped_character_is_reported_beside_a_literal_one_in_a_yaml_comment(tmp_path):
+    """#1285: a literal U+202E in a comment is not the description's character, so the escaped one is still reported."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\n# note \u202e\ndescription: "Use for things.\\u202E"\n---\n# B\n', encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 2
+    assert any("front matter description: U+202E" in m for m in messages)
+
+
+def test_escaped_character_is_reported_when_the_closing_fence_is_indented(tmp_path):
+    """#1285: the loader accepts ``  ---`` as the closing fence, so a literal U+202E in the body is not in the value."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\ndescription: "Use for things.\\u202E"\n  ---\n# B \u202e\n', encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert any("front matter description: U+202E" in m for m in messages)
+
+
+def test_literal_character_after_a_dashed_key_is_not_reported_as_an_escape(tmp_path):
+    """#1285: ``---extra: x`` is a key, not a fence, so the literal U+202E below it keeps its one line finding."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: esc\n---extra: x\ndescription: Use for\u202e things.\n---\n# B\n", encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 1
+    assert "line 4" in messages[0]
+
+
+def test_directory_name_fallback_is_not_scanned_as_a_front_matter_name(tmp_path):
+    """#1285: without a ``name`` the skill takes the directory's name; that is not an escape in the file."""
+    skill_dir = tmp_path / "esc\u200b"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(b"---\ndescription: Use for things.\n---\n# B\n")
+
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_many_escaped_braille_blanks_are_scanned_in_linear_time(tmp_path):
+    """#1285: 20000 escaped U+2800 in one description are scanned once, not once per neighbour."""
+    import time
+
+    _escaped_skill(tmp_path, '"x' + "\\u2800" * 20000 + '"')
+
+    start = time.perf_counter()
+    _messages(tmp_path, "hidden-unicode")
+    assert time.perf_counter() - start < 5

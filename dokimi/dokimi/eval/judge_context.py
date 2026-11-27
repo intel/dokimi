@@ -34,10 +34,11 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from collections import Counter
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from dokimi.records import arm_answers, read
-from dokimi.utils import digest_text, question_id
+from dokimi.utils import InputError, digest_text, question_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,22 +53,51 @@ PROTOCOL = "treatment_material.v1"
 #: material, or fell back to the record's 200-char report snippets.
 SOURCE_STORED = "stored"
 SOURCE_SNIPPET_FALLBACK = "snippet_fallback"
+SOURCE_WITHHELD = "withheld"  # the withheld protocol supplied no material without consulting a stored digest
 
 #: Stamped when some of a run's scores saw the stored material and some fell
 #: back to snippets. It equals neither protocol, so it pools with nothing.
 PROTOCOL_MIXED = PROTOCOL + "+snippet_fallback"
 
+#: ``judge_context`` of a run judged with ``--judge-context baseline``: the judge saw no material on any arm.
+#: Not the protocol :data:`PROTOCOL` measured, so it pools only with other withheld runs.
+PROTOCOL_WITHHELD = "treatment_material.withheld.v1"
 
-def stamp_for(sources: Iterable[Optional[str]]) -> Optional[str]:
+#: The ``--judge-context`` values. ``arm`` (the default) shows each arm its own material;
+#: ``baseline`` shows every arm the rendering of no material, which is what a baseline arm's judge sees.
+JUDGE_CONTEXT_ARM = "arm"
+JUDGE_CONTEXT_BASELINE = "baseline"
+JUDGE_CONTEXT_MODES = (JUDGE_CONTEXT_ARM, JUDGE_CONTEXT_BASELINE)
+
+
+def check_mode(mode: str) -> str:
+    """*mode* when it is one of :data:`JUDGE_CONTEXT_MODES`, else a ``ValueError``."""
+    if mode not in JUDGE_CONTEXT_MODES:
+        raise ValueError(f"judge_context_mode must be one of {JUDGE_CONTEXT_MODES}, got {mode!r}")
+    return mode
+
+
+def shown_to_judge(mode: str, material: Callable[[], str]) -> str:
+    """The text the judge is shown for one arm in *mode*.
+
+    ``baseline`` shows every arm the rendering of no material, which is what a
+    baseline arm's judge sees, so *material* is not built. ``arm`` builds it.
+    """
+    return build([], "") if mode == JUDGE_CONTEXT_BASELINE else material()
+
+
+def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Optional[str]:
     """The ``judge_context`` stamp a judged run has actually earned.
 
     The stamp says what the judge was shown, so it has to follow the per-score
     sources rather than the code path that ran. Every score on stored material
-    -> :data:`PROTOCOL`. Every score on snippets -> ``None``: that is exactly the
+    -> :data:`PROTOCOL`, or :data:`PROTOCOL_WITHHELD` when *withheld* (the judge was
+    shown no material on any arm). Every score on snippets -> ``None``: that is exactly the
     protocol unstamped runs used before the stamp existed, so leaving it off
     lets the run pool with them, which is correct. A mix -> :data:`PROTOCOL_MIXED`,
     which pools with nothing. Scores without a source (none were judged) do not
-    count either way; a run with no counted scores keeps :data:`PROTOCOL`.
+    count either way; a run with no counted scores keeps :data:`PROTOCOL`, or
+    :data:`PROTOCOL_WITHHELD` when *withheld*.
 
     Measured before this existed: a question set without ids, one with
     duplicated ids, and an answers file judged in a new process all produced
@@ -78,7 +108,28 @@ def stamp_for(sources: Iterable[Optional[str]]) -> Optional[str]:
         return None
     if seen == {SOURCE_STORED, SOURCE_SNIPPET_FALLBACK}:
         return PROTOCOL_MIXED
-    return PROTOCOL
+    return PROTOCOL_WITHHELD if withheld else PROTOCOL
+
+
+def stamp_judged_run(out: Dict[str, Any], sources: List[Optional[str]], mode: str) -> None:
+    """Write a judged run's per-source counts and ``judge_context`` stamp into *out*.
+
+    *mode* is the ``--judge-context`` value the run was judged with. A stamp that
+    pools with nothing gets a warning, since its scores cannot be paired with other runs.
+    """
+    out["judge_context_sources"] = dict(sorted(Counter(s for s in sources if s is not None).items()))
+    stamp = stamp_for(sources, withheld=mode == JUDGE_CONTEXT_BASELINE)
+    if stamp is not None:
+        out["judge_context"] = stamp
+    if stamp not in (PROTOCOL, PROTOCOL_WITHHELD):
+        logger.warning(
+            "Judge context for this run: %s — %s. Answer and judge in one "
+            "process, with unique question ids, for treatment-material scores.",
+            out["judge_context_sources"],
+            "unstamped, so it pools only with pre-treatment-material runs"
+            if stamp is None else f"stamped {stamp!r}, which pools with nothing",
+        )
+
 
 #: Cap on the injected part when the caller does not pass the answerer's own cap.
 #: Matches ``arm_runner.MAX_CONTEXT_CHARS``; ``ArmRunner`` passes that constant
@@ -161,7 +212,8 @@ class JudgeContextStore:
     material (written before this) degrades visibly instead of silently.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, mode: str = JUDGE_CONTEXT_ARM) -> None:
+        self.mode = check_mode(mode)
         self._ctx: Dict[Tuple[Union[str, int], str], str] = {}
         #: Keys stored twice with different contexts. A question set without
         #: ids makes every question ``unknown_q``, and duplicated ids do the
@@ -203,19 +255,22 @@ class JudgeContextStore:
             return {digest_text(text): text for text in self._ctx.values()}
 
     @classmethod
-    def from_artifact(cls, data: Dict[str, Any]) -> "JudgeContextStore":
+    def from_artifact(cls, data: object) -> "JudgeContextStore":
         """Rebuild the store from an arms artifact's digests and materials.
 
         A digest whose text is missing, or whose text does not hash to it, is
-        skipped with a warning: that answer falls back to its snippets, which is
-        visible in its ``judge_context_source``, rather than being judged on text
-        that is not what the arms run's judge saw. When ``judge_materials`` is an
-        object, the answers are read through :mod:`dokimi.records`: a malformed
+        skipped with a warning. A withheld run still supplies no material; other
+        runs fall back to snippets and record that in ``judge_context_source``.
+        When ``judge_materials`` is an object, the answers are read through
+        :mod:`dokimi.records`: a malformed
         list or record is a ``RecordError``. When it is missing or not an object,
         the store is empty and the answers are not read.
         """
-        store = cls()
-        materials = data.get("judge_materials") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return cls()
+        protocol = data.get("judge_context")
+        store = cls(JUDGE_CONTEXT_BASELINE if protocol == PROTOCOL_WITHHELD else JUDGE_CONTEXT_ARM)
+        materials = data.get("judge_materials")
         if not isinstance(materials, dict):
             return store
         bad = 0
@@ -228,13 +283,16 @@ class JudgeContextStore:
                 if not isinstance(text, str) or digest_text(text) != digest:
                     bad += 1
                     continue
+                if store.mode == JUDGE_CONTEXT_BASELINE and text:
+                    raise InputError(f"withheld judge_context has non-empty material for {rec.question_id}/{arm_name}")
                 store.put(rec.question_id, arm_name, text)
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "
-                "or does not match its digest; those answers have no verified material "
-                "(callers that fall back use the report snippets; eval judge validate "
-                "--context stored drops them).", bad,
+                "or does not match its digest; %s",
+                bad,
+                "the withheld run still supplies no material." if store.mode == JUDGE_CONTEXT_BASELINE else
+                "callers that fall back use the report snippets; eval judge validate --context stored drops them.",
             )
         return store
 
@@ -244,7 +302,7 @@ class JudgeContextStore:
         with self._lock:
             key = (question_id, arm_name)
             hit = self._ctx.get(key)
-            if hit is None and key not in self._ambiguous and not self._warned:
+            if hit is None and key not in self._ambiguous and not self._warned and self.mode != JUDGE_CONTEXT_BASELINE:
                 self._warned = True
                 logger.warning(
                     "No stored judge context for %s/%s (the run did not keep it, or the text "
@@ -264,8 +322,9 @@ class JudgeContextStore:
     ) -> Tuple[str, str]:
         """The judge's context for one arm's answer, and where it came from.
 
-        Prefers what the arm was actually given (:data:`SOURCE_STORED`). Falls
-        back to the record's report snippets — truncated to 200 chars each, and
+        Prefers what the arm was actually given (:data:`SOURCE_STORED`). A withheld
+        run with missing material still shows none. Other runs fall back to the
+        record's report snippets — truncated to 200 chars each, and
         empty for an agentic arm — which is what every run before this store did
         (:data:`SOURCE_SNIPPET_FALLBACK`). The source is returned so each score
         can record it: one run can mix both, and the warning fires only once.
@@ -273,6 +332,8 @@ class JudgeContextStore:
         stored = self.get(question_id, arm_name)
         if stored is not None:
             return stored or NO_CONTEXT, SOURCE_STORED
+        if self.mode == JUDGE_CONTEXT_BASELINE:
+            return NO_CONTEXT, SOURCE_WITHHELD
         snippets = "\n".join(c.get("snippet", "") for c in arm.get("context_chunks", []))
         return snippets or NO_CONTEXT, SOURCE_SNIPPET_FALLBACK
 

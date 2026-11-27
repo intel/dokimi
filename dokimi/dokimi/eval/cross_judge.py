@@ -58,12 +58,15 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.comparison_verdict import ComparisonVerdict, decide
-from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
+from dokimi.eval.judge_context import (
+    JUDGE_CONTEXT_BASELINE, PROTOCOL_WITHHELD, SOURCE_STORED, SOURCE_WITHHELD, JudgeContextStore,
+)
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
 from dokimi.records import record as as_record
 from dokimi.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
+from dokimi.utils import InputError, digest_text
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +247,8 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
     see the same thing.
     """
+    if isinstance(data, dict) and data.get("judge_context") == PROTOCOL_WITHHELD:
+        return _unverified_withheld_arms(_unjoined(data, "evaluations", skip_malformed=True))
     kinds = {
         arm: (a.raw.get("metadata") or {}).get("arm_kind")
         for r in _unjoined(data, "answers", skip_malformed=True) for arm, a in arm_answers(r).items()
@@ -255,6 +260,18 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     })
 
 
+def _unverified_withheld_arms(rows: Sequence[Record]) -> List[str]:
+    """Arms whose scored rows do not establish that the judge saw empty material."""
+    empty = digest_text("")
+    evidence = ((SOURCE_STORED, empty), (SOURCE_WITHHELD, None))
+    return sorted({
+        arm for row in rows for arm, score in arm_scores(row).items()
+        if score.aggregate is not None and (
+            score.raw.get("judge_context_source"), score.raw.get("judge_context_sha256")
+        ) not in evidence
+    })
+
+
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded in its ``evaluations``, if it was judged.
 
@@ -263,15 +280,17 @@ def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional
     """
     m = Measure(name=name or stored_label(data), kind="aggregate")
     sources = set()
-    for r in _unjoined(data, "evaluations"):
+    rows = _unjoined(data, "evaluations")
+    withheld = isinstance(data, dict) and data.get("judge_context") == PROTOCOL_WITHHELD
+    if withheld and (unverified := _unverified_withheld_arms(rows)):
+        raise InputError(f"withheld judge_context has no proof of empty material for {', '.join(unverified)}. "
+                         "Pass --no-stored to compare without these scores.")
+    for r in rows:
         for arm, s in arm_scores(r).items():
             if s.aggregate is not None:
                 m.scores[(r.question_id, arm)] = float(s.aggregate)
-                sources.add(s.raw.get("judge_context_source") == SOURCE_STORED)
-    # Per score: "stored" only when every score saw the stored material, "none"
-    # when none did (snippet_fallback, pre-judge_context files). A file mixing
-    # both is "mixed": no single-context PASS describes it, so none validates it
-    # (a FAIL of the judge still reaches it).
+                sources.add(not withheld and s.raw.get("judge_context_source") == SOURCE_STORED)
+    # A mixed measure has no single context a validity PASS can cover.
     m.context = {frozenset({True}): "stored", frozenset({False}): "none"}.get(frozenset(sources), "mixed")
     return m if m.scores else None
 
@@ -363,16 +382,15 @@ def score_measure(
     Each answer's context comes from the arms run's own resolver
     (:meth:`~dokimi.eval.judge_context.JudgeContextStore.resolve_with_source`)
     over *store* — pass ``JudgeContextStore.from_artifact(data)`` and the judge
-    sees what the arms run's judge saw. Answers whose material the file does not
-    hold (or with no store) fall back to the arm's report snippets, which is
-    what a run before ``judge_context`` showed its judge.
+    sees what the arms run's judge saw. In arm mode answers with missing material
+    fall back to their report snippets. A withheld run always shows no material.
     """
     store = store if store is not None else JudgeContextStore()
     jobs = []
     stored_flags: set = set()  # per answer: True if the judge saw stored material
     for r, arm, a, question in scored_answers(records, arms):
         context, source = store.resolve_with_source(r.question_id, arm, dict(a.raw))
-        stored_flags.add(source == SOURCE_STORED)
+        stored_flags.add(store.mode != JUDGE_CONTEXT_BASELINE and source == SOURCE_STORED)
         jobs.append((r.question_id, arm, question, a.text, context))
 
     def one(job):

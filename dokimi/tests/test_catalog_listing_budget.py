@@ -181,6 +181,41 @@ def test_a_name_with_differing_copies_is_left_out_of_the_total(tmp_path, capsys)
         assert _listing(tmp_path, capsys, *scan)["chars"] == len("bravo: Use when bravo runs.")
 
 
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_a_name_with_differing_copies_is_not_named_to_shorten(tmp_path, capsys, scan):
+    """#970: `largest` names only entries the total counts, so a conflicting name, however large, is not one to shorten."""
+    _alpha(tmp_path)
+    for parent in ("skills", "other"):
+        copy = tmp_path / parent / "dup"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(
+            f"---\nname: dup\ndescription: Use when {parent} {'x' * 200}.\n---\n# dup\n", encoding="utf-8")
+
+    listing = _listing(tmp_path, capsys, "--listing-budget", "1", *scan)
+
+    assert listing["chars"] == len(ENTRY)
+    assert listing["largest"] == [{"name": "alpha", "chars": len(ENTRY)}]
+
+
+def test_a_resumed_row_without_a_digest_is_named_as_the_total_counts_it(tmp_path, capsys):
+    """#970: a kept row with `content_sha256: null` counts on its own in the total, so `largest` names it too."""
+    _alpha(tmp_path)
+    _skill(tmp_path, "bravo", "Use when bravo runs.")
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    rows = [json.loads(line) for line in receipt.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["name"] == "bravo":
+            row["content_sha256"] = None
+    receipt.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    out, _ = _run([*base, "--resume", "--listing-budget", "1"], capsys)
+
+    assert "2 resumed" in out
+    assert "largest entries: alpha (27 chars), bravo (27 chars) (together 53 of the 53 characters" in out
+
+
 def test_json_names_the_budget_as_the_reason_a_scan_failed(tmp_path, capsys):
     """#966: `catalog check --json` under `--strict` says the listing is over the cap, not 'nothing to scan'."""
     _alpha(tmp_path)
@@ -359,3 +394,136 @@ def test_resume_refuses_a_finding_without_a_string_code(tmp_path, capsys, findin
     _, code = _run([*base, "--resume"], capsys)
 
     assert code == 2
+
+
+def _sized(root: Path, lengths: list[int], capsys) -> list[dict]:
+    for i, n in enumerate(lengths):
+        _skill(root, f"s{i}", "Use when " + "x" * (n - 9))
+    out, _ = _run(["--root", str(root), "--format", "json"], capsys)
+    return sorted(json.loads(out)["skills"], key=lambda r: (-r["listing_chars"], r["name"]))
+
+
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_over_budget_names_the_fewest_largest_entries_that_cover_the_excess(tmp_path, capsys, scan):
+    """#970: three names cover only part of an overrun; the warning names as many (at most five) as the excess needs."""
+    rows = _sized(tmp_path, [100, 90, 80, 70, 60, 50], capsys)
+    total = sum(r["listing_chars"] for r in rows)
+    cap = total - sum(r["listing_chars"] for r in rows[:3]) - 20
+    expected = [r["name"] for r in rows[:4]]
+    base = ["--root", str(tmp_path), "--listing-budget", str(cap), *scan]
+
+    out, code = _run([*base, "--format", "json"], capsys)
+    listing = json.loads(out)["listing"]
+    assert [e["name"] for e in listing["largest"]] == expected
+    assert [e["chars"] for e in listing["largest"]] == [r["listing_chars"] for r in rows[:4]]
+    out, code = _run([*base, "--json"], capsys)
+    finding = next(s for s in json.loads(out)["subjects"] if s["subject"] == "catalog:listing")["findings"][0]
+    assert "largest entries: " + ", ".join(
+        f"{r['name']} ({r['listing_chars']} chars)" for r in rows[:4]) in finding["message"]
+
+    out, code = _run(base, capsys)
+    line = next(ln for ln in out.splitlines() if "listing-over-budget" in ln)
+    named = ", ".join(f"{r['name']} ({r['listing_chars']} chars)" for r in rows[:4])
+    assert f"largest entries: {named} (together " in line
+    assert code == 0
+
+
+def test_the_named_entries_stop_at_five_and_break_ties_by_name(tmp_path, capsys):
+    """#970: when no five entries cover the excess, five are named; equal sizes are ordered by name."""
+    for name in ("d", "b", "c", "a", "e", "f", "g"):
+        _skill(tmp_path, name, "Use when equal.")
+
+    listing = _listing(tmp_path, capsys, "--listing-budget", "1")
+
+    assert [e["name"] for e in listing["largest"]] == ["a", "b", "c", "d", "e"]
+
+
+def test_a_copy_is_named_once_and_a_listing_within_the_cap_names_nothing(tmp_path, capsys):
+    """#970: a byte-identical copy is one entry (docs/external-content.md), and no excess means no `largest` key."""
+    _alpha(tmp_path)
+    copy = tmp_path / "mirror" / "alpha"
+    copy.mkdir(parents=True)
+    (copy / "SKILL.md").write_bytes((tmp_path / "skills" / "alpha" / "SKILL.md").read_bytes())
+
+    assert [e["name"] for e in _listing(tmp_path, capsys, "--listing-budget", "5")["largest"]] == ["alpha"]
+    assert "largest" not in _listing(tmp_path, capsys, "--listing-budget", str(len(ENTRY)))
+
+
+def test_the_guide_example_warns_one_character_over_the_cap(tmp_path, capsys):
+    """#970: docs/external-content.md's example: `accents: Use when checking café prices.` is 39 characters."""
+    _skill(tmp_path, "accents", "Use when checking café prices.")
+    for scan in ([], ["--per-skill"]):
+        for strict in ([], ["--strict"]):
+            for cap in (40, 39):
+                out, code = _run(["--root", str(tmp_path), "--listing-budget", str(cap), *scan, *strict], capsys)
+                assert "listing-over-budget" not in out and code == 0
+            out, code = _run(["--root", str(tmp_path), "--listing-budget", "38", *scan, *strict], capsys)
+            assert "over the --listing-budget of 38; largest entries: accents (39 chars) (together 1 of the 1 characters" in out
+            assert "the three largest cover 1 (100.0%), the five 1 (100.0%))" in out
+            assert code == (1 if strict else 0)
+
+
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_the_report_says_how_much_of_the_excess_three_and_five_entries_cover(tmp_path, capsys, scan):
+    """#970 scenario 5: seven 18-character entries, cap 1: excess 125, the top three cover 54, the top five 90."""
+    for name in "abcdefg":
+        _skill(tmp_path, name, "Use when equal.")
+    base = ["--root", str(tmp_path), "--listing-budget", "1", *scan]
+
+    listing = json.loads(_run([*base, "--format", "json"], capsys)[0])["listing"]
+    assert (listing["excess"], listing["covered"], listing["top3_covered"], listing["top5_covered"]) == (125, 90, 54, 90)
+    assert len(listing["largest"]) == 5
+    assert (listing["top3_share"], listing["top5_share"]) == (0.432, 0.72)
+
+    out, _ = _run(base, capsys)
+    assert "(together 90 of the 125 characters over the cap; the three largest cover 54 (43.2%), the five 90 (72.0%))" in out
+
+
+def test_covered_never_exceeds_the_excess(tmp_path, capsys):
+    """#970: one 39-character entry over a cap of 38 is 1 character over: `covered` is 1, not 39."""
+    _skill(tmp_path, "accents", "Use when checking café prices.")
+
+    listing = _listing(tmp_path, capsys, "--listing-budget", "38")
+
+    assert (listing["excess"], listing["covered"], listing["top3_covered"], listing["top5_covered"]) == (1, 1, 1, 1)
+
+
+def test_the_docs_describe_the_named_entries():
+    """#970: the guide and the JSONL page describe `largest` and the cap of five."""
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    guide = (docs / "external-content.md").read_text(encoding="utf-8")
+    assert "largest entries:" in guide and "at most five" in guide and "accents: Use when checking café prices." in guide
+    assert "`largest`" in (docs / "catalog-jsonl.md").read_text(encoding="utf-8")
+
+
+def test_the_ranking_is_sorted_once_per_warning_and_again_after_a_new_row(monkeypatch):
+    """#970: `largest` and `covered` share one sort of the entries; `add` makes the next call sort again."""
+    from dokimi.commands.catalog_scan import ListingTotal
+
+    calls = []
+    real = ListingTotal._sort_entries
+    monkeypatch.setattr(ListingTotal, "_sort_entries", lambda self: calls.append(1) or real(self))
+    total = ListingTotal()
+    total.add({"listing_chars": 10, "content_sha256": "a", "listing_name": "a"})
+    total.largest(5), total.covered(5, 3), total.covered(5, 5)
+    assert len(calls) == 1
+    total.add({"listing_chars": 20, "content_sha256": "b", "listing_name": "b"})
+    assert total.largest(5) == [{"name": "b", "chars": 20}]
+    assert len(calls) == 2
+
+
+def test_an_entry_that_covers_the_excess_exactly_is_the_last_one_named(tmp_path, capsys):
+    """#970: `largest` stops once the named entries reach the excess, not only once they pass it."""
+    rows = _sized(tmp_path, [100, 90, 80], capsys)
+    cap = sum(r["listing_chars"] for r in rows) - rows[0]["listing_chars"] - rows[1]["listing_chars"]
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", str(cap), "--format", "json"], capsys)
+
+    assert [e["name"] for e in json.loads(out)["listing"]["largest"]] == [r["name"] for r in rows[:2]]
+
+
+def test_the_listing_row_says_the_largest_fields_are_absent_when_the_warning_is_ignored():
+    """#970: docs/catalog-jsonl.md qualifies the fields with `--ignore listing-over-budget`."""
+    text = (Path(__file__).resolve().parents[1] / "docs" / "catalog-jsonl.md").read_text(encoding="utf-8")
+    row = next(line for line in text.splitlines() if line.startswith("| `listing`"))
+    assert "the warning is not ignored" in row
