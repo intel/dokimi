@@ -733,7 +733,7 @@ def test_rerun_whose_previous_jobs_dir_cannot_be_cleared_does_not_run(tmp_path, 
 
     task = load_task(_task(tmp_path))
     runs = tmp_path / "runs"
-    stale = runs / "sb-task" / "benchflow_claude-agent-acp" / "jobs" / "2026-10-01" / "sb-task__old"
+    stale = runs / "sb-task" / "benchflow_claude-agent-acp" / "run1" / "jobs" / "2026-10-01" / "sb-task__old"
     stale.mkdir(parents=True)
     (stale / "result.json").write_text(json.dumps(_RESULT), encoding="utf-8")
     seen = _fake_bench(monkeypatch, None, returncode=1)

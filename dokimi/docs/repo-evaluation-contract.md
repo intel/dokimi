@@ -2282,6 +2282,11 @@ output prints them after the warnings, on one `incomplete: ...` line, and when
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look.
+Dead links name the missing target. A literal YAML, TOML, CFG or INI configuration
+path with a directory component also fails when the snapshot lacks its parent,
+unless it has two or more directories and the first is absent too (a sibling
+repository's file or a placeholder stays `unresolved`).
+For one release, `--fail-on-fail` accepts the same gate and warns on stderr.
 
 **A gate any repository can adopt (#851).** Three things keep `--fail-on fail` from failing on noise
 the repository cannot fix:
