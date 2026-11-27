@@ -99,6 +99,24 @@ def test_the_run_config_records_an_unsupported_seed_as_unsupported_not_as_seeded
     assert "seed_status" not in plain and "seed_requested" not in plain
 
 
+
+def test_runs_that_differ_only_in_the_dropped_seed_are_replicates_not_rival_models():
+    from dokimi.report.model_compare import check_run_consistency, replicate_key
+    from dokimi.utils import InputError
+
+    def run(**cfg):
+        return {"model": "m", "provider": "amazon-bedrock", "judge_model": "j",
+                "judge_provider": "openai", "baseline_arm": "baseline", "arms": ["baseline", "skill:s"],
+                "run_config": {"temperature": None, **cfg}}
+
+    first = run(seed=None, seed_requested=1, seed_status="unsupported")
+    second = run(seed=None, seed_requested=2, seed_status="unsupported")
+    assert replicate_key(first) == replicate_key(second)
+    with pytest.raises(InputError, match="replicates of one measurement"):
+        check_run_consistency([("br1", first), ("br2", second)], "golden")
+    assert replicate_key(first) != replicate_key(run(seed=1))
+
+
 def test_a_judge_drops_a_seed_the_route_refuses_and_warns_once(monkeypatch, capsys):
     from dokimi.eval import judge_sampling
 

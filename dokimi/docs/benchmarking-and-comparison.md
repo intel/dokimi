@@ -747,7 +747,8 @@ Consistency is validated before the report is written:
 - Diverging `question_set_hash` values (when present) produce a warning on
   stderr.
 - Runs that share one configuration (model, provider, judge, judge prompt and
-  temperature, `run_config` except the seed value, harness, plugin set, cell and
+  temperature, `run_config` except the seed value (`seed`, or `seed_requested`
+  when the route dropped it), harness, plugin set, cell and
   arm list) are replicates: an error,
   unless `--pool-replicates` averages them per question into one row. A
   question is kept only if every replicate scored both arms; the report says
