@@ -131,7 +131,7 @@ from dokimi.utils import same_model
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
                              read_judged)
 from .compare_leak import format_leak, leak_check
-from .compare_interval import format_interval, includes_zero
+from .compare_interval import format_interval, format_value, includes_zero
 from .compare_reach import holm_family, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -642,7 +642,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                   f"{'delta [95% CI]':<26}  {'p':>6}  {'p_holm':>6}  up/down/tied"]
         for r in rows:
             d = r["delta"]
-            delta = f"{d['mean']:+.3f} " + format_interval(d["lo"], d["hi"])
+            delta = format_value(d["mean"], signed=True) + " " + format_interval(d["lo"], d["hi"])
             lines.append(f"  {r['measure']:<{width}}  {r['n_tasks']:>5}  {_num(r['baseline_mean']):>9}  "
                          f"{_num(r['treatment_mean']):>9}  {delta:<26}  {_p(r['p']):>6}  {_p(r['p_holm']):>6}  "
                          f"{r['up']}/{r['down']}/{r['tied']}")
@@ -791,7 +791,7 @@ def _round(value: float | None) -> float | None:
 
 
 def _num(value: float | None) -> str:
-    return "-" if value is None else f"{value:.3f}"
+    return format_value(value)
 
 
 def _p(value: float | None) -> str:
