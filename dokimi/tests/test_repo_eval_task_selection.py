@@ -334,7 +334,7 @@ def test_a_change_to_the_calling_workflow_runs_the_smoke_set(repo, tmp_path):
     assert _select(repo, tmp_path) == ["t1"]
 
 
-def test_every_path_that_triggers_the_self_check_runs_the_smoke_set(repo, tmp_path):
+def test_self_check_reserves_docker_smoke_tasks_for_harness_changes(repo, tmp_path):
     self_check = WORKFLOW.with_name("repo-eval-self.yml")
     doc = yaml.safe_load(self_check.read_text(encoding="utf-8"))
     paths = doc[True]["pull_request"]["paths"]  # YAML 1.1 reads the `on` key as True
@@ -348,14 +348,15 @@ def test_every_path_that_triggers_the_self_check_runs_the_smoke_set(repo, tmp_pa
             for star in ("", "_x")
         }
     )
-    missed = []
+    # Test-narrowed: Guidance edits run repo scan. Docker smoke tasks use fixed historical content.
+    guidance_only = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".github/copilot-instructions.md"}
+    assert guidance_only < set(files)
+    smoke = doc["jobs"]["self"]["with"]["smoke-paths"]
     for f in files:
         _write(repo, f, "changed\n")
-        smoke = doc["jobs"]["self"]["with"]["smoke-paths"]
-        if _select(repo, tmp_path, SMOKE_PATHS=smoke, WORKFLOW_REF=caller) != ["t1"]:
-            missed.append(f)
+        expected = [] if f in guidance_only else ["t1"]
+        assert _select(repo, tmp_path, SMOKE_PATHS=smoke, WORKFLOW_REF=caller) == expected, f
         _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-    assert files and not missed
 
 
 @pytest.mark.parametrize("smoke_paths", ["./vendor/", "vendor/,other/", "other/ vendor/"])

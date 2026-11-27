@@ -8,7 +8,8 @@ id: dokimi
 source: {url: https://github.com/intel/dokimi}
 eval_dir: .agent-eval
 guidance:
-  globs: ["**/AGENTS.md", "**/CLAUDE.md"]
+  # CLAUDE.md exists on the historical task base and must be removed in the control arm.
+  globs: [AGENTS.md, CLAUDE.md, REVIEW.md, .github/copilot-instructions.md]
   also_scan: ["CONTRIBUTING.md", "dokimi/CONTRIBUTING.md", "dokimi/README.md", "README.md"]
 image:
   dockerfile: .agent-eval/Dockerfile

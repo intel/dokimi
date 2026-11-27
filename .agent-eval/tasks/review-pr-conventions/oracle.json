@@ -1,0 +1,42 @@
+[
+  {
+    "file": "dokimi/dokimi/schemas/answers.v1.json",
+    "line": 37,
+    "severity": "blocker",
+    "rule": "schema-version",
+    "message": "Requiring grounding in answers.v1 breaks backward compatibility. Publish a new schema version or keep grounding optional.",
+    "evidence": "An answers.v1 artifact written before this commit fails validation with grounding is a required property."
+  },
+  {
+    "file": "dokimi/pyproject.toml",
+    "line": 117,
+    "severity": "blocker",
+    "rule": "mypy-override",
+    "message": "The ignore_errors override for dokimi.eval.grounding hides real type errors.",
+    "evidence": "score and base are annotated float and assigned None. Use float | None."
+  },
+  {
+    "file": "dokimi/dokimi/eval/grounding.py",
+    "line": 117,
+    "severity": "blocker",
+    "rule": "stored-keys",
+    "message": "The annotator writes with_context and baseline in place of with_docs and without_docs.",
+    "evidence": "A subsequent grounding or scoring run looks for the original persisted keys and loses both conditions."
+  },
+  {
+    "file": "dokimi/dokimi/eval/grounding.py",
+    "line": 108,
+    "severity": "blocker",
+    "rule": "threshold-boundary",
+    "message": "An off-by-one skips answers with exactly min_contexts contexts.",
+    "evidence": "At the default of one context, evaluate_grounding includes the answer while annotate_answers leaves the scores null."
+  },
+  {
+    "file": "dokimi/docs/benchmarking-and-comparison.md",
+    "line": 208,
+    "severity": "blocker",
+    "rule": "cli-doc-drift",
+    "message": "The documented --min-docs argument should be --min-contexts.",
+    "evidence": "Running the example exits with an unrecognized-arguments error."
+  }
+]

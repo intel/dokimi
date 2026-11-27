@@ -3,19 +3,16 @@
 
 name: repo-eval-self
 
-# dokimi's own evals (.agent-eval/) through the reusable repo-eval.yml, as a
-# repository calls it, with two differences: the workflow is this commit's
-# (`./`), and so is the dokimi it installs, so a change to the repository
-# mode is checked against these tasks before it merges.
-#
-# A change to a task checks that task. A change to the harness (run.py, the
-# Dockerfile, the manifest), to the repository mode or to either workflow
-# checks the smoke set: one fix task (hidden tests plus the whole suite) and
-# the score-only review task. A dispatch checks all ten by default.
+# Scan guidance, check changed tasks and smoke-test harness edits using this commit's Dokimi.
+# Manual dispatch checks every task by default.
 on:
   pull_request:
     paths:
       - '.agent-eval/**'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'REVIEW.md'
+      - '.github/copilot-instructions.md'
       - 'dokimi/dokimi/repos/**'
       - 'dokimi/dokimi/commands/repo*.py'
       - 'dokimi/dokimi/schemas/repo_*.json'
@@ -49,11 +46,12 @@ jobs:
       dokimi-action-repository: ${{ github.repository }}
       manifest: .agent-eval/repo-eval.yaml
       tasks: ${{ inputs.tasks || 'changed' }}
-      smoke-tasks: fix-degrade-pre review-pr-conventions
-      # Every `paths:` entry above outside .agent-eval/, as a prefix.
+      smoke-tasks: fix-degrade-pre review-pr-conventions review-clean-diff
+      # Harness changes select the smoke set. Guidance-only edits still run the scan.
       smoke-paths: >-
         dokimi/dokimi/repos/ dokimi/dokimi/commands/repo dokimi/dokimi/schemas/repo_
-        dokimi/requirements.lock.txt dokimi/pyproject.toml .github/workflows/repo-eval.yml actions/
+        dokimi/requirements.lock.txt dokimi/pyproject.toml
+        .github/workflows/repo-eval.yml .github/workflows/repo-eval-self.yml actions/
       max-parallel: 4
       # Runners: see the header of ci.yml.
       runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}

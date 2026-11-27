@@ -1,0 +1,64 @@
+{
+  "seeds": [
+    {
+      "id": "schema_in_place",
+      "class": "compatibility",
+      "file": "dokimi/dokimi/schemas/answers.v1.json",
+      "lines": [
+        36,
+        37
+      ],
+      "kw": "\\b(?:backward compatib\\w*|breaking schema change|version bump|answers\\.v2|new (?:schema )?version|narrows?\\s+[`\"]?answers\\.v1\\b[`\"]? in place)\\b"
+    },
+    {
+      "id": "mypy_override",
+      "class": "typing",
+      "file": "dokimi/pyproject.toml",
+      "lines": [
+        117
+      ],
+      "kw": "\\b(?:ignore_errors|mypy (?:overrides?|exemptions?))\\b"
+    },
+    {
+      "id": "key_rename",
+      "class": "compatibility",
+      "file": "dokimi/dokimi/eval/grounding.py",
+      "lines": [
+        117,
+        118
+      ],
+      "kw": "[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:(?:is|are|was|were|gets?|got|(?:has|have|had)\\s+been)\\s+)?(?:now|renam\\w*\\s+to|replac\\w*\\s+(?:with|by))\\s+[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?(?![`\\'\\\"]|\\s+(?:in|for|on|as)\\s+(?:(?:the|a)\\s+)?(?:(?:report|display|table|chart|output|UI)\\s+)?(?:headings?|labels?|titles?|captions?)\\b)|[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:replac\\w*|in\\s+place\\s+of)\\s+[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?(?![`\\'\\\"]|\\s+(?:in|for|on|as)\\s+(?:(?:the|a)\\s+)?(?:(?:report|display|table|chart|output|UI)\\s+)?(?:headings?|labels?|titles?|captions?)\\b)|\\b(?:renam\\w*|replac\\w*)\\s+(?:(?:the|stored|persisted)\\s+){0,3}[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?(?:(?:,\\s*|\\s+and\\s+)[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?)?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:to|with|by)\\s+[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?(?![`\\'\\\"]|\\s+(?:in|for|on|as)\\s+(?:(?:the|a)\\s+)?(?:(?:report|display|table|chart|output|UI)\\s+)?(?:headings?|labels?|titles?|captions?)\\b)"
+    },
+    {
+      "id": "logic_off_by_one",
+      "class": "correctness",
+      "file": "dokimi/dokimi/eval/grounding.py",
+      "lines": [
+        108
+      ],
+      "kw": "(?s)^(?!.*\\b(?:no\\s+off[- ]by[- ]one|off[- ]by[- ]one\\s+(?:is\\s+)?(?:absent|not\\s+(?:present|an\\s+issue))|(?:continue|keep)\\s+(?:to\\s+use|using)\\s+`?>=|(?:comparison|operator|boundary)\\s+is\\s+(?:already\\s+)?correct|as\\s+the\\s+code\\s+already\\s+does)).*?(?:\\boff[- ]by[- ]one\\b|\\b(?:should|must|needs?)\\s+be\\s+`?>=|\\buse\\s+`?>=|\\b(?:replace|change)\\s+`?(?:len\\(contexts\\)\\s*)?>\\s*(?:min_contexts)?`?\\s+(?:with|to)\\s+`?(?:len\\(contexts\\)\\s*)?>=|\\b(?:skipp?(?:s|ed)?|exclud(?:e|es|ed)|reject(?:s|ed)?|omit(?:s|ted)?|miss(?:es|ed)?|drop(?:s|ped)?|fails?\\s+for)\\b[^.!?]{0,80}\\bexactly\\b[^.!?]{0,60}\\b(?:contexts?|snippets?|min_contexts)\\b|\\bexactly\\b[^.!?]{0,60}\\b(?:contexts?|snippets?|min_contexts)\\b[^.!?]{0,40}\\b(?:is|are|gets?|go(?:es)?)\\s+(?:skipp?(?:s|ed)?|exclud(?:e|es|ed)|reject(?:s|ed)?|omit(?:s|ted)?|miss(?:es|ed)?|drop(?:s|ped)?|fails?\\s+for)\\b)"
+    },
+    {
+      "id": "docs_flag_drift",
+      "class": "docs",
+      "file": "dokimi/docs/benchmarking-and-comparison.md",
+      "lines": [
+        201,
+        208
+      ],
+      "kw": "--min-docs\\b"
+    }
+  ],
+  "decoys": [
+    {
+      "id": "nullable_grounding_scores",
+      "file": "dokimi/dokimi/schemas/answers.v1.json",
+      "lines": [
+        89,
+        90,
+        91
+      ],
+      "kw": "\\b(?:null|nullable|nullability)\\b"
+    }
+  ]
+}

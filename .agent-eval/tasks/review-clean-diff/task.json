@@ -1,0 +1,11 @@
+{
+  "id": "review-clean-diff",
+  "family": "review",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Review the HEAD commit as a Dokimi maintainer would before merging. Report findings supported by the change. End with a fenced `json` array containing one object per finding, with `file` (repository-relative), `line`, `severity` (`blocker`, `major`, or `minor`), `rule`, `message`, and `evidence`. Return an empty array if there are no findings.",
+  "grader": "dokimi:review_seeds",
+  "review_patch": "review.patch",
+  "timeout_s": 1800,
+  "max_turns": 100,
+  "budget_usd": 4
+}

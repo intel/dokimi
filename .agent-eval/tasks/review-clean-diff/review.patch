@@ -1,0 +1,31 @@
+From 576476898217f6ca8a9f21526d72b538fb7fbcea Mon Sep 17 00:00:00 2001
+From: Eval Fixture <eval-fixture@example.invalid>
+Date: Wed, 25 Nov 2026 00:02:48 -0800
+Subject: [PATCH] docs: show grounding threshold example
+
+Signed-off-by: Eval Fixture <eval-fixture@example.invalid>
+---
+ dokimi/docs/benchmarking-and-comparison.md | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/dokimi/docs/benchmarking-and-comparison.md b/dokimi/docs/benchmarking-and-comparison.md
+index db419dd..35689e7 100644
+--- a/dokimi/docs/benchmarking-and-comparison.md
++++ b/dokimi/docs/benchmarking-and-comparison.md
+@@ -196,5 +196,16 @@ python cli.py report eval \
+   --out results/onetbb_golden/reports/oneTBB_full.md
+ ```
+
++To compute reference-free grounding and citation metrics from the saved answers,
++run `eval grounding`. The threshold controls the citation rate. Each answer
++still contributes its grounding score when it has retrieved context.
++
++```bash
++python cli.py eval grounding \
++  --answers results/onetbb_golden/answers/onetbb.json \
++  --threshold 0.6 \
++  --output results/onetbb_golden/eval/onetbb-grounding.json
++```
++
+ Use `report generate` instead of `report eval` when you also want the questions
+ file included in the report generator:

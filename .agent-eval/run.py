@@ -9,7 +9,7 @@
 A task directory holds task.json and any of:
 
 - oracle.patch     git patch applied by ``oracle`` (the reference solution)
-- oracle_answer.md written to answer.txt by ``oracle`` (review tasks)
+- oracle_answer.md written to answer.txt by ``oracle`` (answer-based tasks)
 - hidden/          test files copied into the workspace before the hidden run; their
                    repo-relative paths are listed in task.json ``hidden_tests``
 - check.py         task-specific checks: run with cwd = <workspace>/dokimi, argv
@@ -151,15 +151,6 @@ def diff_coverage(ws, proj, start, cov_xml, logs):
     return {"diffcov_lines": lines, "diffcov_pct": pct, "diffcov_ok": lines < 20 or pct >= 80}
 
 
-def _grade_review(task, rd, metrics, details):
-    answer = (rd / "answer.txt").read_text() if (rd / "answer.txt").exists() else ""
-    found = {f["id"]: all(re.search(rx, answer, re.I | re.S) for rx in f["all"]) for f in task["findings"]}
-    metrics["recall"] = sum(found.values()) / len(found) if found else 0.0
-    metrics.update({f"found_{k}": v for k, v in found.items()})
-    metrics["false_alarm_lines"] = None
-    details["found"] = found
-
-
 def _regression(ws, proj, start, metrics, logs):
     """The agent's own tree, before any hidden file is added."""
     cov_xml = Path(os.environ.get("HOME") or tempfile.gettempdir()) / "coverage.xml"   # outside the workspace
@@ -216,12 +207,6 @@ def grade(rd: Path):
     details: dict = {"changed_files": changed_files(ws, start)}
     errors: list = []
     logs: dict = {}
-
-    if task["grader"] == "review":
-        _grade_review(task, rd, metrics, details)
-        metrics.update(process_metrics(rd, ws, start))
-        verdict = None   # repo_grade.v1: `pass` is null for a score-only task
-        return {"pass": verdict, "metrics": metrics, "details": details, "errors": errors}
 
     _regression(ws, proj, start, metrics, logs)
     process = process_metrics(rd, ws, start)   # the agent's changes, before the hidden tests are added
