@@ -108,7 +108,7 @@ PIP_VALUE_OPTIONS = frozenset({
     "--install-option"})
 NPM_VALUE_OPTIONS = frozenset({
     "--prefix", "--registry", "--cache", "--userconfig", "--workspace", "-w", "--tag", "--loglevel",
-    "--omit", "--include", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
+    "--omit", "--include", "--only", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
@@ -317,9 +317,12 @@ def _installs(call: str) -> bool:
         words = call.split()
     flags = {name: value for name, _, value in (w.partition("=") for w in words)}
     on = lambda name: name in flags and flags[name] != "false"  # noqa: E731
-    omits_dev = flags.get("--omit") == "dev" or on("--production") or flags.get("--only") in ("prod", "production")
-    if "--omit" in words and words.index("--omit") + 1 < len(words):
-        omits_dev = omits_dev or words[words.index("--omit") + 1] == "dev"
+    def values(name: str) -> set[str]:  # ``--name=a,b`` and ``--name a,b`` alike
+        found = [w[len(name) + 1:] for w in words if w.startswith(name + "=")]
+        found += [words[i + 1] for i, w in enumerate(words[:-1]) if w == name]
+        return {v for item in found for v in item.split(",")}
+    omits_dev = ("dev" in values("--omit") or on("--production") or bool(values("--only") & {"prod", "production"}))
+    omits_dev = omits_dev and "dev" not in values("--include")  # npm keeps a type both included and omitted
     return not (any(on(name) for name in NON_INSTALLING) or "--no-bin-links" in flags
                 or flags.get("--bin-links") == "false" or (omits_dev and any(on(name) for name in DEV_ONLY)))
 
@@ -350,24 +353,44 @@ def _install_dir(call: str) -> str | None:
         words = shlex.split(call)
     except ValueError:  # an unbalanced quote: the words as written
         words = call.split()
+    try:
+        raw = shlex.split(call, posix=False)  # the words with their quotes, to tell ``'$X'`` from ``$X``
+    except ValueError:
+        raw = words
     for i, w in enumerate(words):
         name, eq, value = w.partition("=")
         if name in ("--prefix", "--dir") and eq:
-            return value.removeprefix("./").rstrip("/") or None
+            return _literal(value, raw[i].partition("=")[2] if len(raw) == len(words) else value)
         if w in ("--prefix", "--dir", "-C") and i + 1 < len(words):
-            return words[i + 1].removeprefix("./").rstrip("/") or None
+            return _literal(words[i + 1], raw[i + 1] if len(raw) == len(words) else words[i + 1])
     return None
 
 
-CD = re.compile(r"""[()]|'[^']*'|"[^"]*"|(?:\A|(?<=[\n;&|({])|(?<=\bthen)|(?<=\bdo)|(?<=\belse))[ \t]*cd[ \t]+['"]?([^\s;&|'"()]+)['"]?""")
+def _literal(value: str, written: str) -> str | None:
+    """``value`` as a directory: one that was written quoted or escaped (``'$X'``, ``\\$X``) and starts with ``$`` or
+    ``~`` is a literal relative name, kept apart from a variable root by a leading ``./``."""
+    value = value.removeprefix("./").rstrip("/")
+    if value.startswith(("~", "$")) and not written.startswith(("~", "$", '"$')):
+        value = "./" + value
+    return value or None
 
 
-def _cwd(code: str, start: int, end: int, here: str = ".") -> str | None:
+def _join(here: str, target: str) -> str:
+    """``target`` below ``here``; a literal relative name starting with ``$`` or ``~`` keeps its ``./``."""
+    moved = posixpath.normpath(posixpath.join(here, target))
+    return "./" + moved if moved.startswith(("~", "$")) and not here.startswith(("~", "$")) else moved
+
+
+CD = re.compile(r"""[()]|'[^']*'|"[^"]*"|(?:\A|(?<=[\n;&|({])|(?<=\bthen)|(?<=\bdo)|(?<=\belse))[ \t]*cd[ \t]+((?:"[^"]*"|'[^']*'|\\.|[^\s;&|'"()\\])+)""")
+
+
+def _cwd(code: str, start: int, end: int, here: str | None = ".") -> str | None:
     """The directory in force at ``end`` after the ``cd`` commands of ``code[start:end]``, from ``here`` at ``start``;
-    None when a ``cd`` goes where this cannot follow (``-``, or ``..`` out of a ``$VAR`` directory); ``cd $VAR`` is
-    followed as that name, so an install and an ``npx`` after the same ``cd $VAR`` meet. Only a ``cd`` that starts a command
-    counts: ``message="cd tools"`` is data. A subshell's ``cd`` ends at its ``)``."""
-    saved: list[str] = []
+    None while a ``cd`` has gone where this cannot follow (``-``, or ``..`` out of a ``$VAR`` directory): a later
+    ``)`` or a ``cd`` to an absolute, ``~`` or ``$VAR`` target makes it known again. ``cd $VAR`` is followed as that
+    name, so an install and an ``npx`` after the same ``cd $VAR`` meet. A quoted or escaped target is one word. Only a
+    ``cd`` that starts a command counts: ``message="cd tools"`` is data. A subshell's ``cd`` ends at its ``)``."""
+    saved: list[str | None] = []
     for m in CD.finditer(code, start, end):
         if m.group(0) == "(":
             saved.append(here)
@@ -375,11 +398,19 @@ def _cwd(code: str, start: int, end: int, here: str = ".") -> str | None:
             here = saved.pop() if saved else here
         elif m.group(1) is None:
             continue  # a quoted string
-        elif m.group(1) == "-" or (here.startswith(("~", "$")) and m.group(1).startswith("..")):
-            return None
         else:
-            here = posixpath.normpath(posixpath.join(here, m.group(1)))  # an absolute target replaces ``here``
-            here = m.group(1) if m.group(1).startswith(("~", "$")) else here  # so does a variable or ``~``
+            try:
+                target = shlex.split(m.group(1))[0]
+            except (ValueError, IndexError):  # an unbalanced quote: the word as written
+                target = m.group(1)
+            if target.startswith(("~", "$")) and m.group(1).startswith(("~", "$", '"$')):
+                here = target  # an unquoted variable or ``~`` replaces ``here``
+            elif target.startswith("/"):
+                here = posixpath.normpath(target)
+            elif target == "-" or here is None or (here.startswith(("~", "$")) and target.startswith("..")):
+                here = None
+            else:
+                here = _join(here, target)  # a literal directory named ``$X`` is not a symbolic root
     return here
 
 
@@ -561,9 +592,15 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
+def _root(path: str) -> str | None:
+    return path.split("/")[0] if path.startswith(("~", "$")) else None
+
+
 def _within(here: str, where: str | None) -> bool:
     """Whether ``here`` is ``where`` or below it: ``npx`` finds ``node_modules/.bin`` of an ancestor directory."""
     if where is None or posixpath.isabs(here) != posixpath.isabs(where):
+        return False
+    if _root(here) != _root(where):  # ``$VAR`` and ``~`` name places a literal relative path is not under
         return False
     rel = posixpath.relpath(here, where)
     return rel != ".." and not rel.startswith("../")  # a name like ``..src`` is a child
@@ -591,7 +628,7 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
                 continue
             base, here = _cwd(code, 0, m.start()), _installs_here(m.group(0), pnpm)
             target = None if here else _install_dir(m.group(0))
-            where = base if here else (posixpath.normpath(posixpath.join(base, target)) if base and target else None)
+            where = base if here else (_join(base, target) if base and target else None)
             installs.append((m.end(), where, _installed_npm(m.group(1), options), here))
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
