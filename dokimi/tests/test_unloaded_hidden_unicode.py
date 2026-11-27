@@ -5,8 +5,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import pytest
+
+from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skill_dir, review_skills
 
 BROKEN = "---\nname: [broken\ndescription: x: y: [\n---\nbody\n"
@@ -99,3 +103,17 @@ def test_missing_description_skill_reports_hidden_unicode_in_bundled_file(tmp_pa
     (tmp_path / "skills" / "bad" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
     [message] = _hidden(tmp_path)
     assert message.startswith("notes.md line 1: U+202E")
+
+
+def test_cli_row_of_unloaded_skill_has_one_load_error_and_no_not_loaded(tmp_path, capsys):
+    """docs/finding-codes.md: the CLI never emits `not-loaded`; the row's `load-error` is its one load error."""
+    (tmp_path / "skills" / "bad").mkdir(parents=True)
+    (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\nbody\n", encoding="utf-8")
+    (tmp_path / "skills" / "bad" / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--json"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    doc = json.loads(capsys.readouterr().out)
+    [subject] = [s for s in doc["subjects"] if s["subject"] == "bad"]
+    assert [f["code"] for f in subject["findings"]] == ["load-error", "hidden-unicode"]
+    assert "not-loaded" not in doc["data"]["rates"]["codes"]

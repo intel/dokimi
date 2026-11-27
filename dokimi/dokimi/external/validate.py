@@ -374,11 +374,13 @@ def _unloaded_content(candidate: Path, root: Path, standalone: bool) -> list[Fin
 
 
 def _kept_load_error_review(entry: SkillCatalogEntry, candidate: Path, standalone: bool) -> Optional[SkillReview]:
-    """The loader's error plus the content findings of a broken skill's bundled files; None when there are none."""
+    """The content findings of a broken skill's bundled files, led by the loader's error when reviewed alone
+    (the CLI row carries its own ``load-error``); None when there are none."""
     content = _unloaded_content(candidate, entry.source_root, standalone)
     if not content:
         return None
-    return SkillReview(findings=[Finding("error", "not-loaded", entry.error or "the skill did not load")] + content)
+    own = [Finding("error", "not-loaded", entry.error or "the skill did not load")] if standalone else []
+    return SkillReview(findings=own + content)
 
 
 def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
