@@ -41,6 +41,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from .event_format import followed_path
 from .held_guidance import HeldGuidance
+from .security_patterns import BLANKS, RM_RECURSIVE
 
 SEVERITIES = ("critical", "high", "medium")
 
@@ -127,16 +128,10 @@ _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 _HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
 _HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})")
 _HOME_STAND_IN = "/home/__user__"  # a stand-in home two levels deep: ~/../alice is /home/alice, as on a host
-_SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
-#: A path under a system directory with one of these components is routine cleanup (apt lists, pip
-#: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
-_CLEANUP_PARTS = r"\.?cache|lists|pkgs|tmp|site-packages|dist-packages|__pycache__"
 #: ``>``, ``2>``, ``>>``, ``&>``, ``>|`` with their file, or ``2>&1``.
 _REDIRECT = re.compile(r"(?:\d+|&)?>>?\|?(?:&\d*-?|\s*[^\s;&|<>()`]+)")
 #: A pip option whose value is a URL that is no package (an index or a links page).
 _PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
-#: Blanks between the words of one command: a newline ends the command (``rm -rf build`` then ``cat /etc/x``).
-_BLANKS = r"[^\S\n]+"
 
 #: Rules over a command line, from the tool-call trace or the execve log.
 COMMAND_RULES: tuple[Rule, ...] = (
@@ -161,17 +156,12 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
-         _rx(r"\bpip3?" + _BLANKS + r"install\b(?:" + _BLANKS + r"(?:(?:" + _PIP_URL_OPTS + r")(?:" + _BLANKS
+         _rx(r"\bpip3?" + BLANKS + r"install\b(?:" + BLANKS + r"(?:(?:" + _PIP_URL_OPTS + r")(?:" + BLANKS
              + r"|=)[^\s;&|]+|(?!(?:" + _PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
-             + _BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
+             + BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
     # flags in any number of tokens, one of them recursive; then a target among the words: /, /*, ~, ~/,
-    # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
-    Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
-         _rx(r"\brm" + _BLANKS + r"(?:-\S+" + _BLANKS + r")*?(?:-[a-z]*r[a-z]*|--recursive)" + _BLANKS
-             + r"(?:[^\s;&|]+" + _BLANKS + r")*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
-             r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
-             r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
+    # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (security_patterns.CLEANUP_PARTS)
+    Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory", _rx(RM_RECURSIVE), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _after_first_opener(
              _DOCKER_RUN, _DOCKER_RUN_ACROSS_LINES,
