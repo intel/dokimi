@@ -28,6 +28,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model, refuse_task_harness
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
+from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
 from dokimi.llm_cli import backend as cli_backend
@@ -95,11 +96,19 @@ class ArmsRunConfig:
     grounded_from_topics: bool = False
     temperature: float | None = None
     seed: int | None = None
+    # A seed the answer route does not take: ``seed`` is then None and the run records it as unsupported.
+    unsupported_seed: int | None = None
     session_turns: int | None = None
     turn_reminder: str | None = None
     concurrency: int = 5
+    #: What the judge is shown about the treatment material: ``arm`` (each arm's own material, the default)
+    #: or ``baseline`` (no material on any arm, as a baseline arm's judge sees it).
+    judge_context: str = JUDGE_CONTEXT_ARM
 
     def __post_init__(self) -> None:
+        if self.judge_context != JUDGE_CONTEXT_ARM and not self.judge:
+            raise ValueError(f"--judge-context {self.judge_context} needs --judge: with no judge there is "
+                             "nothing to withhold, and the answers artifact would keep the withheld text")
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
             # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
             # A CLI answerer with the provider left out judges on its CLI, as ``arms run --provider claude-cli`` does.
@@ -284,23 +293,32 @@ def validate_expected_skills(questions: list[dict], treatments) -> None:
                              f"{', '.join(unknown)}")
 
 
-def check_sampling_support(config: ArmsRunConfig) -> None:
-    """Reject sampling flags the answer provider would refuse on every answer."""
+def check_sampling_support(config: ArmsRunConfig) -> ArmsRunConfig:
+    """Reject sampling flags the answer provider would refuse on every answer, except a seed
+    an API route does not take: that run goes on unseeded, warned once and recorded as
+    ``unsupported_seed``. Returns the config to run."""
     from dokimi.llm import sampling_refusals
-    from dokimi.llm_sampling import refusal_clause
+    from dokimi.llm_sampling import refusal_clause, warn_seed_dropped
 
     bad = sampling_refusals(
         config.model, config.provider,
         temperature=config.temperature,
         seed=config.seed,
     )
+    seed_dropped = "seed" in bad and cli_backend(config.provider) is None
+    if seed_dropped:
+        del bad["seed"]
     if bad:
         raise ValueError(
             f"Provider '{config.provider}' does not support {refusal_clause(bad)} for "
             f"model '{config.model}'. Drop the flag(s); every answer would "
             "otherwise fail and the report would show null scores."
         )
+    if seed_dropped:
+        warn_seed_dropped(config.model, config.provider)
+        config = replace(config, seed=None, unsupported_seed=config.seed)
     probe_sampling(config.model, config.provider, config.temperature, config.seed)
+    return config
 
 
 @functools.lru_cache(maxsize=None)
@@ -464,7 +482,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
         check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
     refuse_cli_arms(config, treatments)
-    check_sampling_support(config)
+    config = check_sampling_support(config)
     judge = None
     if config.judge:
         _check_judge(config, questions)
@@ -483,8 +501,10 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
         stats_correction=config.stats_correction,
         temperature=config.temperature,
         seed=config.seed,
+        unsupported_seed=config.unsupported_seed,
         session_turns=config.session_turns,
         turn_reminder=config.turn_reminder,
+        judge_context_mode=config.judge_context,
     )
     return PreparedArms(runner=runner, judge=judge, library_id=library_id)
 

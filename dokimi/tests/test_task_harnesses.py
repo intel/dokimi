@@ -872,7 +872,7 @@ def test_cell_whose_previous_run_dir_cannot_be_cleared_is_errored_not_scored(
     (tmp_path / "agent.py").write_text("open('agent-ran', 'w').close()\n", encoding="utf-8")
     harness_id = f"command:{Path(sys.executable).as_posix()} agent.py"
     runs = tmp_path / "runs"
-    cell = runs / "toy-task" / _safe_id(harness_id)
+    cell = runs / "toy-task" / _safe_id(harness_id) / "run1"
     (cell / "old-job").mkdir(parents=True)
     (cell / "old-job" / "reward.txt").write_text("1.0")
     ran = tmp_path / "agent-ran"

@@ -360,9 +360,9 @@ CASES = [
      {("pytest_path", "tests/test_x.py"): "unresolved"}),
     ("the next fence starts at the file again", _shell("cd sub") + _shell("pytest tests/test_x.py"),
      {"tests/test_x.py": "", "sub/a": ""}, {("pytest_path", "tests/test_x.py"): "ok"}),
-    ("a path named from the root is gated, a bare one is not", "`config/gone.yaml` `dokimi/config/gone.yaml`",
+    ("literal configuration inputs are gated at both path depths", "`config/gone.yaml` `dokimi/config/gone.yaml`",
      {"dokimi/config/x.yaml": ""},
-     {("path", "config/gone.yaml"): "unresolved", ("path", "dokimi/config/gone.yaml"): "fail"}),
+     {("path", "config/gone.yaml"): "fail", ("path", "dokimi/config/gone.yaml"): "fail"}),
     # Python versions on a line that names a workflow
     ("a stale Python range in a table row", "| tests, py3.12-3.14t | `ci.yml` |", _wf(CONDA),
      {("python_versions", "py3.12-3.14t"): "fail"}),

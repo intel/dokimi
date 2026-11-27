@@ -3,10 +3,7 @@
 
 """The generic L0 claim checks: links, paths, identifiers and pasted shell (contract §8).
 
-Every check reads one snapshot through :class:`~dokimi.repos.source.RepoTree`,
-so a scan needs no checkout. Status per claim: ``ok`` (``ok_basename`` when only
-a bare file name or a glob of one matched), ``unresolved`` (needs a human look, not a failure)
-or ``fail``.
+A scan reads one snapshot through :class:`~dokimi.repos.source.RepoTree`.
 """
 
 from __future__ import annotations
@@ -22,15 +19,14 @@ from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
 from ..source import GitTree, RepoTree, SourceError
-from . import branches, workflows
+from . import branches, own_repo, workflows
 from .gitignore import GitIgnore, Rule
 from .held import held_dirs
 from .identifiers import is_identifier
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
-# Files whose words are prose, not code: an identifier found only there is not in the code.
-# Build inputs that happen to end in .txt are code.
+# Identifiers found only in prose are not in the code.
 DOC_SUFFIXES = (".md", ".rst", ".txt", ".adoc")
 ROOT_FILES = frozenset({
     *MAKEFILE_NAMES, "CMakeLists.txt", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
@@ -44,6 +40,7 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
+_LITERAL_CONFIG = re.compile(r"/?(?:[\w.-]+/)+[\w.-]+\.(?:ya?ml|toml|cfg|ini)$", re.IGNORECASE)
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
@@ -150,8 +147,7 @@ class Scan:
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        url = (self.repo_url or "").removesuffix(".git").rstrip("/")
-        self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
+        self._own_slug, self._own_link = own_repo.patterns(self.repo_url)
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
         self._cd_stack: list[list[str] | None] = []  # saved at `(`
 
@@ -276,16 +272,17 @@ class Scan:
         self.claims.append(Claim(file, line, kind, claim, status, why, ctx.strip()))
 
     # ---------- generic checks ----------
-    def resolve_path(self, file: str, raw: str) -> tuple[str, str] | None:
+    def resolve_path(self, file: str, raw: str, *, prose: bool = False) -> tuple[str, str] | None:
         """(status, why) for a path claim made in ``file``, or ``None`` if it is not a path claim.
 
         Tried at the file's directory and each ancestor. Not found there, a path is ``fail``
         when its parent directory exists at one of those bases (a rename or a deleted file),
         ``ok_suffix`` when it ends some path in the tree (a root file naming paths inside a
-        subproject), and ``unresolved`` otherwise (a build output, say).
+        subproject), and ``unresolved`` otherwise (a build output, say). Only a ``prose`` span can be
+        this repository's ``owner/name``.
         """
         p = raw.strip().rstrip(".,:;")
-        if not p or p.startswith(("http", "~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
+        if not p or own_repo.is_url_start(p, self._own_slug, prose) or p.startswith(("~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
             return None
         bases = ancestors(file)
         head, _, rest = p.partition("/")
@@ -303,7 +300,7 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        held = self._submodule_or_action(p, cands)
+        held = (own_repo.verdict(self._own_slug, p, cands, self.exists) if prose else None) or self._submodule_or_action(p, cands)
         if held:
             return held
         verdict = self._glob(bases, rel) if any(c in rel for c in "*<>{") else self._lookup(p, rel, cands)
@@ -311,29 +308,29 @@ class Scan:
 
     def _lookup(self, p: str, rel: str, cands: list[str]) -> tuple[str, str]:
         """The verdict of a path that is not a glob, tried at each of ``cands`` (see :meth:`resolve_path`)."""
+        is_dir, tried = rel.endswith("/"), "tried " + ", ".join(cands)
         for c in cands:
             if self.exists(c):
-                if rel.endswith("/") and self.is_file(c):
-                    return "fail", f"{c} is a file, not a directory"
-                return "ok", c
+                return ("fail", f"{c} is a file, not a directory") if is_dir and self.is_file(c) else ("ok", c)
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
-            hits = self._named(target, rel.endswith("/"))
+            hits = self._named(target, is_dir)
             if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
-            return "unresolved", "tried " + ", ".join(cands)
-        if target.startswith(".."):
-            return "unresolved", "tried " + ", ".join(cands)
-        for c in cands:
+            return self._missing(cands, is_dir, tried, "unresolved")
+        parent_relative = target.startswith("../")
+        paths = [c for c in cands if c != ".." and not c.startswith("../")]
+        for c in paths:
             parent = posixpath.dirname(c)
             if parent and (real := self._dir_of(parent)):  # a `.gitignore` may name it below the link's target
                 below = posixpath.normpath(posixpath.join(real, posixpath.basename(c)))
-                return self._missing([c, below], rel.endswith("/"),
-                                     f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
-        hits = [x for x in self._named(posixpath.basename(target), rel.endswith("/")) if x.endswith("/" + target)]
+                why = tried if parent_relative else f"{parent}/ exists but {c} does not" + self._unread_note(p, cands)
+                return self._missing([c, below], is_dir, why, "unresolved" if parent_relative else "fail")
+        hits = [] if parent_relative else [x for x in self._named(posixpath.basename(target), is_dir)
+                                          if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
+        return self._missing(paths, is_dir, tried + self._unread_note(p, cands), "unresolved")
 
     def _named(self, name: str, is_dir: bool) -> list[str]:
         """The files and directories called ``name``; only the directories (or links to one) if ``is_dir``."""
@@ -551,11 +548,11 @@ class Scan:
                          f"{path} is not in the tree; the ref may hold slashes, so this may name a branch", ctx)
             else:
                 more = f"; none of the {splits} splits of ref and path is in the tree" if splits > 1 and not found else ""
-                self.add(file, line, "link", target, "ok" if found else "fail", f"resolves to {path}{more}", ctx)
+                why = f"resolves to {path}" if found else f"{path} does not exist"
+                self.add(file, line, "link", target, "ok" if found else "fail", why + more, ctx)
 
     def check_span(self, file: str, line: int, span: str, ctx: str) -> None:
         from . import adapters
-
         toks = tokens(span)
         if toks and toks[0] in adapters.COMMANDS:
             self.check_command(file, line, span, ctx)
@@ -564,8 +561,11 @@ class Scan:
         if "//" in span and adapters.label_claims(self, file, line, span):
             return
         if _PATHLIKE.match(span) or span in ROOT_FILES:
-            r = self.resolve_path(file, span)
+            r = self.resolve_path(file, span, prose=True)
             if r:
+                if r[0] == "unresolved" and r[1].startswith("tried ") and ";" not in r[1] and _LITERAL_CONFIG.fullmatch(span) and (
+                        len(top := posixpath.normpath(span).strip("/").split("/")) <= 2 or top[0] == ".." or self.exists(top[0])):
+                    r = "fail", f"{span} does not exist"
                 self.add(file, line, "path", span, r[0], r[1], ctx)
         elif is_identifier(span) and span not in CONVENTION_WORDS:
             tok = span.split("::")[-1]

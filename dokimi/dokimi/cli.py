@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 import threading
 import traceback
@@ -160,6 +161,78 @@ def _moved_exit(parser: argparse.ArgumentParser, argv: list[str], text: str) -> 
     parser.exit(2, text + "\n")
 
 
+def _move_option(leaf: argparse.ArgumentParser, name: str) -> argparse.Action | None:
+    actions = leaf._option_string_actions
+    if name in actions:
+        return actions[name]
+    if name.startswith("--") and leaf.allow_abbrev:
+        matches = [action for flag, action in actions.items() if flag.startswith(name)]
+        return matches[0] if len(matches) == 1 else None
+    return None
+
+
+def _move_arguments(
+    leaf: argparse.ArgumentParser, tokens: list[str],
+) -> tuple[list[tuple[str | None, list[str]]], list[str]]:
+    """Group option values using the replacement leaf's parser, keeping the source separate."""
+    options: list[tuple[str | None, list[str]]] = []
+    positional: list[str] = []
+    rest = iter(tokens)
+    for token in rest:
+        if token == "--":
+            positional.extend(rest)
+            break
+        if token == "-" or not token.startswith("-"):
+            positional.append(token)
+            continue
+        name, equals, _ = token.partition("=")
+        action = _move_option(leaf, name)
+        value = next(rest, None) if action is not None and action.nargs is None and not equals else None
+        options.append((action.dest if action is not None else None, [token] if value is None else [token, value]))
+    return options, positional
+
+
+def _catalog_move(leaf: argparse.ArgumentParser, argv: list[str]) -> list[str]:
+    options, positional = _move_arguments(leaf, argv[2:])
+    named = {dest for dest, _ in options}
+    if "help" in named:
+        return ["catalog", "check", "--help"]
+    translated = argv[:2]
+    if "root" not in named:
+        root = positional.pop(0) if positional else "."
+        translated.extend([f"--root={root}"] if root.startswith("-") else ["--root", root])
+    translated.extend(token for _, words in options for token in words)
+    if "kind" not in named:
+        translated.extend(["--kind", "skills"])
+    if not named.intersection({"format", "json", "jsonl"}):
+        translated.extend(["--format", "json"])
+    return [*translated, *(["--", *positional] if positional else [])]
+
+
+def _schema_move_hint(leaf: argparse.ArgumentParser, argv: list[str]) -> str:
+    options, sources = _move_arguments(leaf, argv[2:])
+    if any(dest == "schema_only" for dest, _ in options):
+        return ""
+    refused = {dest for _, dest, _ in leaf.get_default("schema_refused")}
+    kept = [token for dest, words in options if dest is not None and dest not in refused for token in words]
+    source = sources[0] if sources else "."
+    if sources and source.startswith("-"):
+        kept.append("--")
+    return "\nFor schema validation without Docker: " + shlex.join(
+        ["dokimi", "eval", "check", "--schema-only", *kept, source],
+    )
+
+
+def _retired_exit(parser: argparse.ArgumentParser, old: list[str], moved: list[str]) -> NoReturn:
+    leaf = _leaf_at(parser, moved)
+    if leaf is not None and old[:2] == ["catalog", "scan"]:
+        moved = _catalog_move(leaf, moved)
+    text = cli_routes.moved_text(moved)
+    if leaf is not None and old[:3] == ["repo", "tasks", "check"]:
+        text += _schema_move_hint(leaf, moved)
+    _moved_exit(parser, moved, text)
+
+
 def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
     """True when argparse reads ``--json`` as this parser's option in ``tokens``: the exact token, a prefix
     argparse accepts (``--jso``), or ``--json=<value>``. Tokens after a bare ``--`` are positional."""
@@ -262,6 +335,16 @@ def _names_judge_provider(token: str) -> bool:
     return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
 
 
+def _repo_scan_compat(argv: list[str]) -> list[str]:
+    """Accept the old gate spelling for one release, keeping stdout available for JSON."""
+    if argv[:2] == ["repo", "scan"]:
+        end = argv.index("--") if "--" in argv else len(argv)
+        if "--fail-on-fail" in argv[2:end]:
+            print("Warning: --fail-on-fail is deprecated. Use --fail-on=fail.", file=sys.stderr)
+            return [("--fail-on=fail" if arg == "--fail-on-fail" else arg) for arg in argv[:end]] + argv[end:]
+    return argv
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -276,11 +359,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
-        _moved_exit(parser, moved, cli_routes.moved_text(moved))
+        _retired_exit(parser, raw, moved)
     moved_flags = cli_routes.moved_flags_argv(raw)
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
-    args = parser.parse_args(raw)
+    args = parser.parse_args(_repo_scan_compat(raw))
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
     args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
     args.model_named = any(_names_model(t) for t in raw)

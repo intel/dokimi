@@ -282,7 +282,7 @@ class DockerRunner:
         except OSError as exc:
             raise DockerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
         if proc.timed_out:
-            raise ContainerError(f"docker build {tag} timed out after {timeout_s:g}s (--build-timeout):\n"
+            raise ContainerError(f"docker build {tag} timed out after {timeout_s:g}s (--timeout build=SEC):\n"
                                  f"{(proc.stderr or proc.stdout)[-3000:]}")
         if proc.returncode:
             kind = DockerError if _daemon_unreachable(proc.stderr) else ContainerError

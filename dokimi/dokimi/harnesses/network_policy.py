@@ -29,7 +29,9 @@ Where a phase's policy comes from, later wins:
    ``public`` is not extended to an agent: Harbor defaults to public and catalogs
    copy it, so honouring it would hand every agent the internet. An agent gets
    the internet only from an explicit ``[agent]`` policy or the operator.
-3. The operator: ``dokimi tasks run --network PHASE=MODE[:host,...]``.
+3. The operator: ``dokimi tasks run --network [PHASE=]MODE[:host,...]``.
+   Bare ``none`` and ``public`` apply to every phase, including ``build``.
+   Use ``solve`` or ``verify`` (or both) for ``allowlist``.
 
 The effective plan, with each phase's source, is recorded in every run's
 ``metrics.network``, so two runs can be checked for the same network before
@@ -100,10 +102,12 @@ def policy(mode: Any, hosts: Iterable[Any] = (), source: str = "default") -> Pha
 
 
 def parse_override(spec: str) -> dict[str, PhasePolicy]:
-    """``PHASE[,PHASE]=MODE[:host,...]`` (``all`` for every phase) -> one policy per phase."""
+    """``[PHASE[,PHASE]=]MODE[:host,...]``: no PHASE, or ``all``, is every phase -> one policy per phase."""
     phases_raw, sep, value = spec.partition("=")
-    if not sep or not value:
-        raise ValueError(f"--network {spec!r}: expected PHASE=MODE, e.g. verify=none or "
+    if not sep:  # a bare MODE[:hosts] is every phase (the --network registry spelling, #94 §2.4)
+        phases_raw, value = "all", spec
+    if not value or (not sep and value.strip().lower() in (*PHASES, *_PHASE_ALIASES)):
+        raise ValueError(f"--network {spec!r}: expected [PHASE=]MODE, e.g. verify=none or "
                          "solve=allowlist:pypi.org,files.pythonhosted.org")
     mode, _, hosts = value.partition(":")
     phases = [p.strip() for raw in phases_raw.split(",")
@@ -114,10 +118,10 @@ def parse_override(spec: str) -> dict[str, PhasePolicy]:
                          f"expected {', '.join(PHASES)} or all")
     pol = policy(mode, [h for h in hosts.split(",") if h.strip()], "cli")
     if pol.mode == "allowlist" and not pol.hosts:
-        raise ValueError(f"--network {spec!r}: allowlist needs hosts, e.g. allowlist:pypi.org")
+        raise ValueError(f"--network {spec!r}: allowlist needs hosts, e.g. solve=allowlist:pypi.org")
     if pol.mode == "allowlist" and "build" in phases:
         raise ValueError(f"--network {spec!r}: the image build takes none or public (docker build "
-                         "cannot route through the egress sidecar)")
+                         f"cannot route through the egress sidecar). Use --network solve,verify={value}")
     return {p: pol for p in phases}
 
 

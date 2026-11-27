@@ -206,7 +206,7 @@ def test_matrix_run_exits_2_when_a_cell_cannot_read_its_inputs(tmp_path, monkeyp
 def test_matrix_run_refuses_an_uncreatable_out_dir_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
     import dokimi.eval.arms_run as arms_run
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     answered = []
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
     out_dir = _blocker(tmp_path) / "out"
@@ -224,7 +224,7 @@ def test_matrix_run_refuses_a_dangling_cells_symlink_before_any_cell_is_answered
     # pass; the first cell was then answered and its save failed on the link.
     import dokimi.eval.arms_run as arms_run
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     answered = []
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
     out_dir = tmp_path / "out"
@@ -276,7 +276,7 @@ def test_matrix_run_refuses_an_out_dir_through_dotdot_before_any_cell_is_answere
     # the dir is made before the first answer, so the blocker is still found before any is paid for.
     import dokimi.eval.arms_run as arms_run
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     answered = []
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
     _blocker(tmp_path)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import statistics
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -114,7 +115,12 @@ def stratum_of(row: Mapping[str, Any], strata: Optional[Mapping[str, str]]) -> s
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an integer too large for a float
+        return False
 
 
 def _row_problem(row: Any) -> Optional[str]:
@@ -133,9 +139,17 @@ def _row_problem(row: Any) -> Optional[str]:
     if row["status"] == "ok" and not ("new_lenient" in row and (row["new_lenient"] is None
                                                                 or _is_number(row["new_lenient"]))):
         return "`new_lenient` must be a number or null"
-    for field in ("new_strict", "tokens"):
-        if row.get(field) is not None and not _is_number(row[field]):
-            return f"`{field}` must be a number or null"
+    if row.get("new_strict") is not None and not _is_number(row["new_strict"]):
+        return "`new_strict` must be a number or null"
+    return _tokens_problem(row.get("tokens"))
+
+
+def _tokens_problem(tokens: Any) -> Optional[str]:
+    """Why a row's `tokens` is refused (a whole number of at least 0, or null), or None."""
+    if tokens is not None and not (type(tokens) is int and _is_number(tokens)):
+        return "`tokens` must be a whole number or null"
+    if tokens is not None and tokens < 0:
+        return "`tokens` must not be negative"
     return None
 
 
@@ -197,6 +211,33 @@ def group_stats(rows: list[dict], *, resamples: int = RESAMPLES) -> dict[str, An
         "usd": round(sum(r["usd"] for r in rows), 6),
         "median_tokens": statistics.median(tokens) if tokens else None,
     }
+
+
+#: How many skills the text summary lists in the ranking; the JSON summary has them all.
+RANK_LINES = 10
+
+
+def ranking(rows: Iterable[dict], kept: Iterable[dict]) -> list[dict]:
+    """Measured skills ranked by descending new share, one entry per key.
+
+    A skill measured by more than one sweep into the same JSONL is ranked from its latest ``ok`` row
+    (the last in file order). A key whose latest row is not in *kept* (a later rename took its
+    bundle) is left out. A row needs a measured new share and a positive token count to qualify.
+    The sort uses the stored ``new_lenient`` value (rounded to six decimal places when measured).
+    Equal shares sort by smaller token count, then by key.
+    """
+    latest: dict[str, dict] = {}
+    for r in rows:
+        if r["status"] == "ok":
+            latest[r["key"]] = r
+    survivors = {id(r) for r in kept}
+    scored = [
+        {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"]}
+        for r in latest.values()
+        if r["new_lenient"] is not None and r.get("tokens") and id(r) in survivors
+    ]
+    scored.sort(key=lambda s: (-s["new_lenient"], s["tokens"], s["key"]))
+    return scored
 
 
 def bundle_instances(current: Mapping[str, Optional[str]], prior: list[dict]) -> dict[str, int]:
@@ -266,6 +307,7 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
         "usd": round(sum(r["usd"] for r in rows), 6),
         "overall": group_stats(measured, resamples=resamples) if measured else None,
         "strata": None,
+        "ranking": ranking(rows, kept=latest.values()),
     }
     if strata is not None:
         groups: dict[str, list[dict]] = {}
@@ -300,4 +342,9 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
             lines.append(f"{name[:16]:<16} {block['n']:>4}  {_interval(block['new_lenient']):<22} "
                          f"{_interval(block['known_lenient']):<22} {_interval(block['new_strict']):<22} "
                          f"{block['usd']:>7.2f}")
+    ranked = summary.get("ranking") or []
+    if ranked:
+        lines.append(f"ranking by new share (top {min(RANK_LINES, len(ranked))} of {len(ranked)}):")
+        for pos, item in enumerate(ranked[:RANK_LINES], 1):
+            lines.append(f"  {pos:>2}. {item['key']}: {item['new_lenient']:.2%} new ({item['tokens']} tokens)")
     return lines
