@@ -12,6 +12,9 @@
   order mark at the start of a file. A line with more than :data:`FILLERS_PER_LINE` blank fillers that are
   exempt beside Greek or Hangul reports all of them.
 
+A hidden character that a double-quoted front matter value only holds after YAML decoding (``"\\u202e"``) is reported
+too, with the key it sits at (#1334).
+
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
 suffixes of :data:`TEXT_SUFFIXES`) in the skill
 directory. Left out: hidden folders, the vendored and dependency folders of
@@ -23,12 +26,15 @@ regular (a FIFO, a socket, a device). A skill whose
 
 from __future__ import annotations
 
+import collections
 import functools
 import os
 import re
 import tomllib
 import unicodedata
 from pathlib import Path
+
+import yaml
 
 from dokimi.skills import Skill
 from dokimi.skills.loader import VENDORED_DIR_NAMES
@@ -205,7 +211,9 @@ def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
     return False
 
 
-def _hidden_hits(where: str, text: str) -> list[Hit]:
+def _hidden_indices(text: str) -> list[int]:
+    """Indexes of the hidden characters of ``text``: each hidden one, and every filler of a line that holds
+    more than :data:`FILLERS_PER_LINE` exempt ones."""
     bidi_exempt = _bidi_mark_exempt(text)
     found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
     kept: dict[int, list[int]] = {}  # line number -> fillers exempt as script text (not Braille: a run of blanks is normal)
@@ -215,7 +223,11 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
             line_no += 1
         elif ord(ch) in (0x034F, 0x115F, 0x1160) and _filler_exempt(text, i):
             kept.setdefault(line_no, []).append(i)
-    found = sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+    return sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+
+
+def _hidden_hits(where: str, text: str) -> list[Hit]:
+    found = _hidden_indices(text)
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
@@ -230,6 +242,97 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
     if len(found) > REPORT_PER_FILE:
         hits.append(
             ("hidden-unicode", f"{where}: {len(found) - REPORT_PER_FILE} more hidden characters not listed")
+        )
+    return hits
+
+
+def _front_matter_source(text: str) -> str:
+    """The lines between the opening and closing ``---`` of ``text``, as the loader reads them."""
+    lines = text.lstrip("\ufeff").splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return ""
+    for end in range(1, len(lines)):
+        if lines[end].strip() == "---":
+            return "\n".join(lines[1:end])
+    return ""
+
+
+def _scalar_nodes(node: yaml.Node, path: str = "", seen: set[int] | None = None):
+    """Each scalar node of a composed front matter, keys included, once, with the key path it sits at.
+
+    An alias gives the same node again; it is visited once, so one that holds itself ends the walk.
+    """
+    seen = set() if seen is None else seen
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    if isinstance(node, yaml.ScalarNode):
+        yield path, node
+    elif isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            name = f"{path}.{key.value}" if path else str(getattr(key, "value", ""))
+            yield from _scalar_nodes(key, name, seen)
+            yield from _scalar_nodes(value, name, seen)
+    elif isinstance(node, yaml.SequenceNode):
+        for i, value in enumerate(node.value):
+            yield from _scalar_nodes(value, f"{path}[{i}]", seen)
+
+
+def _hidden_chars(text: str) -> list[str]:
+    """The hidden characters of a front matter string. A newline is put before it: a byte order mark or a
+    selector at its start is not the start of the file."""
+    return [text[i - 1] for i in _hidden_indices("\n" + text) if i > 0]
+
+
+def _quoted_content(source: str, node: yaml.ScalarNode) -> str:
+    """The text between the quotes of a double-quoted scalar. What stands before the opening quote (an anchor,
+    a tag, a comment) is not the value's source."""
+    span = source[node.start_mark.index : node.end_mark.index]
+    close = len(span) - 1
+    i = close - 1
+    while i >= 0 and not (span[i] == '"' and (len(span[:i]) - len(span[:i].rstrip("\\"))) % 2 == 0):
+        i -= 1
+    return span[i + 1 : close]
+
+
+def _front_matter_hits(text: str) -> list[Hit]:
+    """Hidden characters a front matter string holds only once YAML has decoded it (``"\\u202e"``, #1334).
+
+    Each scalar is set against its own source text: a character the source holds literally is reported by
+    :func:`_hidden_hits`, so only the surplus of the decoded value is reported. Front matter that is not
+    valid YAML adds nothing: the loader names that error.
+    """
+    source = _front_matter_source(text)
+    if not source:
+        return []
+    try:
+        root = yaml.compose(source, Loader=yaml.SafeLoader)
+    except (yaml.YAMLError, ValueError, RecursionError):
+        return []
+    found: list[tuple[str, str]] = []
+    if root is not None:
+        for path, node in _scalar_nodes(root):
+            if node.style != '"':  # only a double-quoted scalar decodes escapes; the raw scan reads the rest
+                continue
+            literal = collections.Counter(_hidden_chars(_quoted_content(source, node)))
+            for ch in _hidden_chars(node.value):
+                if literal[ch] > 0:
+                    literal[ch] -= 1
+                else:
+                    found.append((path, ch))
+    hits: list[Hit] = []
+    for path, ch in found[:REPORT_PER_FILE]:
+        name = unicodedata.name(ch, "unnamed")
+        hits.append(
+            (
+                "hidden-unicode",
+                f"SKILL.md front matter {path}: U+{ord(ch):04X} {name} written as an escape can hide text "
+                "from a reader; remove it",
+            )
+        )
+    if len(found) > REPORT_PER_FILE:
+        hits.append(
+            ("hidden-unicode", f"SKILL.md front matter: {len(found) - REPORT_PER_FILE} more hidden characters not listed")
         )
     return hits
 
@@ -290,4 +393,6 @@ def skill_md_content_findings(skill_md: Path, *, at_root: bool = False) -> list[
         where = path.relative_to(skill_dir).as_posix()
         hits += _legacy_hits(where, text)
         hits += _hidden_hits(where, text)
+        if path == skill_md:
+            hits += _front_matter_hits(text)
     return hits
