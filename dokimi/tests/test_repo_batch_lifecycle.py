@@ -36,7 +36,7 @@ def setup(tmp_path, monkeypatch):
 def _run(s, *extra, models=("m-1",)):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
             str(s["profile"]), "--bin", str(s["exe"]), *[a for m in models for a in ("--model", m)],
-            "--batch", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
+            "--name", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
             "--agent-network", "host", "--arm", "guidance:raw", *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -83,16 +83,32 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     assert not _agents(setup)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="signal.pthread_kill is POSIX-only")
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX SIGINT handling")
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
-    # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
-    # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
+    # CancelContract (cfg/mut_no_cancel_guard.cfg): deliver SIGINT when the main thread
+    # reaches its wait for the submitted cells.
     started = []
-    both = threading.Barrier(2)
+    both = threading.Barrier(3)
     ended = threading.Semaphore(0)
     real = repo_runner.run_cell
     cancelled = threading.Event()
     real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
+    real_result = repo_runner.Future.result
+    real_submit = repo_runner.ThreadPoolExecutor.submit
+    submitted = set()
+
+    def submit(self, fn, *args, **kwargs):
+        future = real_submit(self, fn, *args, **kwargs)
+        if threading.current_thread() is threading.main_thread():
+            submitted.add(future)
+        return future
+
+    def result(self, timeout=None):
+        if self in submitted and threading.current_thread() is threading.main_thread():
+            submitted.clear()  # one SIGINT per run
+            both.wait(30)
+            signal.raise_signal(signal.SIGINT)
+        return real_result(self, timeout)
 
     def shutdown(self, wait=True, *, cancel_futures=False):
         real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
@@ -102,10 +118,8 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
         if rep <= 2:
-            both.wait(5)  # both threads busy, every cell already submitted to the pool
-            if rep == 1:
-                signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # emulates Ctrl-C reaching the main thread
-            # the cells wait for the cancel, not for time (#874)
+            both.wait(30)
+            # Keep both workers busy until the queue is cancelled (#874).
             assert cancelled.wait(30)
         try:
             return real(ctx, task, arm, rep, *args, **kwargs)
@@ -114,6 +128,8 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
+    monkeypatch.setattr(repo_runner.Future, "result", result)
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
     try:
         with pytest.raises(KeyboardInterrupt):
@@ -329,7 +345,7 @@ repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
 out = tmp / "runs"
 sys.argv = ["dokimi", "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out-dir", str(out),
+            str(profile), "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out-dir", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
             "--task", "fix_add", "--reps", "5", "--concurrency", "2"]
 cli.main()

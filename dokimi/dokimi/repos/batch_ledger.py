@@ -25,13 +25,10 @@ or re-run. The golden tests in ``tests/test_batch_ledger_golden.py`` pin the cur
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
-import os
 import shutil
 import sys
-import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -156,7 +153,7 @@ def reused_result(cell_dir: Path, execution: dict[str, str], force: bool) -> dic
         raise ExecutionMismatch(
             f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
             f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
-            f"{execution['delegation']}); use another --batch, or --force to replace it")
+            f"{execution['delegation']}); use another --name, or --force to replace it")
     return done
 
 
@@ -181,7 +178,7 @@ def check_batch_executions(batch_dir: Path, wanted: set[str], replacing: set[str
     if other:
         raise ExecutionMismatch(
             f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
-            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them"
+            f"({', '.join(sorted(wanted))}); use another --name, or --force to replace them"
             + (" (--force replaces only the cells of this run's plan)" if replacing is not None else ""))
 
 
@@ -205,7 +202,7 @@ def pin_skills(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str,
         if old.get(arm, skills) != skills:
             was, new = (", ".join(f"{name} {sha[:12]}" for name, sha in pin) for pin in (old[arm], skills))
             raise ValueError(f"batch {batch_dir.name} ran arm {arm} with skills {was}, not {new}; "
-                             f"use another --batch")
+                             f"use another --name")
     return {**old, **now} if now.keys() - old.keys() else None
 
 
@@ -214,18 +211,11 @@ def write_skill_pin(batch_dir: Path, pin: dict[str, list[list[str]]]) -> None:
 
 
 def write_json(path: Path, data: Any) -> None:
-    """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed."""
+    """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed.
+    A file that did not exist is private (``0o600``); one that existed keeps its mode and group."""
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    write_text_atomic(path, json.dumps(data, indent=1, sort_keys=True) + "\n", new_mode=0o600)
 
 
 def _stderr(message: str) -> None:

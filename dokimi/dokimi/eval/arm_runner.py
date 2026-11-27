@@ -125,6 +125,7 @@ class ArmRunner:
         seed: Optional[int] = None,
         session_turns: Optional[int] = None,
         turn_reminder: Optional[str] = None,
+        unsupported_seed: Optional[int] = None,
     ):
         if not treatments:
             raise ValueError("ArmRunner requires at least one treatment arm")
@@ -150,7 +151,7 @@ class ArmRunner:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.seed = seed
+        self.seed, self.unsupported_seed = seed, unsupported_seed
         self.session_turns = session_turns
         self.turn_reminder = turn_reminder
         self.grounded_from_topics = grounded_from_topics
@@ -195,6 +196,8 @@ class ArmRunner:
             "temperature": self.temperature,
             "seed": self.seed,
         }
+        if self.unsupported_seed is not None:  # not sent: the run is unseeded, and says so
+            config.update(seed_requested=self.unsupported_seed, seed_status="unsupported")
         # A session run and a single-turn run answer different questions of the model (the
         # history grows), so the pairing checks must be able to tell them apart.
         if self.session_turns is not None:
@@ -750,11 +753,8 @@ class ArmRunner:
                 out["judge_prompt_sha256"] = getattr(judge, "prompt_sha256", None)
         # Judge-side token/cost telemetry, when a judge ran (mirrors the answer
         # cost_summary so a full run's spend is auditable from one artifact).
-        if judge is not None and hasattr(judge, "_usage_totals"):
-            with judge._usage_lock:
-                t = dict(judge._usage_totals)
-            t["cost_usd"] = round(t["cost_usd"], 6) if t["cost_known_calls"] else None
-            out["judge_metrics"] = t
+        if judge is not None and hasattr(judge, "usage_metrics"):
+            out["judge_metrics"] = judge.usage_metrics()
             if resolved := sorted(getattr(judge, "_resolved_models", ())):
                 out["judge_resolved_models"] = resolved
         return out

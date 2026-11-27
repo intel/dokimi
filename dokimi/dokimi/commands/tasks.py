@@ -206,13 +206,14 @@ def _print_summary(output: dict) -> None:
 
 
 def _cell_state(row: dict, dry_run: bool) -> str:
-    from dokimi.harnesses.runner import _num, is_errored
+    from dokimi.measure import as_float
+    from dokimi.harnesses.runner import is_errored
 
     if is_errored(row):
         return "errored"
     if dry_run and row.get("metrics", {}).get("dry_run"):
         return "planned"
-    return "unscored" if _num(row.get("reward")) is None else "scored"
+    return "unscored" if as_float(row.get("reward")) is None else "scored"
 
 
 def _check_completion(output: dict, *, dry_run: bool = False) -> None:

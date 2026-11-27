@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import atomic_write, process_io
-from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
+from dokimi.records import Record, arm_answers, arm_names, arm_scores, profile_prompt_digests, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import finite_delta, stats as arm_stats
 from dokimi.report import fmt
@@ -141,26 +141,14 @@ def prompt_digests(run_data: dict, arm: str) -> set[str]:
     ``docs+profile:x`` has to be looked up in both shapes or the gate silently finds
     nothing to compare and reports the arm as consistent.
     """
-    digests: set[str] = set()
-    for r in _section(run_data, "answers"):
-        answer = r.answer(arm)
-        if answer is None:
-            continue
-        metadata = answer.raw.get("metadata") or {}
-        candidates = [metadata]
-        candidates += [t for t in (metadata.get("treatments") or []) if isinstance(t, dict)]
-        for candidate in candidates:
-            digest = candidate.get("profile_prompt_sha256")
-            if isinstance(digest, str) and digest:
-                digests.add(digest)
-    return digests
+    return profile_prompt_digests(_section(run_data, "answers"), arm)
 
 
 def replicate_key(data: dict) -> tuple:
     """Configuration identity: models, judge prompt and temperature, run_config,
     harness, plugin set, cell and arm list.
 
-    The seed value is the replicate index, so only whether one was pinned counts."""
+    The seed value (``seed_requested`` if the route dropped it) is the replicate index, so only whether one was pinned counts."""
     run_config = data.get("run_config") or {}
     return (
         data.get("model", ""),
@@ -169,7 +157,7 @@ def replicate_key(data: dict) -> tuple:
         data.get("judge_provider", ""),
         data.get("judge_prompt_sha256"),
         data.get("judge_temperature"),
-        tuple(sorted((k, repr(v)) for k, v in run_config.items() if k != "seed")),
+        tuple(sorted((k, repr(v)) for k, v in run_config.items() if k not in ("seed", "seed_requested"))),
         run_config.get("seed") is not None,
         data.get("harness"),
         data.get("plugin_set_id"),

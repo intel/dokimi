@@ -52,6 +52,12 @@ def test_build_args_pass_only_the_proxy_variables_that_are_set():
                     "--build-arg", "https_proxy", "/ctx"]
 
 
+def test_build_args_skip_a_proxy_variable_that_is_set_but_empty():
+    args = docker_cmd.build_args("/ctx", "/ctx/Dockerfile", "t:1",
+                                 environ={"https_proxy": "http://p:3128", "no_proxy": "", "NO_PROXY": ""})
+    assert args == ["build", "-f", "/ctx/Dockerfile", "-t", "t:1", "--build-arg", "https_proxy", "/ctx"]
+
+
 def test_build_args_pass_every_proxy_variable_in_order(monkeypatch):
     for name in docker_cmd.PROXY_BUILD_ARGS:
         monkeypatch.setenv(name, "http://p:3128")
@@ -85,6 +91,19 @@ def test_build_with_no_docker_binary_is_a_container_error(tmp_path):
 
     with pytest.raises(ContainerError, match="cannot run 'docker'"):
         DockerRunner(runner=FakeRunner(missing)).build(tmp_path, tmp_path / "Dockerfile", "t:1")
+
+
+def test_build_warns_about_a_proxy_arg_with_credentials(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
+    monkeypatch.setenv("http_proxy", "http://proxy:912")  # no credentials: no warning
+    (tmp_path / "Dockerfile").write_text("FROM x\nARG https_proxy http_proxy\n", encoding="utf-8")
+    fake = FakeRunner(lambda call: reply())
+    with caplog.at_level("WARNING", logger=container_mod.__name__):
+        DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "t:1")
+    assert [r.getMessage().split(" carries")[0] for r in caplog.records] == [
+        "[build] WARNING: Dockerfile declares ARG https_proxy and the host's https_proxy"]
+    assert "pw@" not in caplog.text
+    assert len(fake.calls) == 1  # the build still runs
 
 
 def test_image_exists_follows_the_inspect_exit_code():
@@ -306,3 +325,22 @@ def test_a_fifo_output_with_a_reader_finishes_when_docker_exits(tmp_path):
     assert done, "a run with a FIFO output and a reader did not finish after docker exited"
     reader.join(5)
     assert got == [b"started\n"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_write_env_file_is_0600_and_keeps_multiline_values_off_the_file(tmp_path):
+    import stat
+
+    path, multiline = docker_cmd.write_env_file(tmp_path, {"https_proxy": "http://u:p@h:912", "PEM": "a\nb",
+                                                           "CR": "x\r"})
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert Path(path).read_text(encoding="utf-8") == "https_proxy=http://u:p@h:912\n"
+    assert multiline == {"PEM": "a\nb", "CR": "x\r"}
+
+
+@pytest.mark.parametrize("codepoint", [0xDCFF, 0xD800], ids=["surrogateescaped-byte", "high-surrogate"])
+def test_write_env_file_refuses_non_utf8_before_creating_a_file(tmp_path, codepoint):
+    value = f"http://synthetic-user:synthetic-password@proxy:912/{chr(codepoint)}"
+    with pytest.raises(ValueError, match=r"^Docker environment variable 'https_proxy' must be valid UTF-8$"):
+        docker_cmd.write_env_file(tmp_path, {"https_proxy": value, "normal": "value"})
+    assert list(tmp_path.iterdir()) == []

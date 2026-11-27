@@ -28,7 +28,7 @@ from typing import Any
 
 from dokimi.eval.binary_stats import PASS_RATE_CI_CONFIDENCE
 from dokimi.harnesses.runner import is_errored
-from dokimi.measure import is_number
+from dokimi.measure import as_float, is_number
 from dokimi.provenance import UNKNOWN, status_of
 from dokimi.report import fmt
 
@@ -342,7 +342,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
         for h in harnesses:
             for det in sorted(cell[(t, h)]["detail"], key=lambda x: x["repeat"]):
                 rw = det["reward"]
-                rw_s = f"{rw:g}" if isinstance(rw, (int, float)) else "null"
+                rw_s = f"{rw:g}" if as_float(rw) is not None else "null"
                 claimed = det["claim"] and "done" in det["claim"].lower()
                 if det["errored"]:
                     pass_s = "ERR"

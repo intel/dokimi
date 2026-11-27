@@ -118,6 +118,7 @@ from dokimi.eval.sign_flip import (
     METHOD,
     min_sign_flip_p,
     pair_magnitudes,
+    round_off_zero,
     sign_flip_row,
     tie_scale,
     tie_widths,
@@ -196,7 +197,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None,
             *, exact: bool = False) -> dict[str, Any]:
     """``exact``: p and the mean delta at full precision (the ledger's verdicts read them); otherwise rounded as
-    printed. The interval's ends are at 4 places either way: bisection only knows them within 1e-7."""
+    printed. The interval's ends are at 4 places either way (2 significant digits where that would be 0): bisection only knows them within 1e-7."""
     metrics = tuple(dict.fromkeys(metrics))
     judge_names(metrics)  # a judge: field it cannot read is refused before any cell is
     if pass_k is not None and pass_k < 1:
@@ -349,7 +350,8 @@ def _arm_warnings(cells: list[dict[str, Any]], baseline: str, text: str, models:
     # A labelled cell on a host that misses its task (or could not be checked) is pooled like any other: say so.
     missed = sorted({c["task"] for arm in arms for c in arm if "host_match" in c and c["host_match"].get("met") is not True})
     if missed:
-        out.append(f"{text} vs {baseline}: cells run with --label-host on a host that misses the task's requirements "
+        out.append(f"{text} vs {baseline}: cells run in host label mode (--label-host or the manifest's "
+                   "label_host) on a host that misses the task's requirements "
                    f"or could not be checked are pooled (tasks {', '.join(missed)}); not a measured pass")
     return out
 
@@ -612,7 +614,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": mean if exact else within(round(mean, 4) + 0.0, lo, hi), "lo": lo, "hi": hi,  # no -0.0
+        "delta": {"mean": mean if exact else within(round_off_zero(mean, 4), lo, hi), "lo": lo, "hi": hi,
                   "method": METHOD},
         "p": p,
         "p_holm": None,
@@ -646,8 +648,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                          f"{r['up']}/{r['down']}/{r['tied']}")
         for r in rows:
             if r["measure"] in PRIMARY:
-                # the tasks hold rounded values: this line follows the printed deltas, which are 0 or 1e-6 and more
-                moved = [t for t in r["tasks"] if abs(t["delta"]) > EPS]
+                moved = [t for t in r["tasks"] if round(t["delta"], 6)]  # below 5e-7 is float noise, not a change
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
@@ -686,13 +687,20 @@ def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
     return out
 
 
+def _mde_text(mde: float) -> str:
+    """``mde`` at 3 decimals; at 2 significant digits in scientific notation below 0.0005 (``2.6e-12``, not 0.000) and from 1e6."""
+    if 0 < mde < 0.0005:
+        return f"{mde:.1e}"
+    return f"{mde:.3f}" if mde < 1e6 else f"{mde:.3e}"  # a figure near the float range is no 300-digit string
+
+
 def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
     """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
     if r["n_tasks"] < 2 or not includes_zero(r["delta"]["lo"], r["delta"]["hi"]):
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:
-        mde = f"{r['mde']:.3f}" if r["mde"] < 1e6 else f"{r['mde']:.3e}"  # a figure near the float range is no 300-digit string
+        mde = _mde_text(r["mde"])
         return head + (f"an uncorrected t-test estimate puts the effect 80% power detects at this spread at about "
                        f"±{mde} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
     changed, holm = r["up"] + r["down"], r["p_holm_floor"]
@@ -775,10 +783,11 @@ def _mean(values: list[Any]) -> float | None:
 
 
 def _round(value: float | None) -> float | None:
+    """``value`` at 6 places, or at 2 significant digits where that would be 0.0; ``None`` for a non-finite one."""
     if value is None:
         return None
     number = float(value)  # a numpy float64 would warn on overflow while rounding
-    return round(number, 6) if math.isfinite(number) else None
+    return round_off_zero(number, 6) if math.isfinite(number) else None
 
 
 def _num(value: float | None) -> str:

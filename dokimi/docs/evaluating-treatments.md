@@ -116,8 +116,20 @@ python cli.py arms plugin-delta \
 The command writes a `plugin_delta.v1` artifact plus a Markdown report with
 judge-score deltas, token/cost deltas, and answer-length deltas. It refuses
 confounded comparisons where model, provider, harness, arms, baseline arm, or
-question IDs/order differ. For judged artifacts it also requires both runs to
-carry the same stamped judge model, provider and `judge_context`.
+question IDs, order or text differ, including when only one run records question
+text. It also refuses runs whose `run_config` budgets or sampling settings
+differ, or where only one run pinned a seed; seed values may differ. A pair
+where only one run records `run_config` gets a warning instead.
+For each arm, the sets of recorded profile prompt digests must match if
+both runs record any. Digests must also match within each paired answer that
+has a digest in both runs. A check with digests on just one side is skipped
+without a warning. Judged artifacts
+must carry the same judge model, provider, context protocol, reference answers,
+and any recorded judge prompt digest, temperature and resolved model snapshots.
+Pairs are refused when only one run records a non-null judge setting. An
+omitted setting and an explicit null compare as equal. The plugin-delta and
+matrix rollup reports warn about omitted setting fields and null judge prompt
+digests. Missing question text in both runs for a pair also gives a warning.
 
 > **Naming:** an *agent profile* (`profile:`) is the answering agent's system
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic
@@ -164,6 +176,10 @@ replaces a file (a name that holds one, finished, left by a crashed run or taken
 same time, is passed over for `<out stem>.partial2.json`),
 and the commands that read arms files refuse it. There is no resume: rerun the command.
 `arms matrix-run` keeps one per cell, `cells/<cell>.partial.json`.
+For single-turn model calls without tools, set `DOKIMI_RESPONSE_CACHE` before
+the first attempt and keep that directory for the rerun. The rerun can reuse
+cached answers for identical requests and marks them as replays. The original
+checkpoint stays available for inspection.
 
 Example Caveman plugin cell:
 

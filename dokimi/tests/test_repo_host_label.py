@@ -15,13 +15,13 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.host import host_facts, match_report, match_summary, probe_host as real_probe_host
+from dokimi.repos.host import host_facts, log_labelled, match_report, match_summary, probe_host as real_probe_host
 from dokimi.repos.host_fingerprint import Probe
 from dokimi.process import FakeRunner as HostFakeRunner
 from dokimi.process import reply
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.workspace import Task
-from repo_eval_fixture import make_repo
+from repo_eval_fixture import git, make_repo
 from test_repo_host import AMD_CPUINFO, INTEL_CPUINFO, RACE, HostRunner, _probe_out, _run
 
 AVX = dict(RACE, host={"cpu_flags": ["avx512f"]})  # no CPU count, no vendor: a flag is the only requirement
@@ -94,6 +94,19 @@ def test_one_unmet_and_one_undecided_field_is_a_miss():
     report = match_report(_task({"min_cpus": 4, "cpu_flags": ["avx2"]}), facts)
     assert [f["met"] for f in report["fields"]] == [False, None]
     assert report["met"] is False
+
+
+def test_a_host_the_probe_could_not_judge_is_logged_as_labelled_and_a_met_host_is_not():
+    intel = host_facts(_probe_out(affinity=8, cpuinfo=INTEL_CPUINFO))
+    met = match_report(_task({"min_cpus": 4}), intel)
+    undecided = match_report(_task({"min_cpus": 4}), {"error": "host probe exited 127"})
+    missed = match_report(_task({"min_cpus": 16}), intel)
+    lines: list[str] = []
+    log_labelled({"met": met, "undecided": undecided, "missed": missed}, lines.append)
+    assert lines == [
+        f"undecided: host {undecided['fingerprint']} is labelled, not blocked: min_cpus unknown",
+        f"missed: host {missed['fingerprint']} is labelled, not blocked: min_cpus missing",
+    ]
 
 
 # ------------------------------------------------------------------ the four host scenarios
@@ -188,10 +201,26 @@ def test_report_splits_a_batch_by_the_fingerprint_of_the_host_that_ran_each_cell
     assert "labelled, unmet: cpu_flags.avx512f" in format_report(summarize(out / "b1"))
 
 
-def test_the_flag_is_off_by_default_and_on_with_label_host():
-    argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--batch", "b"]
-    assert build_parser().parse_args(argv).label_host is False
+def test_the_flag_is_unset_by_default_so_the_manifest_decides_and_it_can_be_set_either_way():
+    argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--name", "b"]
+    assert build_parser().parse_args(argv).label_host is None
     assert build_parser().parse_args([*argv, "--label-host"]).label_host is True
+    assert build_parser().parse_args([*argv, "--no-label-host"]).label_host is False
+
+
+def test_the_manifest_label_host_runs_the_miss_and_the_flag_overrides_it(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    manifest = root / ".agent-eval" / "repo-eval.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "label_host: true\n", encoding="utf-8")
+    git(root, "commit", "-aqm", "label the host misses")
+    out = tmp_path / "runs"
+    _labelled(monkeypatch, _host(files={"/proc/cpuinfo": AMD_CPUINFO}))
+    _run(root, out, HostRunner(_probe_out(affinity=8, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_avx")
+    assert _cell_json(out, "fix_avx", "result.json")["host_match"]["met"] is False  # the manifest ran it, labelled
+    with pytest.raises(SystemExit):  # --no-label-host beats the manifest: every cell unsupported, exits 1
+        _run(root, tmp_path / "off", HostRunner(_probe_out(affinity=8, cpuinfo=AMD_CPUINFO)), monkeypatch,
+             "--task", "fix_avx", "--no-label-host")
+    assert len(list((tmp_path / "off" / "b1").glob("fix_avx__*/unsupported.json"))) == 2
 
 
 def test_compare_warns_when_a_labelled_cell_ran_on_a_host_that_misses_its_task(tmp_path):

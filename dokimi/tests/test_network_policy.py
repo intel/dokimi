@@ -11,6 +11,7 @@ verifier execute.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -18,7 +19,8 @@ from pathlib import Path
 import pytest
 
 from dokimi.harnesses import TaskSuiteRunner, load_task
-from dokimi.harnesses.network_policy import (PROXY_VARS, PhasePolicy, build_args, build_env, parse_override,
+from dokimi.harnesses.network_policy import (PROXY_VARS, SIDECAR_URL, PhasePolicy, build_args, build_env,
+                                             credential_build_args, dockerfile_arg_names, parse_override, proxy_env,
                                              resolve)
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
@@ -161,6 +163,11 @@ def _exec_of(script: str):
     return lambda a: a[0] == "exec" and script in a[-1]
 
 
+def _call_of(cli, script: str):
+    """The recorded ``docker exec`` whose command ends with *script*: its argv and the CLI's env."""
+    return next(c for c in cli.calls if c.argv[1:2] == ("exec",) and c.argv[-1].endswith(script))
+
+
 def test_default_oracle_run_is_offline_from_start_to_verdict(tmp_path):
     cli, metrics = _oracle(tmp_path)
     run = next(a for a in cli.args if a[0] == "run")
@@ -182,7 +189,11 @@ def test_a_public_verifier_joins_bridge_only_after_an_offline_solve(tmp_path, mo
     join = _index(args, lambda a: a[:2] == ["network", "connect"])
     verify = _index(args, _exec_of("test.sh"))
     assert leave < oracle < join < verify
-    assert "HTTPS_PROXY=http://user:pw@proxy.corp:912" in args[verify]
+    verify_call = _call_of(cli, "test.sh")  # the value in the 0600 env-file, never on the argv
+    assert cli.env_file(verify_call)["HTTPS_PROXY"] == "http://user:pw@proxy.corp:912"
+    assert "HTTPS_PROXY" not in verify_call.argv and "--env-file" in verify_call.argv
+    assert not any("proxy.corp" in x for x in verify_call.argv)
+    assert cli.env_file(_call_of(cli, "solve.sh")) == {}
     assert not any("PROXY" in x for x in args[oracle])
     assert metrics["network"]["verify"]["source"] == "cli"
 
@@ -193,9 +204,11 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     assert any(a[:3] == ["network", "create", "--internal"] for a in args)
     side = next(a for a in args if a[0] == "create" and a[a.index("--name") + 1].endswith("-verify"))
     assert side[side.index("--allow") + 1] == "files.pythonhosted.org:443,pypi.org:443"
-    verify = args[_index(args, _exec_of("test.sh"))]
-    assert "HTTPS_PROXY=http://egress:3128" in verify
-    assert "NO_PROXY=localhost,127.0.0.1,::1" in verify and "no_proxy=localhost,127.0.0.1,::1" in verify
+    verify_call = _call_of(cli, "test.sh")
+    env_file = cli.env_file(verify_call)
+    assert env_file["HTTPS_PROXY"] == "http://egress:3128" and "HTTPS_PROXY" not in verify_call.argv
+    assert env_file["NO_PROXY"] == env_file["no_proxy"] == "localhost,127.0.0.1,::1"
+    assert cli.env_file(_call_of(cli, "solve.sh")) == {}
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
@@ -210,14 +223,17 @@ def test_an_allowlisted_oracle_solves_through_the_sidecar(tmp_path):
     args = cli.args
     side = next(a for a in args if a[0] == "create" and "--allow" in a)
     assert side[side.index("--allow") + 1] == "pypi.org:443"
-    assert "HTTPS_PROXY=http://egress:3128" in args[_index(args, _exec_of("solve.sh"))]
+    solve_call = _call_of(cli, "solve.sh")
+    assert cli.env_file(solve_call)["HTTPS_PROXY"] == "http://egress:3128" and "HTTPS_PROXY" not in solve_call.argv
     assert metrics["network"]["solve_enforced"] is True
 
 
 def test_a_public_oracle_solve_gets_the_host_proxy(tmp_path, monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.corp:912")
     cli, _ = _oracle(tmp_path, "solve=public")
-    assert "HTTPS_PROXY=http://user:pw@proxy.corp:912" in cli.args[_index(cli.args, _exec_of("solve.sh"))]
+    solve_call = _call_of(cli, "solve.sh")
+    assert cli.env_file(solve_call)["HTTPS_PROXY"] == "http://user:pw@proxy.corp:912"
+    assert "HTTPS_PROXY" not in solve_call.argv
 
 
 def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch):
@@ -316,6 +332,104 @@ def test_a_build_without_network_takes_no_proxy_at_all(monkeypatch):
     monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
     assert build_args(PhasePolicy("none")) == ["--network", "none"]
     assert build_env(PhasePolicy("none")) == {}
+
+
+def test_proxy_env_carries_the_values_and_drops_credentials_only_when_asked(monkeypatch):
+    for var in PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
+    assert proxy_env(PhasePolicy("public"))["https_proxy"] == "http://u:pw@proxy:912"
+    assert proxy_env(PhasePolicy("public"), credentials=False)["https_proxy"] == "http://proxy:912"
+    assert proxy_env(PhasePolicy("none")) == {}
+
+
+def test_proxy_env_of_an_allowlist_step_is_the_sidecar(monkeypatch):
+    monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")  # the host's proxy is not used there
+    values = proxy_env(PhasePolicy("allowlist", ("pypi.org",)))
+    assert values["https_proxy"] == values["HTTPS_PROXY"] == SIDECAR_URL
+    assert values["no_proxy"] == values["NO_PROXY"] == "localhost,127.0.0.1,::1"
+
+
+@pytest.mark.parametrize("text, names", [
+    ("FROM x\nARG https_proxy\n", {"https_proxy"}),
+    ("from x\narg HTTPS_PROXY=http://a\nARG a b=1 c\n", {"HTTPS_PROXY", "a", "b", "c"}),
+    ("ARG http_proxy \\\n    no_proxy\n", {"http_proxy", "no_proxy"}),
+    ("ARG http_proxy \\\n# a comment in the continuation\n    https_proxy\n", {"http_proxy", "https_proxy"}),
+    ("ARG \\\n\n \t\n https_proxy\nRUN true\n", {"https_proxy"}),  # blank lines in the continuation
+    ("FROM x\nARG https_proxy \\", {"https_proxy"}),  # a continuation at the end of the file
+    ("ARG https_\\\nproxy\n", {"https_proxy"}),  # a continuation inside a name
+    ("# escape=`\nFROM x\nARG `\n https_proxy\n", {"https_proxy"}),  # the escape directive sets the character
+    ("# Escape = `\nARG dir=C:\\\nRUN true\nARG https_proxy\n", {"dir", "https_proxy"}),  # \\ then ends the line
+    ("# custom=value\n# escape=`\nFROM x\nARG https_\\\nproxy\n", {"https_proxy"}),
+    ("\ufeff# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
+    ("# syntax=docker/dockerfile:1\n# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
+    ("# check=skip=JSONArgsRecommended\n# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
+    ("# ARG https_proxy\nRUN echo ARG\n", set()),
+    ("FROM x\nRUN true\n", set()),
+])
+def test_dockerfile_arg_names_read_every_arg_instruction(text, names):
+    assert dockerfile_arg_names(text) == names
+
+
+@pytest.mark.parametrize("directive, escape", [("", "\\"), ("# escape=`\n", "`")])
+@pytest.mark.parametrize("count", [2, 3])
+def test_a_doubled_dockerfile_escape_token_leaves_the_next_arg_on_its_own_line(directive, escape, count):
+    dockerfile = f"{directive}FROM scratch\nLABEL probe=tail{escape * count} \t\nARG https_proxy\n"
+    assert dockerfile_arg_names(dockerfile) == {"https_proxy"}
+
+
+def test_a_proxy_arg_with_credentials_on_a_network_build_is_flagged(monkeypatch):
+    for var in PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("https_proxy", "http://svc:s3cret@proxy:912")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy:912")  # no credentials: not flagged
+    assert credential_build_args("FROM x\nARG https_proxy\nARG HTTP_PROXY\n", PhasePolicy("public")) == ["https_proxy"]
+
+
+def test_a_proxy_arg_is_not_flagged_without_credentials_without_the_arg_or_offline(monkeypatch):
+    for var in PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("https_proxy", "http://svc:s3cret@proxy:912")
+    assert credential_build_args("FROM x\n", PhasePolicy("public")) == []  # no ARG: not in the history
+    assert credential_build_args("ARG https_proxy\n", PhasePolicy("none")) == []  # no proxy build-arg at all
+    monkeypatch.setenv("https_proxy", "http://proxy:912")
+    assert credential_build_args("ARG https_proxy\n", PhasePolicy("public")) == []
+    # the name is exact-case: an uppercase ARG is flagged only for the uppercase variable, with its own credentials
+    assert credential_build_args("ARG HTTPS_PROXY\n", PhasePolicy("public")) == []
+
+
+def test_an_uppercase_proxy_arg_with_credentials_is_flagged_by_its_exact_name(monkeypatch):
+    monkeypatch.setattr("dokimi.harnesses.network_policy.build_env",
+                        lambda _policy: {"HTTPS_PROXY": "http://svc:s3cret@proxy:912"})
+    assert credential_build_args("ARG HTTPS_PROXY\n", PhasePolicy("public")) == ["HTTPS_PROXY"]
+    assert credential_build_args("ARG https_proxy\n", PhasePolicy("public")) == []
+
+
+def test_a_build_arg_declared_by_the_dockerfile_warns_that_its_credentials_stay_in_the_history(
+        tmp_path, monkeypatch, caplog):
+    for var in PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("https_proxy", "http://svc-user:s3cret-token@proxy.corp:912")
+    _task(tmp_path).joinpath("environment", "Dockerfile").write_text("FROM python:3.12-slim\nARG https_proxy\n",
+                                                                  encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="dokimi.harnesses.task_image"):
+        cli, _ = _oracle(tmp_path)
+    assert any(part == "https_proxy" for a in cli.args if a[0] == "build" for part in a)
+    log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert "[build] WARNING: Dockerfile declares ARG https_proxy" in log and "image history" in log
+    assert any("image history" in r.getMessage() for r in caplog.records)
+    assert "s3cret" not in log and "s3cret" not in caplog.text  # the warning names the variable, not the value
+
+
+def test_a_build_arg_without_credentials_gets_no_warning(tmp_path, monkeypatch, caplog):
+    for var in PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("https_proxy", "http://proxy:912")
+    _task(tmp_path).joinpath("environment", "Dockerfile").write_text("FROM x\nARG https_proxy\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="dokimi.harnesses.task_image"):
+        _oracle(tmp_path)
+    assert "WARNING" not in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert not caplog.records
 
 
 def test_a_task_public_oracle_keeps_its_network_unless_the_operator_closes_it(tmp_path):

@@ -220,10 +220,11 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
     estimate = settings.estimate(
         len(spans), n_tokens=n_tokens, budgets=tuple(args.budgets), n_arms=n_arms
     )
+    context_share = (n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms
     estimate["expected_usd"] = estimate_usd(
-        args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
-        context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
+        args, n_tokens, estimate["estimate"]["by_role"], settings.tier, context_share=context_share,
     )
+    cost.add_role_usd(args, estimate, n_tokens, settings.tier, context_share)
     cost.add_panel_calls(args, estimate["estimate"])  # after the price, which counts each judge itself
     return estimate, n_tokens
 
@@ -246,6 +247,7 @@ def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_u
 
 def print_estimate_only(args: argparse.Namespace, settings, text: str, estimate_usd) -> None:
     """The ``--estimate-only`` output of ``analyze``: the projection as JSON, and what it rests on."""
+    from dokimi.novelty import cost
     from dokimi.novelty.tiers import FITTED_TOKENS_MAX
 
     estimate, n_tokens = run_estimate(args, settings, text, estimate_usd)
@@ -257,6 +259,9 @@ def print_estimate_only(args: argparse.Namespace, settings, text: str, estimate_
               f"profiles were fitted on artifacts up to {FITTED_TOKENS_MAX}; the projection "
               "ran low as the artifact grew", file=sys.stderr)
     print(json.dumps(estimate, indent=2))
+    least_sure = cost.least_sure_line(estimate)
+    if least_sure:
+        print(least_sure, file=sys.stderr)
     print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
           "measured shape; batch sizes and retries move the real figure.",
           file=sys.stderr)

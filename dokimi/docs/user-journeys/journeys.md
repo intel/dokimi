@@ -589,7 +589,7 @@ what exactly differs (the declared change); what else might differ (confounds).
   with a warning, on the common questions only. The warning is not a refusal:
   the user decides whether the intersection answers their question.
 - *Cached questions differ from the golden set.* A pipeline run reuses the
-  questions cached in its output directory until `--force-regen`, and warns
+  questions cached in its output directory until `--force`, and warns
   when they differ from the golden set.
 - *One arm name, two prompts.* An arm whose prompt digest differs across runs is
   refused: those runs measured different things under one name.

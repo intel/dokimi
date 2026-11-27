@@ -81,6 +81,8 @@ header:
     # A skill the fidelity golden sends to the client: a header in its body would be
     # part of the skill being measured (the same reason as dokimi/data/skills/**).
     - 'dokimi/tests/fixtures/fidelity/skill/**'
+    # Recorded Claude stream-json traces: one JSON record per line, so a header line would be read as a trace record.
+    - 'dokimi/tests/fixtures/claude_stream/*.jsonl'
 
   comment: never
 

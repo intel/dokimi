@@ -140,6 +140,7 @@ class RepoManifest:
     build_systems: tuple[str, ...] = ()
     process_metrics: dict[str, Counter] = field(default_factory=dict)
     probes: dict[str, tuple[str, ...]] = field(default_factory=dict)  # target -> patterns (repos/probes.py)
+    label_host: bool = False  # `repo run` runs a task the host misses, and records the miss (contract §4.3)
 
     @property
     def runnable(self) -> bool:
@@ -179,6 +180,7 @@ class RepoManifest:
             "process_metrics": {name: {"regex": c.pattern.pattern, "match": c.field}
                                 for name, c in self.process_metrics.items()},
             **({"probes": {t: list(p) for t, p in self.probes.items()}} if self.probes else {}),
+            **({"label_host": True} if self.label_host else {}),
         }
 
 
@@ -257,7 +259,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         missing = [k for k in _RUN_KEYS if k not in raw]
         raise ManifestError(path, [f"{', '.join(run_keys)} without {', '.join(missing)}: a manifest "
                                    "that runs tasks needs all of eval_dir, tasks and entry_points"])
-    needs_eval = [k for k in ("image", "explore_tasks", "process_metrics")
+    needs_eval = [k for k in ("image", "explore_tasks", "process_metrics", "label_host")
                   if isinstance(raw, dict) and k in raw and not run_keys]
     if needs_eval:
         raise ManifestError(path, [f"{', '.join(needs_eval)} without eval_dir, tasks and entry_points: "
@@ -318,6 +320,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         build_systems=tuple(raw.get("build_systems") or ()),
         process_metrics=counters,
         probes=probes,
+        label_host=bool(raw.get("label_host", False)),
     )
 
 

@@ -752,6 +752,12 @@ def test_mean_of_huge_values_keeps_a_small_term_that_survives_the_cancellation()
     assert stats._mean([big, big, -big, -big, 1e-100]) == pytest.approx(2e-101, rel=1e-12, abs=0.0)
 
 
+def test_paired_test_keeps_two_significant_digits_of_a_tiny_delta_std():
+    res = stats.paired_test([2e-12, 4e-12, 3e-12, 5e-12, 6e-12, 9e-12, 7e-12, 8e-12], [1e-12] * 8)  # #1225
+    assert res["delta_std"] == 2.4e-12 and res["delta_mean"] == 4.5e-12
+    assert stats.paired_test([1.0, 1.4, 0.8], [0.0] * 3)["delta_std"] == 0.31  # at 2 places as before
+
+
 def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
     """The sd overflowed here: https://github.com/intel/dokimi/issues/475."""
     small = [1.0, -1.0, 3.0, 2.0, 1.0, -1.0]

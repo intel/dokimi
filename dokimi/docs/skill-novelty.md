@@ -413,7 +413,7 @@ Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_
 
 `skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
 
-Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
+Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. A JSON label can be a string or a finite number. Numbers use the parsed numeric value as text (`1.10` becomes `1.1` and `1e2` becomes `100.0`). Quote the label to preserve its spelling. The reserved labels `all` and `unlabelled` are matched case-insensitively. The table escapes embedded line breaks. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
 
 ### 2. Span attribution — where in the file
 
@@ -1367,6 +1367,10 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
   distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
   counts every paid row, including rows written before a rename.
+  After the already-known share, the summary ranks skills by **new share** (`new_lenient`).
+  Equal shares sort by smaller token count, then by skill key. Text shows the top ten, and the
+  JSON `ranking` includes every skill whose latest successful measurement has a new share and a
+  positive token count.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
   are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
@@ -1464,7 +1468,12 @@ call `analyze` prints the run's expected cost at list prices to stderr.
 The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
-price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
+price. `usd_by_role` splits `expected_usd` into `extractor`, `answerer` and `judge` (panel judges
+after the first count under `judge`), and `least_sure_role` names the role the figure is least
+sure of with a reason; both are `null` with `expected_usd`, and `--estimate-only` prints the role and its
+share on stderr. The rule, chosen without per-role error data: a run whose tier has no extractor
+profile of its own (`study`, or no tier) names `extractor`, which borrows the standard profile;
+`triage` and `standard` name the role with the largest dollars. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
 within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
 -33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the

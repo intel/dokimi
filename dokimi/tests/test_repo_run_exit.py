@@ -29,7 +29,7 @@ def setup(tmp_path, monkeypatch):
 
 def _run(s, *extra, network=True, source=None):
     argv = ["repo", "run", source or f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", "b1", "--out", str(s["out"]),
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--name", "b1", "--out", str(s["out"]),
             "--cache-root", str(s["out"] / "caches"), *(["--agent-network", "host"] if network else []), *extra]
     args = build_parser().parse_args(argv)
     args.func(args)

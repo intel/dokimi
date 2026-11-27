@@ -11,6 +11,8 @@ non-empty. Per-line versions also keep a line self-describing when a file is sli
 
 from __future__ import annotations
 
+import posixpath
+from collections.abc import Callable
 from typing import Any, Mapping
 
 EVENT_VERSION = 2  # the major version this code writes; a version change adds repo_event.vN.json
@@ -19,7 +21,11 @@ EVENT_VERSION = 2  # the major version this code writes; a version change adds r
 TOOL_KINDS = frozenset({"command", "read", "edit", "tool"})
 #: The per-model-call kinds (:mod:`dokimi.repos.turn_events`): not tool calls.
 TURN_KINDS = frozenset({"turn", "compaction"})
-#: The kinds the converters write in version 2 (version 1 wrote the tool kinds only). Readers accept any other kind.
+#: The token-accounting kind a converter writes, not named in ``repo_event.v2.json``: naming it there adds an
+#: ``allOf`` entry, which ``schema_compat`` reads as breaking.
+ACCOUNTING_KINDS = frozenset({"usage_remainder"})
+#: The tool and turn kinds the converters write in version 2 (version 1 wrote the tool kinds only).
+#: ``ACCOUNTING_KINDS`` adds the remainder; readers accept any other kind.
 KNOWN_KINDS = TOOL_KINDS | TURN_KINDS
 
 
@@ -28,6 +34,20 @@ def plain_path(path: str) -> str:
     link, which only the workspace can tell (:class:`~dokimi.repos.held_guidance.HeldGuidance`). An empty path is ``.``."""
     lead = "/" if path.startswith("/") else ""
     return lead + "/".join(p for p in path.split("/") if p not in ("", ".")) or "."
+
+
+def followed_path(path: str, resolve: Callable[[str], str | None] | None = None) -> str:
+    """``path`` normalized; a relative one with a ``..`` has the directories before its last name followed by ``resolve``
+    (the workspace's links, :meth:`~dokimi.repos.held_guidance.HeldGuidance.resolved`) and keeps that name as written.
+    A result that starts with ``..`` leaves the workspace, and so does one that ``resolve`` cannot follow (None). With no
+    ``resolve``, or for a path with no ``..`` or an absolute one, the result is :func:`posixpath.normpath`'s."""
+    plain = plain_path(path)
+    if not resolve or plain.startswith("/") or ".." not in plain.split("/"):
+        return posixpath.normpath(path)
+    head, _, name = plain.rpartition("/")
+    if name == "..":
+        return resolve(plain) or ".."
+    return plain_path(f"{resolve(head) or '..'}/{name}")
 
 
 def event_version(event: Mapping[str, Any]) -> int:

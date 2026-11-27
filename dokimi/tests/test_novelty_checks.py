@@ -534,7 +534,7 @@ def test_verify_keys_counts_a_key_only_once_a_checked_option_passed(monkeypatch)
 
 def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monkeypatch):
     import argparse
-    from pathlib import Path
+    import os
 
     from dokimi.commands import novelty_ground
     from dokimi.novelty import grounding
@@ -545,19 +545,18 @@ def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monk
                      answer="perf report --stdio", span_ids=("s1",))], [span], atoms_path)
     before = atoms_path.read_bytes()
     monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
-    real_write = Path.write_text
 
-    def failing_write(self, data, *args, **kwargs):
-        real_write(self, data[: len(data) // 2], *args, **kwargs)  # the disk fills mid-write
+    def failing_replace(src, dst):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr(Path, "write_text", failing_write)
+    monkeypatch.setattr(os, "replace", failing_replace)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
                               tool_version=None, header=None, shared_lib=None, prefix=None)
     # A failed write is a usage error with a one-line message, not a traceback.
-    with pytest.raises(InputError, match="cannot write"):
+    with pytest.raises(InputError, match=r"cannot write \S*atoms\.json: No space left on device$"):
         novelty_ground.cmd_novelty_ground(args)
     assert atoms_path.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["atoms.json"]
 
 
 def test_verify_keys_reports_every_unknown_option_not_only_the_first_ten():

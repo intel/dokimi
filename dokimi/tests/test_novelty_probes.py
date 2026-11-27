@@ -645,3 +645,79 @@ def test_reversal_length_cap_allows_a_leading_frame():
     # The frame is bounded: a reversal that runs on is still length drift.
     rambling = candidate[:-1] + " " + " ".join(["and more"] * 12) + "?"
     assert "length_drift" in check_wording("reversal", source=source, candidate=rambling)
+
+
+@pytest.mark.parametrize("apostrophe", ["’", "‘", "ʼ"])
+def test_a_typographic_apostrophe_negation_is_counted_as_the_ascii_one(apostrophe):
+    # #1143: "doesn’t" is the negation "doesn't" written with another apostrophe.
+    source = f"Why doesn{apostrophe}t the skill ship measured numbers?"
+    candidate = "Why does the skill ship measured numbers?"
+    assert check_wording("paraphrase", source=source, candidate=candidate) == ["polarity_flipped"]
+    assert check_wording("paraphrase", source=source.replace(apostrophe, "'"), candidate=candidate) == [
+        "polarity_flipped"
+    ]
+
+
+def test_a_typographic_apostrophe_reversal_matches_the_ascii_spelling():
+    source = "X doesn’t support Y."
+    candidate = "Does X support Y?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+    assert check_wording("reversal", source="X supports Y.", candidate="Doesn’t X support Y?") == [
+        "restates_source"
+    ]
+    assert check_wording("reversal", source="X supports Y.", candidate="Doesn't X support Y?") == [
+        "restates_source"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "candidate", "expected"),
+    [
+        ("Why does the skill ship measured numbers?", "Doesn’t the skill ship measured numbers?", []),
+        ("Why does the skill ship measured numbers?", "The skill ships measured numbers, doesn’t it?",
+         ["leading_question"]),
+        ("The skill ships measured numbers, doesn’t it?", "The skill includes measured numbers, doesn’t it?", []),
+    ],
+)
+def test_a_typographic_apostrophe_is_question_phrasing_as_the_ascii_one_is(source, candidate, expected):
+    ascii_result = check_wording(
+        "paraphrase", source=source.replace("’", "'"), candidate=candidate.replace("’", "'")
+    )
+    assert check_wording("paraphrase", source=source, candidate=candidate) == ascii_result == expected
+
+
+def test_a_typographic_apostrophe_that_is_no_negation_changes_nothing():
+    source = "Which setting does the user’s file override?"
+    candidate = "Which setting is overridden by the user’s file?"
+    assert check_wording("paraphrase", source=source, candidate=candidate) == check_wording(
+        "paraphrase", source=source.replace("’", "'"), candidate=candidate.replace("’", "'")
+    )
+    assert check_wording("paraphrase", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+def test_a_statement_source_keeps_its_leading_negative_so_its_inversion_is_accepted(source):
+    # #1144: only a question has phrasing to strip; a statement's "Don't" is a negation.
+    assert check_wording("reversal", source=source, candidate="Should the installer be run as root?") == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+@pytest.mark.parametrize("tag", ["shouldn't it", "shouldn’t it", "should it not"])
+def test_a_trailing_tag_is_no_negation_even_when_the_source_opens_with_a_negative(source, tag):
+    candidate = f"Should the installer be run as root, {tag}?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+def test_a_question_that_keeps_the_negation_of_a_statement_source_is_still_rejected(source):
+    restated = check_wording("reversal", source=source, candidate="Do not run the installer as root?")
+    assert len(restated) == 1 and restated[0] in {"restates_source", "polarity_not_flipped"}
+    assert check_wording("reversal", source=source, candidate="Should the installer not be run as root?") == [
+        "polarity_not_flipped"
+    ]
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Don’t run the installer as root."])
+@pytest.mark.parametrize("candidate", ["Don't run the installer as root?", "Don’t run the installer as root?"])
+def test_a_question_that_keeps_the_leading_dont_of_the_source_restates_it(source, candidate):
+    assert check_wording("reversal", source=source, candidate=candidate) == ["restates_source"]

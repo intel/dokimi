@@ -122,6 +122,7 @@ def test_valid_repo_passes_and_reports_tasks_and_guidance(tmp_path):
         (lambda m: m.update(process_metrics={"icpx": {"regex": "icpx", "mach": "output"}}), "mach"),
         (lambda m: m.update(id="Bad Id"), "id"),
         (lambda m: m.update(build_systems=["scons"]), "build_systems"),
+        (lambda m: m.update(label_host="yes"), "label_host"),
         (lambda m: m["image"].update(network="host"), "network"),
         (lambda m: m["image"]["caches"].append({"name": "c", "path": "relative"}), "caches"),
         (lambda m: m.update(eval_dir="../elsewhere"), "'..'"),
@@ -511,16 +512,24 @@ def _run_cli(argv: list[str]) -> None:
     args.func(args)
 
 
+@pytest.mark.outcome("cjm-repo-manifest-schema-check")
 def test_repo_validate_cli(tmp_path, capsys):
     root = _repo(tmp_path)
     _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
-    _task(root, "bad", id="other")
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump({**MANIFEST, "eval_dir": 42}))
     with refusal() as exc:
         _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
-    assert exc.code == 1
+    assert exc.code == 2
+    assert "eval_dir: 42 is not of type 'string'" in capsys.readouterr().err
+
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+    _task(root, "bad", id="other")
+    with refusal() as bad_task:
+        _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
+    assert bad_task.code == 1
     assert "does not equal the directory name" in capsys.readouterr().err
 
 
@@ -677,6 +686,17 @@ def test_reserved_run_entries_cover_what_the_runner_writes():
 
 GUIDANCE_ONLY = {"schema": "repo_manifest.v1", "id": "toy",
                  "guidance": {"globs": ["**/AGENTS.md"], "also_scan": ["CONTRIBUTING.md"]}}
+
+
+def test_label_host_is_read_from_the_manifest_and_needs_a_runnable_one():
+    assert parse_manifest(json.loads(json.dumps(MANIFEST))).label_host is False
+    raw = json.loads(json.dumps(MANIFEST))
+    raw["label_host"] = True
+    assert parse_manifest(raw).label_host is True
+    assert "label_host" not in parse_manifest(json.loads(json.dumps(MANIFEST))).to_dict()  # absent: the key stays out
+    assert parse_manifest(raw).to_dict()["label_host"] is True
+    with pytest.raises(ManifestError, match="label_host without eval_dir"):
+        parse_manifest(json.loads(json.dumps(GUIDANCE_ONLY)) | {"label_host": True})
 
 
 def test_a_guidance_only_manifest_checks_the_guidance_and_says_what_it_cannot_do(tmp_path):

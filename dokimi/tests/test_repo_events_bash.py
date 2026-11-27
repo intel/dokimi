@@ -53,6 +53,41 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
     assert _reads(_events(_call("a", "head -n 40 /ws/sub/AGENTS.md"), _result("a"))) == ["sub/AGENTS.md"]
 
 
+@pytest.mark.parametrize("command,reads", [("head -n 0 AGENTS.md", []), ("tail -c 0 AGENTS.md", []),
+                                           ("head -n -0 AGENTS.md", ["AGENTS.md"]), ("tail -n 1 AGENTS.md", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+                                           ("export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; false && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("true() { false; }; true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("command -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1 >/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=yes>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; true && { false; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </missing; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("X=1 export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1 <<<ignored; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("if true; then export POSIXLY_CORRECT=1; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; if false; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("true || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+                                           ("false || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("time -p POSIXLY_CORRECT=1 export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"])])
+def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
+    assert _reads(_events(_call("a", command), _result("a", ""))) == reads
+
+
 def test_a_failed_cat_of_one_file_is_no_read():
     events = _events(_call("a", "cat AGENTS.md"), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert events == [{"t": 5.0, "kind": "command", "text": "cat AGENTS.md", "rc": 1,
@@ -308,6 +343,23 @@ def test_a_directory_builtin_in_a_case_arm_may_move_the_shell(command):
     # a case is not followed: the arm may have run
     assert shell_reads_moved(f"{command}; cat a") == ([], True)
     assert _reads(_events(_call("a", command), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == []
+
+
+@pytest.mark.parametrize("command", ["if false; then :; cd sub; fi", "if true; then :; else :; cd sub; fi",
+                                     "for i in 1; do :; cd sub; done", "while false; do :; cd sub; done",
+                                     "if x; then if y; then :; fi; cd sub; fi", "if x; then :; elif y; then :; cd sub; fi",
+                                     "until true; do :; cd sub; done", "select i in 1; do :; cd sub; done"])
+def test_a_cd_after_the_first_command_of_a_body_may_not_run(command):
+    # the body may be skipped, as for a ``cd`` right after ``then``: the directory is lost, not moved to sub
+    assert shell_reads_moved(f"{command}; cat f") == ([], True)
+
+
+@pytest.mark.parametrize("command, reads", [("if cd sub; then cat f; fi", []), ("while cd sub; do :; done; cat f", []),
+                                            ("if x; cd sub; then :; fi; cat f", ["sub/f"]),
+                                            ("if false; then :; fi; cd sub; cat f", ["sub/f"]),
+                                            ("for i in 1; do :; done; cd sub; cat f", ["sub/f"])])
+def test_a_cd_outside_a_body_is_as_before(command, reads):
+    assert shell_reads_moved(command)[0] == reads
 
 
 def test_a_case_with_no_directory_builtin_keeps_the_next_read():

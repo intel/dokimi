@@ -72,6 +72,7 @@ from dokimi.eval.sign_flip import (
     min_sign_flip_p,
     pair_magnitudes,
     round_mean,
+    round_off_zero,
     sign_flip_row,
     tie_widths,
     within,
@@ -611,8 +612,8 @@ def _describe_deltas(
     :data:`ALPHA`, uncorrected (``ci_method`` ``sign_flip_inversion``), placed
     on 0 by that same ``p``: they exclude 0 exactly when ``p < ALPHA``. An end
     is ``None`` where it is open, as both are at 5 or fewer pairs. ``exact``
-    holds the unrounded ends; the displayed ones are rounded to 4 places, never
-    onto or across 0, and ``delta_mean`` (:func:`round_mean`: 2 places, or 2
+    holds the unrounded ends; the displayed ones are rounded to 4 places (2
+    significant digits where that would be 0), never onto or across 0, and ``delta_mean`` (:func:`round_mean`: 2 places, or 2
     significant digits under 0.005) is held inside them.
 
     ``significant`` is ``None`` ("could not tell", not "no") when there is no
@@ -642,7 +643,7 @@ def _describe_deltas(
     return {
         "n": len(d),
         "delta_mean": within(round_mean(d_mean), shown_lo, shown_hi),
-        "delta_std": round(d_sd, 2),
+        "delta_std": round_off_zero(d_sd, 2),
         "cohens_d": cohens_d,
         "effect": effect_label(cohens_d),
         "ci_lo": shown_lo,

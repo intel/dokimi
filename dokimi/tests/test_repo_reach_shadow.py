@@ -345,14 +345,13 @@ def test_a_shadow_file_never_goes_under_a_probe_file(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("path", ["CLAUDE.local.md", "a/b/CLAUDE.local.md"])
 def test_a_failed_shadow_write_removes_what_it_made(tmp_path, monkeypatch, path):
-    def write_part(self, text, **kw):
-        with open(self, "w", encoding="utf-8") as f:
-            f.write(text[:5])
+    def write_part(target, data, **kw):
+        Path(target).write_bytes(data[:5])
         raise OSError(28, "No space left on device")
 
     ws = tmp_path / "ws"
     ws.mkdir()
-    monkeypatch.setattr(Path, "write_text", write_part)
+    monkeypatch.setattr(reach, "write_bytes_in_place_or_atomic", write_part)
     with pytest.raises(ReachError, match=f"cannot write the shadow file {path} in the probe workspace: .*No space"):
         with reach._shadowed(ws, SeededFile(path, "RC000001", "RC000002")):
             pass

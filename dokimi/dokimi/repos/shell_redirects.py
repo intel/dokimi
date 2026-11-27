@@ -16,6 +16,13 @@ _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<!
 # stderr sent to a file: stdout, what a printing command shows, is unchanged
 # (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
+# any redirect with its target: ``>f``, ``>>f``, ``2>f``, ``&>f``, ``>&2``, ``<f``; the operator may be glued to the
+# word before it (``export X=1>f``), but a descriptor number or ``&`` only starts a word
+_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>|>\||>|<<<|<>?)&?[ \t]*[^\s;&|<>()]+")
+# a redirect that cannot fail to open: to /dev/null, or a copy of or close of a standard descriptor (``2>&1``, ``<&-``);
+# a copy of another one (``2>&9``) fails when it is not open; a here-string (``<<<word``) opens no file
+_SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>|>\||>|<>?)(?:&[ \t]*(?:[0-2]|-)|[ \t]*/dev/null)|\d*<<<.+")
+_FD_COPY = re.compile(r"(?:\d+|&)?[<>]+&[ \t]*(\d+|-)")  # a copy of a descriptor, or a close (``-``): its source in group 1
 
 
 def bare(part: str) -> str:
@@ -35,6 +42,81 @@ def without_stderr(part: str) -> str:
     if not _stdout_after_stderr(bare(part)):  # else ``>&2`` stays: a redirect, so no read
         part = _outside_quotes(part, _HARMLESS_REDIRECT)
     return _outside_quotes(part, _STDERR_FILE)
+
+
+def without_redirects(part: str) -> str:
+    """``part`` without any redirect and its target (``>/dev/null``, ``2>f``, ``&>f``, ``>&2``, ``<f``), for the state a
+    command sets, which a redirect does not change; ``part`` itself when it has none."""
+    return _outside_quotes(part, _REDIRECT)
+
+
+def may_fail_redirect(part: str) -> bool:
+    """Whether ``part`` has a redirect that may fail to open (``</missing``, ``>dir/f``), so its command may not run: any
+    but one to ``/dev/null`` or a standard descriptor (:data:`_SAFE_REDIRECT`)."""
+    closed: set[str] = set()  # the descriptors a ``N>&-`` before has closed: a copy of one fails (``1>&- 2>&1``)
+    for m in _REDIRECT.finditer(masked(part)):
+        text = m.group()
+        if not _SAFE_REDIRECT.fullmatch(text):
+            return True
+        fd = _redirected_fd(text)
+        copy = _FD_COPY.fullmatch(text)
+        if copy and copy[1] in closed:
+            return True
+        if copy and copy[1] == "-":
+            closed.add(fd)
+        else:
+            closed -= {fd, "2"} if text.startswith("&") else {fd}  # ``&>`` opens both
+    return False
+
+
+def copied_fds(part: str) -> set[str]:
+    """The descriptors ``part`` copies (``2>&1``: ``1``), which fail when a group around it has closed one; a copy of one
+    the same command opened first (``1>/dev/null 2>&1``) does not."""
+    copied: set[str] = set()
+    opened: set[str] = set()
+    for m in _REDIRECT.finditer(masked(part)):
+        copy = _FD_COPY.fullmatch(m.group())
+        fd = _redirected_fd(m.group())
+        if copy and copy[1] == "-":
+            opened.discard(fd)
+            continue
+        if copy and copy[1] not in opened:
+            copied.add(copy[1])
+        opened |= {fd, "2"} if m.group().startswith("&") else {fd}
+    return copied
+
+
+def closed_fds(redirects: str) -> set[str]:
+    """The descriptors ``redirects`` (a group's, after its ``}``) leave closed, each later redirect reopening its own."""
+    return _redirect_fds(redirects)[0]
+
+
+def reopened_fds(redirects: str) -> set[str]:
+    """The descriptors ``redirects`` (a group's, after its ``}``) leave open: its body runs with them open, whatever a
+    group around it closed (``{ { unset X 2>&1; } 1>/dev/null; } 1>&-``)."""
+    return _redirect_fds(redirects)[1]
+
+
+def _redirect_fds(redirects: str) -> tuple[set[str], set[str]]:
+    closed: set[str] = set()
+    opened: set[str] = set()
+    for m in _REDIRECT.finditer(masked(redirects)):
+        fd = _redirected_fd(m.group())
+        copy = _FD_COPY.fullmatch(m.group())
+        if copy and copy[1] == "-":
+            closed.add(fd)
+            opened.discard(fd)
+        else:
+            both = {fd, "2"} if m.group().startswith("&") else {fd}
+            closed -= both
+            opened |= both
+    return closed, opened
+
+
+def _redirected_fd(redirect: str) -> str:
+    """The descriptor ``redirect`` opens or closes: its number, else 0 for ``<`` and 1 for ``>`` or ``&>``."""
+    digits = re.match(r"\d+", redirect)
+    return digits.group() if digits else "0" if redirect.lstrip("&")[:1] == "<" else "1"
 
 
 def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:

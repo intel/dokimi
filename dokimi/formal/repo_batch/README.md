@@ -29,7 +29,7 @@ result differs from its expectation. `out/` is not committed.
 
 | Mechanism | In the code | In the model |
 |---|---|---|
-| Run = batch dir `--batch`; cell = `cell_name(task, arm, model, rep)` dir | yes | `Tasks` (one arm, model, rep) |
+| Run = batch dir `--name`; cell = `cell_name(task, arm, model, rep)` dir | yes | `Tasks` (one arm, model, rep) |
 | Repetition | `--reps N`: cells `__r1..__rN`, independent samples | not needed: one rep per cell |
 | Retry of a cell | only a later `repo run` on the batch (resume or `--force`), same cell name, replaces the dir | `Take` by a later invocation |
 | In-process retry, redelivery, reassignment, leases, heartbeats | **none** | not modelled (would be an imagined architecture) |
@@ -120,8 +120,8 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
 2. **A part-way `--force` with another execution pools two executions** (`code_main_force_crash`,
    found by TLC on its first run of `fixed`): `--force` replaced r1, then the run stopped; r2 kept
    the old execution and `repo report` pooled both in one row. Fixed: `refuse_mixed_executions`. The same refusal catches a harness binary replaced mid-batch, which the model does not have (one execution per invocation, while the code hashes `--bin` per cell).
-3. **Ctrl-C** (`mut_no_cancel_guard`): a probe with `_thread.interrupt_main()` started queued cells,
-   but a real SIGINT wakes the main thread and the pool cancels them. Not a bug; the test pins it.
+3. **Ctrl-C** (`mut_no_cancel_guard`): the test delivers SIGINT as the main thread reaches
+   the wait for the submitted cells. The pool cancels queued cells and the two running cells finish.
 
 Open questions (left as they are):
 

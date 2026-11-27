@@ -231,6 +231,18 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         )
 
 
+def _write_item_analysis(payload: dict, out: Path) -> None:
+    """Write the item analysis to ``out``; two sources that are one once read back exit 2 and write nothing (#1163)."""
+    from dokimi.process_io import checked_json_text
+
+    try:
+        text = checked_json_text(json.dumps(payload, indent=2))
+    except ValueError as exc:
+        raise InputError(f"cannot write the item analysis to {out}: {exc}") from exc
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+
+
 def cmd_novelty_items(args: argparse.Namespace) -> None:
     """Item analysis across saved probe runs: which atoms separate the models."""
     from dokimi.novelty.items import ProbeFileError, item_analysis, load_probe_cells
@@ -244,8 +256,7 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 
     payload = item_analysis(cells, arm=args.arm)
     if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        _write_item_analysis(payload, Path(args.out))
         print(f"OK Saved item analysis: {args.out}")
 
     for scoring in ("lenient", "strict"):
@@ -347,10 +358,12 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    if args.atom_labels and not args.atom_verdicts:
+    if args.atom_labels is not None and not args.atom_labels.strip():
+        raise InputError("--atom-labels needs a file path")
+    if args.atom_labels is not None and not args.atom_verdicts:
         raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
     labels = None
-    if args.atom_labels:
+    if args.atom_labels is not None:
         from dokimi.novelty.atom_labels import load_atom_labels
 
         labels = load_atom_labels(args.atom_labels)
