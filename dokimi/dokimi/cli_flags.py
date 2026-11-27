@@ -264,7 +264,8 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="timeout",
         help="time limits, per phase",
-        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        # F1b adds the phase prefix (#94 §2.4): the phases are the network's (build, solve, verify).
+        # A bare SEC is the agent run (solve). The value is seconds with an optional phase prefix.
         canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
@@ -428,12 +429,14 @@ class FlagMove:
     """An old spelling that moved: argv that uses it is tombstoned (exit 2, prints the new argv).
 
     ``leaves`` limits the move to those leaves (their argv paths), for a spelling that keeps
-    another meaning on other leaves. The empty tuple means every leaf.
+    another meaning on other leaves. The empty tuple means every leaf. ``prefix`` is put in front
+    of the old value: ``--build-timeout 5`` is ``--timeout build=5``.
     """
 
     old: str
     new: str
     leaves: tuple[tuple[str, ...], ...] = ()
+    prefix: str = ""
 
 
 FLAG_MOVES: tuple[FlagMove, ...] = (
@@ -493,6 +496,9 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Timeout concept (F1b): the phase is a prefix of the value. A bare SEC on `repo run` stays the agent run.
+    FlagMove("--build-timeout", "--timeout", leaves=(("repo", "run"), ("eval", "check")), prefix="build="),
+    FlagMove("--grade-timeout", "--timeout", leaves=(("repo", "run"), ("eval", "check")), prefix="verify="),
     # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
     FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
     # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.

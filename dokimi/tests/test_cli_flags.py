@@ -153,7 +153,7 @@ def _tree_violations() -> list[str]:
 
 # Types a parser may use for each registry kind. A kind not listed takes any type.
 _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
-    "int": frozenset({"int", "non_negative_int", "positive_int"}),
+    "int": frozenset({"int", "non_negative_int", "phase_seconds", "positive_int"}),
     "float": frozenset({"float", "positive_fraction", "unit_interval"}),
     "usd": frozenset({"positive_usd", "_usd"}),
 }
@@ -210,13 +210,6 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
     ("dokimi explore run", "--arm", "metavar"): ("ARM",
         "an explore arm is oracle, empty or command:<template>, not the [NAME=]REF of arms run; "
         "the old --arms took the same list"),
-    ("dokimi eval check", "--cache", "metavar"): ("NAME=PATH",
-        "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi repo run", "--cache", "metavar"): ("NAME=PATH",
-        "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi tasks run", "--network", "metavar"): ("PHASE=MODE",
-        "repeatable PHASE=MODE, with no `:hosts` form; the registry's `--network` is one "
-        "`[PHASE=]MODE[:hosts]`. F1b aligns it"),
     ("dokimi eval triggers generate", "--questions", "metavar"): ("PATH=LABEL",
         "repeatable PATH=LABEL pairs; the registry's `--questions FILE` is one file. F1b aligns it"),
 }
@@ -368,7 +361,7 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
     text = [what for _use, _aspect, what in meaning_clashes(found, concepts)]
     assert text == [
         "has metavar `SEED`, the registry says `N`",
-        "has type `str`, kind `int` takes int or non_negative_int or positive_int",
+        "has type `str`, kind `int` takes int or non_negative_int or phase_seconds or positive_int",
         "is a value here, but the registry kind is `flag`",
         "has no choices, but the registry kind is `choice`",
         "has choices, but the registry kind is `text`",
