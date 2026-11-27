@@ -196,6 +196,12 @@ def test_two_arithmetic_commands_on_one_substitution_line_inside_arithmetic_both
     assert _cli_heredocs(text) == "echo $(( $( ((a=1<<3)); ((b=1<<3)); echo 1) + 1 ))\ncat \nrm g\n"
 
 
+@pytest.mark.parametrize("text", ["((x=1<<3\n))\nsed -i s/x/y/ f\nrm g\n", "(( x=1\n<<3 ))\nsed -i s/x/y/ f\nrm g\n", "echo $(( $( ((x=1<<3\n)); echo 1) + 1 ))\nsed -i s/x/y/ f\nrm g\n"])
+def test_a_bare_arithmetic_command_closed_on_a_later_line_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "rm g"]
+    assert _cli_heredocs(text) == text
+
+
 def test_many_double_parentheses_on_a_line_with_no_closer_are_scanned_in_linear_time() -> None:
     ratio, _ = growth(lambda k: partial(shell.split_commands, "(" * k + "\ncat <<EOF\nbody\nEOF\n"), 2_000)
     assert ratio < GROWTH_LIMIT

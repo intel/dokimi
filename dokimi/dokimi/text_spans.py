@@ -159,13 +159,12 @@ class _ArithmeticReader:
         self.line, self.line_quote = 0, ""  # where the line being read begins and the quotes open there
         self.substitutions: list[tuple[int, int]] = []  # inside a span: where a ``$(`` or backtick, not the arithmetic, is what a ``<<`` is in
         self.entered = -1  # where the substitution open now began, -1 when none
-        self.eol_from, self.eol = 0, -1  # the end of the line read last for a ``))``
-        self.unclosed_from, self.unclosed_to = 0, 0  # a ``((`` starting in this range has no ``))`` on its line
+        self.pairs: dict[int, int] | None = None  # each ``(`` of the text and the ``)`` that closes it, found on the first ``((``
 
     def _opener(self, mark: str) -> int:
         """How many characters from ``self.pos`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none.
 
-        A bare ``((`` is a subshell, ``((cat <<EOF``, unless a ``))`` closes it on its line.
+        A bare ``((`` is a subshell, ``((cat <<EOF``, unless a ``))`` closes it.
         """
         text, at = self.text, self.pos
         if mark == "$":
@@ -173,16 +172,19 @@ class _ArithmeticReader:
         return 1 if mark == "(" and self.quote[-1:] in ("", "(", "`") and text.startswith("(", at) and self._closes(at) else 0
 
     def _closes(self, at: int) -> bool:
-        """Whether a ``))`` follows ``at`` on its line; the line's end and a line with none are kept, so many ``((`` on one line read it once."""
-        if self.unclosed_from <= at < self.unclosed_to:
-            return False
-        if not self.eol_from <= at <= self.eol:
-            end = self.text.find("\n", at)
-            self.eol_from, self.eol = at, len(self.text) if end < 0 else end
-        if self.text.find("))", at, self.eol) >= 0:
-            return True
-        self.unclosed_from, self.unclosed_to = at, self.eol
-        return False
+        """Whether the ``((`` ending at ``at + 1`` is closed by a ``))``, on this line or a later one: the parenthesis that closes its inner ``(`` is followed at once by the one that closes its outer.
+
+        The parentheses of the whole text are matched once, so many ``((`` read it once; ``((cat <<EOF`` ... ``) | cat)`` is a subshell, ``((x=1<<3`` and ``))`` on the next line is arithmetic.
+        """
+        if self.pairs is None:
+            self.pairs, stack = {}, []
+            for m in re.finditer(r"\\.|[()]", self.text, re.DOTALL):  # an escaped parenthesis is a plain character
+                if m.group() == "(":
+                    stack.append(m.start())
+                elif m.group() == ")" and stack:
+                    self.pairs[stack.pop()] = m.start()
+        inner = self.pairs.get(at)
+        return inner is not None and self.pairs.get(at - 1) == inner + 1
 
     def read(self, upto: int) -> None:
         """Read the marks that start at or before ``upto``, and on to the end of a span open there.
