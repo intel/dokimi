@@ -540,7 +540,8 @@ def _patch_file_problem(tree: RepoTree, task_dir: str, patch: str) -> tuple[str,
         target = tree.resolve(path)
         real_dir = tree.resolve(task_dir, dirs=True)  # the task directory may itself be reached through a link
     except (OSError, SourceError) as exc:  # a link that leaves the repository (also past its own name), dangles or loops
-        # only an escape is a refusal: a dangling or looping link reads as a missing patch in a directory
+        # only an escape is a refusal; a dangling or looping link is an ordinary error, reported with the error's own
+        # words (``GitTree`` raises the same SourceArgumentError for a dangling link, so the type cannot tell them apart)
         return f"patch {patch!r}: {exc}", str(exc).startswith("path escapes the repository: ")
     if not target.startswith(f"{real_dir}/"):
         return f"patch {patch!r} is not a file in the task directory: it links to {target}", True

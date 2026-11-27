@@ -866,7 +866,10 @@ def _patch_link_repo(tmp_path, target, key="setup_patch"):
     _task(root, "linked", **{key: "p.patch"})
     _write(root, "dev/evals/real.patch", "--- a\n+++ b\n")
     _write(root, "dev/evals/inside/p.patch", "--- a\n+++ b\n")
-    (root / "dev/evals/tasks/linked/p.patch").symlink_to(target)
+    try:
+        (root / "dev/evals/tasks/linked/p.patch").symlink_to(target)
+    except OSError as exc:  # no symlink right on this OS
+        pytest.skip(f"cannot create a symlink: {exc}")
     return root
 
 
@@ -940,3 +943,4 @@ def test_dangling_link_whose_target_is_named_like_an_escape_is_not_a_refusal(tmp
         report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
         assert any("p.patch" in e for e in report.errors), (tree.label, report.errors)
         assert not report.refused, tree.label
+
