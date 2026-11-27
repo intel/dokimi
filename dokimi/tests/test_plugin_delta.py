@@ -433,3 +433,14 @@ def test_arms_plugin_delta_cli_refuses_changed_judge_settings(tmp_path, monkeypa
     assert f"different {field}" in result.err
     assert not out.exists()
     assert not out.with_suffix(".md").exists()
+
+
+def test_compare_plugin_runs_ignores_the_discarded_seed_of_an_unseeded_run():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    unsupported = {"seed": None, "seed_status": "unsupported"}
+    baseline["run_config"] = _run_config(**unsupported, seed_requested=1)
+    plugin["run_config"] = _run_config(**unsupported, seed_requested=2)
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert payload["score_deltas"]["skill"]["aggregate_delta"] == 0.0

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.cli import build_parser
 from dokimi.repos.environment import inspect_repo
 from dokimi.repos.source import SourceArgumentError, WorkTree
 
@@ -412,3 +413,18 @@ def test_an_instruction_file_of_mode_000_is_named(tmp_path, linked):
     finally:
         real.chmod(0o644)
     assert _said(data, "AGENTS.md"), data["instructions"]
+
+
+@pytest.mark.parametrize("command", ["scan", "inspect"])
+def test_a_source_starting_with_a_dash_is_refused_so_no_budget_step_is_suggested(tmp_path, monkeypatch, capsys, command):
+    from dokimi.utils import InputError
+
+    (tmp_path / "-demo").mkdir()
+    (tmp_path / "-demo" / "AGENTS.md").write_text("x")
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["repo", command, "--json", "--", "-demo"])
+
+    with pytest.raises(InputError, match="invalid repository source: '-demo'"):
+        args.func(args)
+
+    assert capsys.readouterr().out == ""
