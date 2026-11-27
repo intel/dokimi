@@ -260,6 +260,19 @@ def _keep_owner_and_group(fd: int, old: os.stat_result, *, keep_group: bool = Fa
             raise _OwnerRefused(exc.errno, "root may not give the new file the owner or group of the file it replaces") from exc
 
 
+def keep_owner_group_mode(path: Path, old: os.stat_result) -> None:
+    """Give the file at ``path`` (the user's own, not yet published) the group, for root the owner, and the mode of ``old``.
+
+    For a file a caller renames over another, where :func:`write_text_atomic` cannot make it. The group and owner follow :func:`_keep_owner_and_group`: a user who is not root and may not give the group keeps the one the file has, without an error, and root raises ``PermissionError`` when it may not chown. The mode is set last, as a change of owner may clear set-user-ID and set-group-ID.
+    """
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        _keep_owner_and_group(fd, old)
+    finally:
+        os.close(fd)
+    os.chmod(path, stat.S_IMODE(old.st_mode))
+
+
 def _existing_stat(path: Path) -> os.stat_result | None:
     try:
         # A link is replaced by the rename, so it is the file replaced: its target's mode and group are not kept.

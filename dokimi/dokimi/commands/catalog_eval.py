@@ -12,12 +12,14 @@ import json
 import os
 import platform
 import shutil
+import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from dokimi import __version__
+from dokimi.atomic_write import keep_owner_group_mode
 from dokimi.artifacts import save_artifact
 from dokimi.utils import InputError
 
@@ -98,6 +100,16 @@ def _workdir(out: Path) -> Iterator[Path]:
             shutil.rmtree(work, ignore_errors=True)
 
 
+def _keep_previous_owner(new: Path, previous: Path) -> None:
+    """Give the staged receipt the group and mode of the one moved aside to *previous*, if there was one."""
+    try:
+        old = previous.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISREG(old.st_mode):
+        keep_owner_group_mode(new, old)
+
+
 def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
     """Swap the four receipt files within *out*; the directory itself is never renamed or removed."""
     placed: list[str] = []
@@ -107,6 +119,7 @@ def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
                 os.replace(out / name, backup / name)
         for name in sorted(path.name for path in staged.iterdir()):
             placed.append(name)
+            _keep_previous_owner(staged / name, backup / name)
             os.replace(staged / name, out / name)
     except BaseException as exc:
         try:

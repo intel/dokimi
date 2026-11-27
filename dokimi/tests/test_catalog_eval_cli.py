@@ -460,6 +460,66 @@ def test_failed_rollback_keeps_the_previous_receipts(tmp_path):
     assert kept and str(kept[0]) in done.stderr
 
 
+def _rerun_receipts(tmp_path, name, mode, group=None):
+    """``out/<name>`` of *mode* (and *group*), then a rerun that stages a new file of that name; the replaced file's stat."""
+    from dokimi.commands.catalog_eval import _replace_receipts
+
+    out, staged, backup = tmp_path / "out", tmp_path / "new", tmp_path / "old"
+    for directory in (out, staged, backup):
+        directory.mkdir()
+    (out / name).write_text("old", encoding="utf-8")
+    os.chmod(out / name, mode)  # after creation, so the umask does not hide a loss
+    if group is not None:
+        os.chown(out / name, -1, group)
+    (staged / name).write_text("new", encoding="utf-8")
+    os.chmod(staged / name, 0o644)
+    _replace_receipts(out, staged, backup)
+    assert (out / name).read_text(encoding="utf-8") == "new"
+    return (out / name).stat()
+
+
+@pytest.mark.skipif(not hasattr(os, "getgroups"), reason="needs POSIX groups")
+def test_a_rerun_keeps_the_group_and_mode_of_the_receipt_it_replaces(tmp_path):
+    other = [g for g in os.getgroups() if g != os.getegid()]
+    if not other:
+        pytest.skip("the user has no supplementary group")
+    info = _rerun_receipts(tmp_path, "catalog.json", 0o640, other[0])
+    assert (info.st_gid, oct(info.st_mode & 0o7777)) == (other[0], "0o640")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_a_rerun_keeps_the_mode_of_the_receipt_it_replaces(tmp_path):
+    info = _rerun_receipts(tmp_path, "report.md", 0o600)
+    assert oct(info.st_mode & 0o7777) == "0o600"
+
+
+@pytest.mark.skipif(not hasattr(os, "getgroups"), reason="needs POSIX groups")
+def test_a_rerun_publishes_with_the_users_group_when_the_group_cannot_be_kept(tmp_path, monkeypatch):
+    other = [g for g in os.getgroups() if g != os.getegid()]
+    if not other or os.geteuid() == 0:
+        pytest.skip("needs a user who is not root and has a supplementary group")
+
+    def denied(fd, uid, gid):
+        raise PermissionError(1, "not permitted")
+
+    monkeypatch.setattr(os, "fchown", denied)
+    info = _rerun_receipts(tmp_path, "report.md", 0o640, other[0])
+    assert (info.st_gid, oct(info.st_mode & 0o7777)) == (os.getegid(), "0o640")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_a_first_run_keeps_the_mode_of_the_staged_receipt(tmp_path):
+    from dokimi.commands.catalog_eval import _replace_receipts
+
+    out, staged, backup = tmp_path / "out", tmp_path / "new", tmp_path / "old"
+    for directory in (out, staged, backup):
+        directory.mkdir()
+    (staged / "report.md").write_text("new", encoding="utf-8")
+    os.chmod(staged / "report.md", 0o644)
+    _replace_receipts(out, staged, backup)
+    assert oct((out / "report.md").stat().st_mode & 0o7777) == "0o644"
+
+
 def test_deeply_nested_skill_tree_is_bundled(tmp_path):
     root = _catalog(tmp_path)
     deep = root / "skills" / "alpha"
