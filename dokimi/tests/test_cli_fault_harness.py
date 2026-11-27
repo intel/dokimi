@@ -192,3 +192,30 @@ def test_cut_short_json_that_gets_a_model_call_is_reached_even_if_answered_like_
     same = contract.Result(0, "", [], 1)
     assert contract.reached(case, same, tmp_path, (0, ""))
     assert not contract.reached(_case("answers generate | --questions | json-list"), same, tmp_path, (0, ""))
+
+
+@pytest.mark.parametrize("command", ["repo run", "eval check"])
+def test_a_named_cache_is_an_output_directory_with_an_unwritable_parent_case(command):
+    param = _case(f"{command} | --cache | unwritable-parent").param
+    assert (param.role, param.prefix) == ("output-dir", "c=")
+    assert cli_faults.Case(param, cli_faults.GOOD).param.role == "output-dir"
+
+
+def _run_with(monkeypatch, case, crash: str, tmp_path, capsys, fake_llm):
+    """The contract test for ``case``, its control answered cleanly and the case itself ending in ``crash``."""
+    results = iter([contract.Result(0, "", [], 0), contract.Result(5, crash, [], 1)])
+    monkeypatch.setattr(contract, "run_case", lambda *a, **k: next(results))
+    contract._CONTROLS.pop(case.param, None)
+    contract.test_a_hostile_path_is_refused_cleanly(case, tmp_path, monkeypatch, capsys, fake_llm)
+
+
+def test_a_shape_that_crashes_after_a_model_call_is_not_skipped(tmp_path, monkeypatch, capsys, fake_llm):
+    case = _case("repo hits judge | --labels | json-list")
+    with pytest.raises(AssertionError, match="traceback"):
+        _run_with(monkeypatch, case, "Traceback (most recent call last):\nValueError: boom\n", tmp_path, capsys, fake_llm)
+
+
+def test_a_shape_that_only_hits_the_unscripted_fake_is_skipped(tmp_path, monkeypatch, capsys, fake_llm):
+    case = _case("repo hits judge | --labels | json-list")
+    with pytest.raises(pytest.skip.Exception):
+        _run_with(monkeypatch, case, f"Traceback\nAssertionError: {contract.UNSCRIPTED} to x\n", tmp_path, capsys, fake_llm)

@@ -109,6 +109,8 @@ def _first(pattern: re.Pattern[str], text: str) -> int:
 
 def _role(action: argparse.Action, help_text: str) -> Role:
     metavar = str(action.metavar)
+    if metavar == "NAME=PATH":  # `--cache`: a host directory the command may create, so an unwritable parent refuses it
+        return "output-dir"
     is_dir = metavar in _DIR_METAVARS or bool(_DIR_DESTS.search(action.dest)) or (
         metavar not in _FILE_METAVARS and _first(_DIR_WORDS, help_text) < _first(_FILE_WORDS, help_text))
     output = bool(_OUTPUT.search(help_text) or _OUTPUT_DESTS.search(action.dest))

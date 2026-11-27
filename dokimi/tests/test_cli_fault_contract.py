@@ -61,6 +61,7 @@ UNREADABLE = frozenset({"missing", "directory", "not-a-directory", "unreadable",
                         "unwritable-parent"})
 NOT_REACHED = "unreached"
 _SECRET_ENV = re.compile(r"(_API_KEY|_TOKEN|_SECRET)$|^DOKIMI_")
+UNSCRIPTED = "FakeAdapter: unscripted call"  # what the fake adapter raises for a model call no test scripted
 _USAGE_ARG = re.compile(r"error: argument ([^:]+):")
 
 PARSER = cli.build_parser()
@@ -229,6 +230,12 @@ def reached(case: cli_faults.Case, result: Result, base: Path, answer: tuple[int
     return answer[0] == 0 or _answer(result, base) != answer
 
 
+def _crashed_on_shape(case: cli_faults.Case, result: Result) -> bool:
+    """A JSON-shape run that crashed in the product: not the fake adapter's refusal of a call nobody scripted."""
+    crashed = result.code == 5 or "Traceback" in result.err
+    return case.fault in cli_faults.SHAPES and crashed and UNSCRIPTED not in result.err
+
+
 def _usage_gap(case: cli_faults.Case, result: Result) -> str | None:
     """An argparse refusal of another argument: the harness's filler is wrong, the case never ran."""
     match = _USAGE_ARG.search(result.err)
@@ -255,7 +262,7 @@ def test_a_hostile_path_is_refused_cleanly(case, tmp_path, monkeypatch, capsys, 
     if not reached(case, result, base, answer):
         assert known is None, f"{case.id} is not reached: delete its row from {ALLOWLIST.name} ({known})"
         pytest.skip(f"not reached: a good value is refused in the same words ({_last(answer[1])})")
-    if result.model_calls and case.fault not in UNREADABLE and case.fault != "truncated-json":
+    if result.model_calls and case.fault not in UNREADABLE and case.fault != "truncated-json" and not _crashed_on_shape(case, result):
         pytest.skip("the file reads as valid input here: the command went on to a model call")
     found = problems(case, result)
     if known is None:
