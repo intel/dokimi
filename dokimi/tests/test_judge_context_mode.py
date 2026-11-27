@@ -21,8 +21,10 @@ from dokimi.eval.cross_judge import stored_measure
 from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, JudgeContextStore
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
+from dokimi.treatments.arms import SkillCatalogTreatment
 from dokimi.utils import InputError, digest_text
 from tests.cli_refusal import refusal
+from tests.conftest import DEMO_SKILL_MARKER
 
 QUESTIONS = [{"id": "q1", "question": "How do I parallelize a loop?", "category": "usage"}]
 #: The stamp a run writes when the judge was shown no material on any arm (it pools with no other protocol).
@@ -86,6 +88,30 @@ def test_a_withheld_run_logs_no_pooling_warning(fake_answers, demo_skill, caplog
 
     assert result["judge_context"] == PROTOCOL_WITHHELD
     assert "pools with nothing" not in caplog.text
+
+
+@pytest.mark.parametrize("mode", ["arm", "baseline"])
+def test_a_skill_loaded_on_demand_is_withheld_from_the_judge(fake_answers, demo_skill, monkeypatch, mode):
+    def fake_agentic(self, cfg, question_text, t0, shapers=None, cfg_metadata=None):
+        return {"answer": "agent answer", "agentic": True, "context_chunks": [],
+                "tool_usage": {"skill": {"loaded": ["demo-skill"]}},
+                "metadata": cfg_metadata if cfg_metadata is not None else cfg.metadata,
+                "token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "metrics": {}, "elapsed_sec": 0.0}
+
+    monkeypatch.setattr(ArmRunner, "_answer_agentic_arm", fake_agentic)
+    runner = ArmRunner([BaselineTreatment(), SkillCatalogTreatment([load_skill(demo_skill)])],
+                       judge_context_mode=mode)
+    records = runner.run("oneTBB", QUESTIONS, concurrency=1)
+    judge = _CapturingJudge()
+    output = runner.build_output("oneTBB", records, runner.judge(judge, "oneTBB", records), judge=judge)
+
+    if mode == "baseline":
+        assert judge.contexts == [NO_CONTEXT, NO_CONTEXT]
+        assert output["judge_context"] == PROTOCOL_WITHHELD
+    else:
+        assert DEMO_SKILL_MARKER in judge.contexts[1]
+        assert output["judge_context"] == PROTOCOL
 
 
 def test_rejudging_a_withheld_partial_run_keeps_its_protocol(fake_answers, demo_skill, tmp_path):
