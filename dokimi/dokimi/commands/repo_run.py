@@ -463,8 +463,9 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
         if skill_pin is not None:
             write_skill_pin(batch_dir, skill_pin)
+        label_host = ctx.manifest.label_host if args.label_host is None else args.label_host  # the flag overrides
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd, log=_progress, label_host=args.label_host)
+                            max_batch_usd=args.max_batch_usd, log=_progress, label_host=label_host)
     except InputError:  # see cmd_repo_tasks_check (#826)
         raise
     except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
@@ -714,10 +715,11 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                   help="Start no new cell once the batch has spent this much, earlier invocations included "
                        "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
-    run_p.add_argument("--label-host", action="store_true", dest="label_host",
+    run_p.add_argument("--label-host", action=argparse.BooleanOptionalAction, default=None, dest="label_host",
                        help="Run a task whose task.json `host` requirements this host misses anyway, and record "
                        "per field what was met and what was not (host_match in result.json) instead of marking "
-                       "the cells unsupported; results carry the host fingerprint, so `repo report` groups them by it")
+                       "the cells unsupported; results carry the host fingerprint, so `repo report` groups them by it. "
+                       "Default: the manifest's label_host (off); --no-label-host overrides a manifest that sets it")
     run_p.set_defaults(func=cmd_repo_run)
 
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")

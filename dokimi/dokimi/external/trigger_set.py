@@ -98,6 +98,7 @@ class TriggerQuery:
     lint: Dict[str, Any] = field(default_factory=dict)
     labelled: bool = True
     reach: Dict[str, Any] = field(default_factory=dict)  # a read reach row's kind/notes
+    authored: Dict[str, Any] = field(default_factory=dict)  # the source item's `version` / `provenance`, as written
 
     @property
     def acceptable(self) -> List[str]:
@@ -215,6 +216,7 @@ def build_trigger_set(
             tq.source_text = prior if isinstance(prior, str) else None
             extra = q.get(REACH_FIELDS)
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
+            tq.authored = _authored(q)
             out.append(tq)
         chunk = out[first:]
         if (specs is not None and specs[index] is not None and rule.startswith("@") and chunk
@@ -290,6 +292,7 @@ def to_questions(queries: Sequence[TriggerQuery]) -> Dict[str, Any]:
             row["expected_skill"] = q.expected_skill
         if q.source_text is not None:
             row["source_text"] = q.source_text
+        row.update(q.authored)
         rows.append(row)
     return {"questions": rows}
 
@@ -302,6 +305,8 @@ FORMAT_QUESTIONS = "questions"
 TRIGGER_FORMATS = (FORMAT_REACH, FORMAT_SKILL_CREATOR, FORMAT_QUESTIONS)
 #: Key carrying a reach row's kind/notes through the in-memory questions rows; never written.
 REACH_FIELDS = "_reach"
+#: The question keys a reader keeps as written and a writer puts back (dokimi.provenance; never read here).
+AUTHORED_FIELDS = ("version", "provenance")
 
 
 def detect_trigger_format(data: Any) -> Optional[str]:
@@ -399,6 +404,11 @@ def from_skill_creator(rows: List[Dict[str, Any]], target: str) -> List[TriggerQ
     return out
 
 
+def _authored(question: Dict[str, Any]) -> Dict[str, Any]:
+    """The ``version`` and ``provenance`` keys a question carries, unchanged (a malformed value too)."""
+    return {k: question[k] for k in AUTHORED_FIELDS if k in question}
+
+
 def from_questions(data: Any) -> List[TriggerQuery]:
     """A dokimi questions set; a question without ``expected_skill`` stays unlabelled."""
     rows = data.get("questions") if isinstance(data, dict) else data
@@ -418,6 +428,7 @@ def from_questions(data: Any) -> List[TriggerQuery]:
             tq.source_text = q["source_text"]
         if isinstance(q.get("trigger_lint"), dict):
             tq.lint = dict(q["trigger_lint"])
+        tq.authored = _authored(q)
         out.append(tq)
     return out
 
