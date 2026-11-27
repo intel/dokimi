@@ -944,3 +944,18 @@ def test_dangling_link_whose_target_is_named_like_an_escape_is_not_a_refusal(tmp
         assert any("p.patch" in e for e in report.errors), (tree.label, report.errors)
         assert not report.refused, tree.label
 
+
+
+def test_plain_eval_check_does_not_reach_repo_validate(monkeypatch):
+    # #1275: only ``--schema-only`` goes through ``repo validate`` (exit 2 for a refused patch link), which
+    # is why the release note is scoped to it; the default self-check is ``cmd_repo_tasks_check``
+    from dokimi.commands import repo, repo_run
+
+    calls = []
+    monkeypatch.setattr(repo, "cmd_repo_validate", lambda args: calls.append("validate"))
+    monkeypatch.setattr(repo_run, "cmd_repo_tasks_check", lambda args: calls.append("tasks"))
+    for argv, expected in ((["eval", "check", "x"], "tasks"), (["eval", "check", "--schema-only", "x"], "validate")):
+        calls.clear()
+        args = build_parser().parse_args(argv)
+        args.func(args)
+        assert calls == [expected], argv
