@@ -69,7 +69,7 @@ def test_inspect_names_a_listed_file_it_could_not_look_at(tmp_path, monkeypatch)
     real = os.lstat
 
     def lstat(path, *a, **k):
-        if str(path).endswith("sub/AGENTS.md"):
+        if os.path.basename(path) == "AGENTS.md" and os.path.basename(os.path.dirname(path)) == "sub":
             raise PermissionError(13, "denied", str(path))
         return real(path, *a, **k)
 
