@@ -268,27 +268,27 @@ def _local_config(tmp_path, monkeypatch, body):
 
 
 def test_context7_uses_configured_timeout_and_retries(tmp_path, monkeypatch):
-    """#1291: ``context7.timeout`` and ``max_retries`` of the runtime config reach the client."""
+    """#1291: ``context7.timeout`` of the runtime config reaches the client."""
     _local_config(tmp_path, monkeypatch, "context7:\n  timeout: 91\n  max_retries: 5\n")
     client = create_doc_source_client("context7", cache_dir=tmp_path / "c")
-    assert (client.timeout, client.max_retries) == (91, 5)
+    assert client.timeout == 91
 
 
 def test_context7_keeps_defaults_when_config_has_no_keys(tmp_path, monkeypatch):
     """#1291: a config without the keys, or without a ``context7`` block, leaves the constructor defaults."""
     _local_config(tmp_path, monkeypatch, "context7:\n  endpoint: https://mcp.example/mcp\n")
     client = create_doc_source_client("context7", cache_dir=tmp_path / "c")
-    assert (client.timeout, client.max_retries) == (30, 3)
-    assert client.endpoint == "https://context7.com"
+    default = Context7Client(cache_dir=tmp_path / "d")
+    assert (client.timeout, client.max_retries, client.endpoint) == (default.timeout, default.max_retries, default.endpoint)
     (tmp_path / "config" / "products.yaml").write_text("llm: {}\n", encoding="utf-8")
-    assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == 30
+    assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == default.timeout
     (tmp_path / "config" / "products.yaml").write_text("context7:\n", encoding="utf-8")
-    assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == 30
+    assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == default.timeout
 
 
 @pytest.mark.parametrize("body", [
     "context7:\n  timeout: 0\n", "context7:\n  timeout: fast\n", "context7:\n  timeout: true\n",
-    "context7:\n  max_retries: -1\n", "context7: 5\n",
+    "context7:\n  timeout: null\n", "context7:\n  timeout:\n", "context7: 5\n",
     "context7: false\n", "context7: 0\n", "context7: []\n",
 ])
 def test_context7_refuses_a_bad_configured_value(tmp_path, monkeypatch, body):

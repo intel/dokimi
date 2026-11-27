@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
 from dokimi.utils import InputError
 
 from . import MCPClient
@@ -40,9 +38,12 @@ def require_local_doc_source(doc_source: str) -> None:
 
 
 def _context7_settings() -> dict:
-    """#1291: ``timeout`` and ``max_retries`` of the ``context7:`` block of the runtime config, when it sets them.
+    """#1291: ``timeout`` of the ``context7:`` block of the runtime config, when it sets it.
 
-    The block's ``endpoint`` is the MCP URL, not the REST base URL of ``Context7Client``, so it is not passed."""
+    The block's ``endpoint`` is the MCP URL, not the REST base URL of ``Context7Client``, so it is not passed.
+    ``max_retries`` is not passed either: ``Context7Client`` makes one request and never reads it."""
+    import yaml
+
     from dokimi.config import load_products_config, runtime_config_path
 
     path = runtime_config_path()
@@ -54,13 +55,11 @@ def _context7_settings() -> dict:
     if not isinstance(block, dict):
         raise InputError(f"{path}: 'context7' must be a mapping (#1291)")
     settings = {}
-    for key in ("timeout", "max_retries"):
-        if block.get(key) is None:
-            continue
-        value = block[key]
-        if isinstance(value, bool) or not isinstance(value, int) or value < (1 if key == "timeout" else 0):
-            raise InputError(f"{path}: context7.{key} must be a whole number, got {value!r} (#1291)")
-        settings[key] = value
+    if "timeout" in block:
+        value = block["timeout"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise InputError(f"{path}: context7.timeout must be a whole number of at least 1, got {value!r} (#1291)")
+        settings["timeout"] = value
     return settings
 
 
@@ -120,6 +119,9 @@ def create_doc_source_client(
     ------
     ValueError
         If *doc_source* is not recognised.
+    InputError
+        If ``context7`` is chosen and the runtime config cannot be read or its
+        ``context7.timeout`` is not a whole number of at least 1.
 
     Examples
     --------
