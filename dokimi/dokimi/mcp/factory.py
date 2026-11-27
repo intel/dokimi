@@ -47,7 +47,8 @@ def _context7_settings() -> dict:
 
     path = runtime_config_path()
     try:
-        block = load_products_config(path).context7 or {}
+        block = load_products_config(path).context7
+        block = {} if block is None else block
     except (yaml.YAMLError, ValueError, OSError) as exc:
         raise InputError(f"{path}: cannot read the runtime config: {exc} (#1291)") from exc
     if not isinstance(block, dict):

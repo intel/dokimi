@@ -282,11 +282,14 @@ def test_context7_keeps_defaults_when_config_has_no_keys(tmp_path, monkeypatch):
     assert client.endpoint == "https://context7.com"
     (tmp_path / "config" / "products.yaml").write_text("llm: {}\n", encoding="utf-8")
     assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == 30
+    (tmp_path / "config" / "products.yaml").write_text("context7:\n", encoding="utf-8")
+    assert create_doc_source_client("context7", cache_dir=tmp_path / "c").timeout == 30
 
 
 @pytest.mark.parametrize("body", [
     "context7:\n  timeout: 0\n", "context7:\n  timeout: fast\n", "context7:\n  timeout: true\n",
     "context7:\n  max_retries: -1\n", "context7: 5\n",
+    "context7: false\n", "context7: 0\n", "context7: []\n",
 ])
 def test_context7_refuses_a_bad_configured_value(tmp_path, monkeypatch, body):
     """#1291: a value the client cannot use is an input error naming the config, not a silent default."""
