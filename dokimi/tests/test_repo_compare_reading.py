@@ -332,7 +332,7 @@ def test_a_small_interval_against_p_holm_prints_its_ends_off_zero(tmp_path):
     assert _row(s, "score")["delta"]["lo"] > 0 and _row(s, "score")["p_holm"] == 0.0625
     lines = format_compare(s).splitlines()
     assert [line.split()[4:7] for line in lines if line.startswith("  score  ")] == [
-        ["+0.000", "[+0.0002,", "+0.0002]"]] * 2  # the mean column stays at 3 decimals
+        ["+0.0002", "[+0.0002,", "+0.0002]"]] * 2  # the mean keeps 2 significant digits too (#1258)
     assert [line for line in lines if line.startswith("  score: the interval")] == [
         "  score: the interval [+0.0002, +0.0002] excludes 0 but p_holm 0.0625 is ≥ 0.05: the interval is "
         "uncorrected; p_holm decides this row"] * 2
