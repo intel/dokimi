@@ -21,7 +21,7 @@ from dokimi.process import FakeRunner as HostFakeRunner
 from dokimi.process import reply
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.workspace import Task
-from repo_eval_fixture import make_repo
+from repo_eval_fixture import git, make_repo
 from test_repo_host import AMD_CPUINFO, INTEL_CPUINFO, RACE, HostRunner, _probe_out, _run
 
 AVX = dict(RACE, host={"cpu_flags": ["avx512f"]})  # no CPU count, no vendor: a flag is the only requirement
@@ -201,10 +201,26 @@ def test_report_splits_a_batch_by_the_fingerprint_of_the_host_that_ran_each_cell
     assert "labelled, unmet: cpu_flags.avx512f" in format_report(summarize(out / "b1"))
 
 
-def test_the_flag_is_off_by_default_and_on_with_label_host():
+def test_the_flag_is_unset_by_default_so_the_manifest_decides_and_it_can_be_set_either_way():
     argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--name", "b"]
-    assert build_parser().parse_args(argv).label_host is False
+    assert build_parser().parse_args(argv).label_host is None
     assert build_parser().parse_args([*argv, "--label-host"]).label_host is True
+    assert build_parser().parse_args([*argv, "--no-label-host"]).label_host is False
+
+
+def test_the_manifest_label_host_runs_the_miss_and_the_flag_overrides_it(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    manifest = root / ".agent-eval" / "repo-eval.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "label_host: true\n", encoding="utf-8")
+    git(root, "commit", "-aqm", "label the host misses")
+    out = tmp_path / "runs"
+    _labelled(monkeypatch, _host(files={"/proc/cpuinfo": AMD_CPUINFO}))
+    _run(root, out, HostRunner(_probe_out(affinity=8, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_avx")
+    assert _cell_json(out, "fix_avx", "result.json")["host_match"]["met"] is False  # the manifest ran it, labelled
+    with pytest.raises(SystemExit):  # --no-label-host beats the manifest: every cell unsupported, exits 1
+        _run(root, tmp_path / "off", HostRunner(_probe_out(affinity=8, cpuinfo=AMD_CPUINFO)), monkeypatch,
+             "--task", "fix_avx", "--no-label-host")
+    assert len(list((tmp_path / "off" / "b1").glob("fix_avx__*/unsupported.json"))) == 2
 
 
 def test_compare_warns_when_a_labelled_cell_ran_on_a_host_that_misses_its_task(tmp_path):

@@ -40,7 +40,7 @@ from tests.provider_calls import JUDGE_REPLY
 _INIT_FIELDS = (
     "model", "provider", "harness", "matrix_cell", "max_iterations", "max_tokens",
     "grounded_from_topics", "stats_correction", "temperature", "seed", "session_turns",
-    "turn_reminder",
+    "turn_reminder", "judge_context_mode",
 )
 
 
@@ -189,7 +189,7 @@ _SHARED_FLAGS = (
 #: The flags only ``arms run`` and ``arms matrix-run`` take, away from their default.
 _ARMS_FLAGS = (
     "--temperature", "0.25", "--seed", "11", "--judge-temperature", "0.75",
-    "--correction", "bh", "--baseline-arm", "docs",
+    "--correction", "bh", "--baseline-arm", "docs", "--judge-context", "baseline",
 )
 
 
@@ -201,7 +201,7 @@ def _defaults(io) -> dict:
         "harness": "arms-runner", "matrix_cell": None, "plugin_set": "none",
         "max_iterations": 6, "max_tokens": None, "grounded_from_topics": False,
         "stats_correction": "holm", "temperature": None, "seed": None,
-        "session_turns": None, "turn_reminder": None,
+        "session_turns": None, "turn_reminder": None, "judge_context_mode": "arm",
         "doc_top_k": [5], "doc_rerank_threshold": [0.3],
         "library_name": "demo", "library_id": f"local:{io['docs']}", "concurrency": 5,
         "judge": (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, None, None), "panel": None,
@@ -225,7 +225,7 @@ def _arms_set(io) -> dict:
     """``_shared_set`` with every ``_ARMS_FLAGS`` value in place too."""
     return {
         **_shared_set(io),
-        "temperature": 0.25, "seed": 11, "stats_correction": "bh",
+        "temperature": 0.25, "seed": 11, "stats_correction": "bh", "judge_context_mode": "baseline",
         "judge": ("judge-model", "openai", 0.75, None),
         "judge_baseline_arm": "docs", "output_baseline_arm": "docs",
     }

@@ -94,6 +94,10 @@ def _paired_plugin_deltas(
             )
             continue
 
+        warnings.extend(
+            f"plugin delta for {baseline_name!r} -> {plugin_name!r}: {warning}"
+            for warning in delta["warnings"]
+        )
         pair_suffix = sha256(f"{baseline_name}\0{plugin_name}".encode("utf-8", "surrogatepass")).hexdigest()[:8]
         delta_path = out_dir / (
             f"plugin-delta-{_safe_name(baseline_name)}-to-"

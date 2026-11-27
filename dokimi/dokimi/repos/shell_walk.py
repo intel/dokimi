@@ -413,7 +413,7 @@ class _Walk:
         """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
         ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded; ``timed``: it starts with
         bash's ``time`` keyword (:func:`~dokimi.repos.shell_words._time_keyword`)."""
-        conditional = negated = False
+        conditional, negated = any(self.bodies), False  # in an open ``then`` / ``do`` body no command is sure to run
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
             words, conditional, negated = words[1:], True, negated or words[0] == "!"
         before = words

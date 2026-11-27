@@ -307,7 +307,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
-    from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
+    from dokimi.eval.judge_context import JUDGE_CONTEXT_BASELINE, SOURCE_STORED, JudgeContextStore
     from dokimi.utils import question_id
 
     # What the arms run's judge saw, when the file keeps it (judge_materials). Built
@@ -332,7 +332,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         # Pairwise and checklist judges see only answers, so stored material makes them incompatible
         if args.pairwise or args.checklist:
             unrepro.update(pair_unrepro)
-        elif materials is not None:
+        elif materials is not None and materials.mode != JUDGE_CONTEXT_BASELINE:
             # The loop below is the whole --judges gate: it compares each stored score's
             # digest with what the reader serves, for the questions score_measure scores.
             # score_measure only scores questions that have an answer record.

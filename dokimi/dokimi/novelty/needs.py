@@ -177,6 +177,7 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
             ),
             system=_GRAPH_SYSTEM,
             usable=_has_a_node,
+            strict=False,
         )
     except Exception:
         if strict:

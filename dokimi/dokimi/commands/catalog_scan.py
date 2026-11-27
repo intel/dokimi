@@ -489,6 +489,9 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     print()
 
 
+LARGEST_LIMIT = 5  # the most entries the listing-over-budget warning names (#970)
+
+
 class ListingTotal:
     """The listing characters of the rows added so far, kept as counts so a streamed row can be freed (#966).
 
@@ -502,8 +505,11 @@ class ListingTotal:
         self.kept: dict[tuple, int] = {}
         self.digests: dict[str, set] = {}
         self.unkeyed = 0  # rows with no digest or no loaded name: each counts on its own
+        self.unkeyed_entries: list[tuple[str, int]] = []
+        self._ranked_cache: Optional[list[tuple[str, int]]] = None
 
     def add(self, row: dict) -> None:
+        self._ranked_cache = None
         chars = row.get("listing_chars")
         if chars is None:
             return
@@ -511,6 +517,7 @@ class ListingTotal:
         name = row.get("listing_name")
         if sha is None or name is None:
             self.unkeyed += chars
+            self.unkeyed_entries.append((str(name or row.get("name") or "?"), chars))
             return
         self.digests.setdefault(name, set()).add(sha)
         self.kept.setdefault((name, sha), chars)
@@ -518,13 +525,43 @@ class ListingTotal:
     def total(self) -> int:
         return self.unkeyed + sum(chars for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1)
 
+    def _ranked(self) -> list[tuple[str, int]]:
+        """The entries by size, then name; sorted once until the next ``add`` (#970)."""
+        if self._ranked_cache is None:
+            self._ranked_cache = self._sort_entries()
+        return self._ranked_cache
 
-def listing_total(rows: Iterable[dict]) -> int:
-    """The characters the routing field lists for ``rows`` (see :class:`ListingTotal`)."""
+    def _sort_entries(self) -> list[tuple[str, int]]:
+        entries = list(self.unkeyed_entries)
+        entries += [(name, chars) for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1]
+        return sorted(entries, key=lambda e: (-e[1], e[0]))
+
+    def largest(self, excess: int, limit: int = LARGEST_LIMIT) -> list[dict]:
+        """The fewest largest entries whose chars cover ``excess``, at most ``limit`` (#970); ties by name."""
+        picked, covered = [], 0
+        for name, chars in self._ranked()[:limit]:
+            picked.append({"name": name, "chars": chars})
+            covered += chars
+            if covered >= excess:
+                break
+        return picked
+
+    def covered(self, excess: int, top: int) -> int:
+        """How many of the ``excess`` characters the ``top`` largest entries account for (#970)."""
+        return min(excess, sum(chars for _, chars in self._ranked()[:top]))
+
+
+def listing_tally(rows: Iterable[dict]) -> ListingTotal:
+    """The :class:`ListingTotal` of ``rows``."""
     listing = ListingTotal()
     for row in rows:
         listing.add(row)
-    return listing.total()
+    return listing
+
+
+def listing_total(rows: Iterable[dict]) -> int:
+    """The characters the routing field lists for ``rows`` (see :class:`ListingTotal`)."""
+    return listing_tally(rows).total()
 
 
 def row_ignore(args) -> frozenset:
@@ -533,13 +570,26 @@ def row_ignore(args) -> frozenset:
     return frozenset(args.ignore or ()) - {"listing-over-budget"}
 
 
-def listing_failed(args, report: dict, as_json: bool) -> bool:
+def listing_message(listing: dict) -> str:
+    """The ``listing-over-budget`` text: the total, the cap, and the largest entries when the report has them (#970)."""
+    text = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
+    if listing.get("largest"):
+        text += "; largest entries: " + ", ".join(f"{e['name']} ({e['chars']} chars)" for e in listing["largest"])
+        text += (f" (together {listing['covered']} of the {listing['excess']} characters over the cap; the three largest "
+                 f"cover {listing['top3_covered']} ({listing['top3_share']:.1%}), the five {listing['top5_covered']} "
+                 f"({listing['top5_share']:.1%}))")
+    return text
+
+
+def listing_failed(args, report: dict, as_json: bool, total: Optional[ListingTotal] = None) -> bool:
     """Apply ``--listing-budget`` to ``report["listing"]["chars"]``: one rule for every scan path (#966).
 
     The whole-catalog scan, ``--per-skill``, ``--concurrency`` and ``--resume`` all pass the total of their rows'
     ``listing_chars`` here, so a kept row is checked against the cap of this run, not the one it was written under.
     Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict`` or ``--fail-on-code listing-over-budget``; ``--ignore listing-over-budget``
     drops both and the line that carries the total. ``over_budget`` stays in the report either way.
+    ``total`` (the rows' :class:`ListingTotal`) lets the warning name the largest entries that cover the excess, at
+    most five (#970), unless the warning is ignored: they are in ``listing["largest"]`` and at the end of the warning line.
     Returns True when the scan must exit 1.
     """
     cap = getattr(args, "listing_budget", None)
@@ -550,9 +600,16 @@ def listing_failed(args, report: dict, as_json: bool) -> bool:
     listing["over_budget"] = listing["chars"] > cap
     if not listing["over_budget"] or "listing-over-budget" in (args.ignore or ()):
         return False
+    if total is not None:
+        excess = listing["chars"] - cap
+        listing["largest"] = total.largest(excess)
+        listing["excess"] = excess
+        listing["covered"] = min(excess, sum(e["chars"] for e in listing["largest"]))
+        for top in (3, 5):
+            listing[f"top{top}_covered"] = total.covered(excess, top)
+            listing[f"top{top}_share"] = round(listing[f"top{top}_covered"] / excess, 4)
     if not as_json:
-        print(f"warn listing-over-budget: the skill listing is {listing['chars']} characters, over the "
-              f"--listing-budget of {cap}")
+        print(f"warn listing-over-budget: {listing_message(listing)}")
     return bool(args.strict) or "listing-over-budget" in (getattr(args, "fail_on", None) or ())
 
 
@@ -599,4 +656,4 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         for line in tally.reasons:
             print(line)
     report["listing"] = {"chars": tally.listing.total()}
-    return listing_failed(args, report, as_json) or tally.failed, declared
+    return listing_failed(args, report, as_json, tally.listing) or tally.failed, declared

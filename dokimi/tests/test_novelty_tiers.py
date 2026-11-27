@@ -432,9 +432,18 @@ _PINNED_LIST_PRICES = {
 @pytest.fixture
 def pinned_list_prices(monkeypatch):
     from litellm import model_cost
+    from litellm.utils import _invalidate_model_cost_lowercase_map
 
-    for name, entry in _PINNED_LIST_PRICES.items():
-        monkeypatch.setitem(model_cost, name, entry)
+    # LiteLLM caches model info derived from the price map. Refresh those caches
+    # for the pinned rates and again after restoring the original entries.
+    try:
+        with monkeypatch.context() as prices:
+            for name, entry in _PINNED_LIST_PRICES.items():
+                prices.setitem(model_cost, name, entry)
+            _invalidate_model_cost_lowercase_map()
+            yield
+    finally:
+        _invalidate_model_cost_lowercase_map()
 
 
 def _projection(tier, spans, tokens):

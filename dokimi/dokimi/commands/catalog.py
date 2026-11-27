@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from dokimi.commands.catalog_scan import (
-    ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
+    ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_message, listing_tally, not_checked, row_ignore,
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
 from dokimi.external.catalog_rates import RateTally, text_lines
@@ -103,8 +103,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         for line in text_lines(report["rates"]):
             print(line)
         print()
-    report["listing"] = {"chars": listing_total(report["skills"])}
-    failed = listing_failed(args, report, as_json) or failed  # before the granularity section: after the counts
+    total = listing_tally(report["skills"])
+    report["listing"] = {"chars": total.total()}
+    failed = listing_failed(args, report, as_json, total) or failed  # before the granularity section: after the counts
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
 
@@ -354,7 +355,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
     if listing.get("over_budget") and "listing-over-budget" not in (args.ignore or ()):
         # The cap is on the whole listing, not on one skill: its own subject, so the warning and, with --strict, the
         # failure have a name (#966).
-        message = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
+        message = listing_message(listing)
         subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict or "listing-over-budget" in (args.fail_on or ()) else "pass",
                          "findings": [cli_output.finding("warn", "listing-over-budget", message, None)]})
     counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
@@ -622,7 +623,8 @@ def register(sub, positive_int, eval_sub) -> None:
     from dokimi import cli_flags
 
     scan_p = catalog_sub.add_parser(
-        "check", help="Report which skills/tasks under --root load cleanly"
+        "check", help="Report which skills/tasks under --root load cleanly",
+        description="Check skills and tasks under --root [free].",
     )
     scan_p.add_argument("--root", required=True, help="Local checkout to scan")
     scan_p.add_argument(
