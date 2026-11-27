@@ -17,7 +17,7 @@ from dokimi.cli import build_parser, main
 from dokimi.commands.arms import run_config_from_args
 from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arms_run import ArmsRunConfig, prepare_arms
-from dokimi.eval.cross_judge import stored_measure
+from dokimi.eval.cross_judge import score_measure, stored_measure
 from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, JudgeContextStore
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
@@ -212,6 +212,36 @@ def test_withheld_scores_can_be_compared_with_answers_only_results(
     paired = json.loads(out.read_text(encoding="utf-8"))
     assert "fake-provider/ctx-judge (stored)" in paired["summary"]["measures"]
     assert stored_measure(saved).context == "none"
+
+
+def test_rescoring_a_withheld_run_is_labelled_as_judged_without_material(fake_answers, demo_skill):
+    # The label decides which validity PASS covers the measure: "stored" would accept one measured with material.
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    measure = score_measure(saved["answers"], lambda *a: 70.0, name="p/m", library="oneTBB",
+                            store=JudgeContextStore.from_artifact(saved))
+    assert measure.context == "none"
+
+
+def test_a_withheld_run_without_answer_digests_is_rescored_by_another_judge(
+        fake_answers, demo_skill, tmp_path, monkeypatch):
+    from dokimi.eval import judge as judge_module
+
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    del saved["answers"][0]["arms"][runner.treatments[1].name]["judge_context_sha256"]
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(saved), encoding="utf-8")
+    out = tmp_path / "agreement.json"
+    monkeypatch.setattr(judge_module, "Judge", lambda **kwargs: judge)
+    args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers),
+                                      "--judges", "amazon-bedrock/m", "--output", str(out)])
+
+    with refusal() as response:
+        args.func(args)
+
+    assert response.code == 0, response.err
+    assert out.exists()
 
 
 def test_an_unknown_judge_context_mode_is_refused(demo_skill):
