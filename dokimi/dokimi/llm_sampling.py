@@ -9,6 +9,8 @@ without an import cycle.
 
 from __future__ import annotations
 
+import sys
+import threading
 from typing import Any, Callable
 
 
@@ -79,3 +81,18 @@ def refusal_clause(refused: dict[str, str]) -> str:
     """The refused options for an error message, each with litellm's reason when it is a value refusal."""
     return ", ".join(f"{name} ({reason})" if reason != NAME_REFUSAL else name
                      for name, reason in refused.items())
+
+
+_seed_warning_lock = threading.Lock()
+_warned_seed_routes: set[tuple[str, str]] = set()
+
+
+def warn_seed_dropped(model: str, provider: str) -> None:
+    """Say once per process and route that the seed is not sent there (the run is not refused)."""
+    route = (model, provider)
+    with _seed_warning_lock:
+        if route in _warned_seed_routes:
+            return
+        _warned_seed_routes.add(route)
+    print(f"⚠ {provider} does not take a seed for model '{model}': the seed is not sent, "
+          "and the run is recorded as unseeded.", file=sys.stderr)

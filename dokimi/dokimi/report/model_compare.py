@@ -160,7 +160,7 @@ def replicate_key(data: dict) -> tuple:
     """Configuration identity: models, judge prompt and temperature, run_config,
     harness, plugin set, cell and arm list.
 
-    The seed value is the replicate index, so only whether one was pinned counts."""
+    The seed value (``seed_requested`` if the route dropped it) is the replicate index, so only whether one was pinned counts."""
     run_config = data.get("run_config") or {}
     return (
         data.get("model", ""),
@@ -169,7 +169,7 @@ def replicate_key(data: dict) -> tuple:
         data.get("judge_provider", ""),
         data.get("judge_prompt_sha256"),
         data.get("judge_temperature"),
-        tuple(sorted((k, repr(v)) for k, v in run_config.items() if k != "seed")),
+        tuple(sorted((k, repr(v)) for k, v in run_config.items() if k not in ("seed", "seed_requested"))),
         run_config.get("seed") is not None,
         data.get("harness"),
         data.get("plugin_set_id"),

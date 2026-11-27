@@ -9,21 +9,27 @@ from typing import Optional
 
 from dokimi import llm_cli
 from dokimi.llm import sampling_refusals
-from dokimi.llm_sampling import NAME_REFUSAL
+from dokimi.llm_sampling import NAME_REFUSAL, warn_seed_dropped
 
 
 def check_judge_sampling(provider: str, model: Optional[str], temperature: Optional[float],
-                         seed: Optional[int]) -> None:
+                         seed: Optional[int]) -> Optional[int]:
     """Raise :class:`llm_cli.SamplingError` before a run when a judge would be refused its sampling.
 
     A CLI provider takes no temperature or seed. An API route is also checked for the values it
     refuses (Haiku 5.5 on Bedrock takes only the default temperature), so the refusal comes before
     any judgement is paid for, not as one failed judgement per item.
+
+    A seed an API route does not take is not a refusal: it is warned about once and dropped.
+    Returns the seed to send: ``seed``, or None when the route dropped it.
     """
     llm_cli.check_sampling(provider, temperature, seed)
     if model is None or (temperature is None and seed is None) or llm_cli.backend(provider):
-        return
+        return seed
     bad = sampling_refusals(model, provider, temperature=temperature, seed=seed)
+    seed_dropped = "seed" in bad
+    if seed_dropped:
+        del bad["seed"]
     if bad:
         requested = {"temperature": temperature, "seed": seed}
         refused = ", ".join(f"{name}={requested[name]}" for name in bad)
@@ -33,3 +39,7 @@ def check_judge_sampling(provider: str, model: Optional[str], temperature: Optio
             f"{provider} refuses {refused} for model '{model}'. "
             f"{why}. "
             "Use a supported value or omit the corresponding judge option to use the provider default.")
+    if seed_dropped:
+        warn_seed_dropped(model, provider)
+        return None
+    return seed
