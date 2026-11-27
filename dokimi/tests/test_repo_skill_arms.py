@@ -324,7 +324,8 @@ def test_trace_records_the_skill_and_cache_tokens():
         {"type": "result", "result": "ok", "usage": {"input_tokens": 1, "output_tokens": 2,
                                                      "cache_read_input_tokens": 30, "cache_creation_input_tokens": 4}}])
     t = convert("claude-stream-json", raw, "/w")
-    assert t.events == [{"t": None, "kind": "tool", "name": "Skill", "skill": "lint"}]
+    turns_left = [e for e in t.events if e["kind"] != "usage_remainder"]
+    assert turns_left == [{"t": None, "kind": "tool", "name": "Skill", "skill": "lint"}]
     assert (t.cache_read_tokens, t.cache_write_tokens) == (30, 4)
 
 

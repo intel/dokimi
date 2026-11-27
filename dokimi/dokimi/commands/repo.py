@@ -171,6 +171,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
                              reason=_scan_reason(payload, static_errors, gate) if failed else None,
+                             next_steps=[] if failed else [_budget_step(args)],
                              subjects=scan_subjects(payload),
                              summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
                                       "adapters": ", ".join(payload.get("adapters") or []) or "none"})
@@ -227,6 +228,17 @@ def _inspected(inspect_repo, tree, args: argparse.Namespace) -> dict:
         raise InputError(str(exc)) from exc
 
 
+def _budget_step(args: argparse.Namespace) -> dict:
+    """The free next step of a complete ``repo scan`` or ``repo inspect`` document: ``repo budget`` on the same
+    source, with ``--cache-dir`` when it was given (#941)."""
+    from dokimi import cli_output
+
+    argv = ["dokimi", "repo", "budget", args.source]
+    if args.cache_dir:  # a value starting with "-" would be read as an option unless it is joined with "="
+        argv += [f"--cache-dir={args.cache_dir}"] if args.cache_dir.startswith("-") else ["--cache-dir", args.cache_dir]
+    return cli_output.free_step(argv, "Count the characters of guidance this source loads at the start of a session.")
+
+
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
@@ -249,7 +261,8 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
                              status="failed" if failed else "complete",
                              reason=f"{c['error']} error(s)" + (f", {c['warning']} warning(s)" if args.fail_on == "warn"
                                                                  else "") + f" under --fail-on {args.fail_on}"
-                             if failed else None)
+                             if failed else None,
+                             next_steps=[] if failed else [_budget_step(args)])
     else:
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
         print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "

@@ -19,7 +19,7 @@ One JSON object on stdout (`--kind skills`; a `--kind all` scan also has `tasks`
 | `tasks` | array | task rows, empty unless `--kind tasks` or `--kind all` |
 | `rates` | object | number of repositories and skills, with per-skill and per-repository shares by state and finding code (see [external content](external-content.md)) |
 | `online` | object | only with `--online`: the network checks' summary |
-| `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget` |
+| `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget`, and when over the cap and the warning is not ignored (`--ignore listing-over-budget`) `largest`: the fewest largest entries (`name`, `chars`) that cover the excess, at most five, with `excess`, `covered` (what those entries cover) and `top3_covered`, `top5_covered` and their shares `top3_share`, `top5_share` |
 | `granularity` | object | only without `--per-skill`: the merge and split hints |
 
 ## `--per-skill --jsonl PATH`

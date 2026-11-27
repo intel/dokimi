@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.artifacts import SCHEMA_DIR, schema_errors
-from dokimi.repos.event_format import EVENT_VERSION, KNOWN_KINDS, event_version
+from dokimi.repos.event_format import ACCOUNTING_KINDS, EVENT_VERSION, KNOWN_KINDS, event_version
 from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
 
@@ -76,7 +76,7 @@ def test_the_schema_accepts_the_committed_fixture():
 
 def test_every_converted_line_is_versioned_and_validates():
     lines = [*_converted("claude-stream-json", _claude_trace()), *_converted("codex-json", _codex_trace())]
-    assert {e["kind"] for e in lines} == KNOWN_KINDS  # the fixtures cover every kind the schema names
+    assert {e["kind"] for e in lines} == KNOWN_KINDS | ACCOUNTING_KINDS  # every kind a converter writes
     for event in lines:
         assert event["v"] == EVENT_VERSION
         assert schema_errors("repo_event.v2", event) == [], event

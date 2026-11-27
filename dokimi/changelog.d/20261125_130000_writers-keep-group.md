@@ -1,0 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
+### Fixed
+
+- **A doc-cache entry, a batch spend ledger and `skill novelty ground` keep the group and mode of the file they rewrite** — each replaced the file by a new inode in the user's primary group: a `0o640` cache entry came back `0o664` and the ledger `0o600`, and the grounded atoms file lost its group. They now publish through `dokimi.atomic_write.write_text_atomic`, as `save_artifact` does. A ledger file that did not exist is still created `0o600` (`write_text_atomic(..., new_mode=0o600)`). A link a grader left at the ledger's path is still replaced, never followed, and the new file is `0o600` whatever the link's target's mode; the failure forms and the bytes written are unchanged.

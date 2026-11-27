@@ -495,6 +495,10 @@ def open_source(source: RepoSource, cache_dir: Path | None = None, refresh: bool
     """Return a readable tree for ``source``, cloning or fetching as needed; ``refresh`` re-fetches its refs."""
     if not source.remote:
         if source.rev is None:
+            root = Path(source.location)
+            # A directory that cannot be searched (mode 444) fails every lookup below it with PermissionError (#1293).
+            if os.name != "nt" and root.is_dir() and not os.access(root, os.X_OK):
+                raise SourceArgumentError(f"{source.location!r} is a directory that cannot be searched (no execute permission)")
             return WorkTree(source.location)
         check_pinned_root(source)
         sha = resolve_rev(Path(source.location), source.rev)

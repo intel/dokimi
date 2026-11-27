@@ -43,7 +43,7 @@ class TaskSuiteRunner:
     command_template: str | None = None
     dry_run: bool = False
     repeats: int = 1
-    network: tuple[str, ...] = ()  # --network PHASE=MODE overrides, docker-* harnesses only
+    network: tuple[str, ...] = ()  # --network [PHASE=]MODE overrides, docker-* harnesses only
     # Starts the processes of every harness except the `docker-*` ones (docker_solver spawns its own).
     runner: process.Runner = field(default=process.run, repr=False)
 
@@ -82,9 +82,7 @@ class TaskSuiteRunner:
             for harness_id in self.harnesses:
                 for rep in range(1, repeats + 1):
                     harness = self._create(harness_id)
-                    output_dir = self.output_root / task.name / _safe_id(harness_id)
-                    if repeats > 1:
-                        output_dir = output_dir / f"run{rep}"
+                    output_dir = self.output_root / task.name / _safe_id(harness_id) / f"run{rep}"
                     # Isolate each cell: a harness crash (docker build/exec error,
                     # bad config) must not abort the whole sweep and discard every
                     # completed cell — record it as a failed row and continue.

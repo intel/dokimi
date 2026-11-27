@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 
 import shlex
+import sys
 
 import pytest
 
 from dokimi import cli, cli_flags, cli_routes
+from tests.cli_refusal import refusal
 
 
 def _tombstone(argv: list[str], capsys) -> str:
@@ -65,7 +67,7 @@ def _tombstone(argv: list[str], capsys) -> str:
 def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     text = _tombstone(old, capsys)
     assert " ".join(new) in text
-    assert text == "moved: dokimi " + " ".join(new) + "\n"  # exact: a stray token after the hint fails too
+    assert text.splitlines()[0] == "moved: dokimi " + " ".join(new)
     assert cli_flags.registry_problems() == []
 
 
@@ -231,7 +233,6 @@ def test_eval_check_j_prefix_is_json_only():
 @pytest.mark.parametrize(("old", "new"), [
     (["repo", "validate", "src", "--fail-on-warning"], ["eval", "check", "--schema-only", "src", "--fail-on=warn"]),
     (["repo", "budget", "src", "--fail-on-warning"], ["repo", "budget", "src", "--fail-on=warn"]),
-    (["repo", "scan", "src", "--fail-on-fail"], ["repo", "scan", "src", "--fail-on=fail"]),
     (["repo", "inspect", "src", "--fail-on-error"], ["repo", "inspect", "src", "--fail-on=fail"]),
     (["eval", "triggers", "generate", "--catalog", "c", "--strict"],
      ["eval", "triggers", "generate", "--catalog", "c", "--fail-on=warn"]),
@@ -239,7 +240,44 @@ def test_eval_check_j_prefix_is_json_only():
     (["catalog", "trigger-set", "--strict"], ["eval", "triggers", "generate", "--fail-on=warn"]),
 ])
 def test_a_fail_on_spelling_tombstones_with_the_new_argv(old, new, capsys):
+    # Test-narrowed: repo scan now accepts the deprecated spelling, which the compatibility test exercises.
     assert " ".join(new) in _tombstone(old, capsys)
+
+
+@pytest.mark.parametrize(("guidance", "missing"), [
+    ("[README](README.md)", None),
+    ("[Guide](docs/missing.md)", "docs/missing.md"),
+    ("Use `/absent/gone.yaml`.", "/absent/gone.yaml"),
+])
+def test_repo_scan_temporary_gate_spelling_keeps_the_exit_code(tmp_path, capsys, monkeypatch, guidance, missing):
+    (tmp_path / "AGENTS.md").write_text(guidance + "\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    argv = ["repo", "scan", str(tmp_path), "--json"]
+    for flag in ("--fail-on-fail", "--fail-on=fail"):
+        monkeypatch.setattr(sys, "argv", ["dokimi", *argv, flag])
+        with refusal() as outcome:
+            cli.main()
+        assert outcome.code == int(missing is not None)
+        captured = capsys.readouterr()
+        assert "repo_readiness.v1" in captured.out
+        assert ("deprecated" in captured.err) == (flag == "--fail-on-fail")
+        if missing is not None:
+            assert f"{missing} does not exist" in captured.out
+
+
+def test_retired_task_check_names_a_docker_free_schema_check(capsys):
+    text = _tombstone(["repo", "tasks", "check", "my repo", "--out", "runs"], capsys)
+    assert text.splitlines()[0] == "moved: dokimi eval check 'my repo' --out-dir runs"
+    args = cli.parse_args(shlex.split(text.splitlines()[1].split(": ", 1)[1])[1:])
+    assert args.schema_only and args.source == "my repo"
+
+
+def test_retired_task_check_preserves_the_source_and_manifest_after_options(capsys):
+    text = _tombstone(["repo", "tasks", "check", "--manifest-file", "custom.yaml", "--out", "runs",
+                       "--", "-my-repo"], capsys)
+    args = cli.parse_args(shlex.split(text.splitlines()[1].split(": ", 1)[1])[1:])
+    assert args.schema_only and args.source == "-my-repo" and args.manifest_file == "custom.yaml"
+    assert args.out == "repo-check"
 
 
 def test_a_fail_on_spelling_with_a_stray_value_suggests_no_malformed_replacement(capsys):

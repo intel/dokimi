@@ -200,6 +200,7 @@ def test_summarize_counts_an_identical_bundle_once_under_a_new_name_and_keeps_bo
     assert summary["counts"]["ok"] == 1
     assert summary["overall"]["n"] == 1
     assert summary["overall"]["new_lenient"]["mean"] == pytest.approx(0.4)  # the last row
+    assert [row["key"] for row in summary["ranking"]] == ["new/deployer"]
     assert summary["usd"] == pytest.approx(0.6)  # both paid rows
     assert summary_lines(summary)[0].startswith("# novelty sweep: 1 measured")
 
@@ -239,6 +240,79 @@ def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     assert resumable(prior, {"gone-quiet": None}, SETTINGS, "1.0") == []
 
 
+def test_ranking_orders_by_new_share_before_size():
+    rows = [_ok("short", 0.2, tokens=500, digest="short"), _ok("long", 0.6, tokens=5000, digest="long")]
+    ranked = summarize(rows, resamples=50)["ranking"]
+    assert [(r["key"], r["new_lenient"], r["tokens"]) for r in ranked] == [
+        ("long", 0.6, 5000), ("short", 0.2, 500),
+    ]
+    assert "new_per_1k_tokens" not in ranked[0]
+
+
+def test_ranking_breaks_new_share_ties_by_size_then_key():
+    rows = [_ok("large", 0.5, tokens=5000, digest="large"), _ok("z", 0.5, tokens=500, digest="z"),
+            _ok("small", 0.5, tokens=500, digest="small")]
+    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["small", "z", "large"]
+
+
+def test_ranking_orders_close_shares_before_breaking_size_ties():
+    rows = [
+        _ok("small", new_share(0.4000001), tokens=500, digest="small"),
+        _ok("medium", new_share(0.3999999), tokens=1500, digest="medium"),
+        _ok("large", new_share(0.399999), tokens=5000, digest="large"),
+    ]
+    assert [(row["key"], row["new_lenient"]) for row in summarize(rows, resamples=50)["ranking"]] == [
+        ("large", 0.600001), ("small", 0.6), ("medium", 0.6),
+    ]
+
+
+def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("sizeless", 0.9, tokens=None, digest="sizeless"),
+            _ok("zero-size", 0.9, tokens=0, digest="zero-size"), _row("b", "partial"),
+            _row("c", "error")]
+    assert [r["key"] for r in summarize(rows, resamples=50)["ranking"]] == ["a"]
+
+
+def test_summary_lines_list_the_ranking_after_the_stratum_table():
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b")]
+    lines = summary_lines(summarize(rows, strata={"a": "ops", "b": "dev"}, resamples=50))
+    table = next(i for i, line in enumerate(lines) if line.startswith("stratum"))
+    head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share"))
+    assert table < head
+    assert lines[head] == "ranking by new share (top 2 of 2):"
+    assert lines[head + 1].lstrip() == "1. b: 60.00% new (3000 tokens)"
+
+
+def test_summary_lines_show_only_the_top_ten_measured_skills():
+    rows = [_ok(f"skill-{i:02}", i / 20, digest=f"digest-{i}") for i in range(1, 13)]
+    summary = summarize(rows, resamples=50)
+    lines = summary_lines(summary)
+    head = lines.index("ranking by new share (top 10 of 12):")
+    assert [line.strip().split(":")[0] for line in lines[head + 1:]] == [
+        f"{pos}. skill-{i:02}" for pos, i in enumerate(range(12, 2, -1), 1)
+    ]
+    assert len(summary["ranking"]) == 12
+
+
+def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
+    """Two sweeps into one JSONL measure `a` twice: the ranking has one entry for it, the later one,
+    and a skill edited between the sweeps (two digests, one key) is counted twice in the overall figures."""
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("a", 0.5, tokens=800, digest="a2")]
+    summary = summarize(rows, resamples=50)
+    assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("b", 0.6), ("a", 0.5)]
+    assert summary["overall"]["n"] == 3
+
+
+def test_ranking_never_ranks_a_renamed_skill_from_its_measurement_before_an_edit():
+    rows = [_ok("a", 0.9, digest="d1"), _ok("a", 0.2, digest="d2"), _ok("b", 0.2, digest="d2")]
+    assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("b", 0.2)]
+
+
+def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
+    rows = [_ok("a", 0.5, tokens=800, digest="a"), _row("a", "error")]
+    assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]
+
+
 @pytest.mark.parametrize("bad", [
     '{"key": "a", "name": "a", "status": "ok", "usd": "x"}\n',
     '{"key": [], "name": "a", "status": "partial", "usd": 0.0}\n',
@@ -246,9 +320,30 @@ def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": "high"}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0}\n',  # the summary reads new_lenient of an ok row
     '[1]\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": null, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": true}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": -800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": ' + '1' + '0' * 400 + '}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": true, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": NaN, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": NaN, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": Infinity, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": Infinity}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": "800"}\n',
+    '{"key": "x", "name": "x", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 1e-320}\n',
+    '{"key": "x", "name": "x", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800.5}\n',
+    '{"key": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800}\n',
 ])
 def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):
     path = tmp_path / "s.jsonl"
     path.write_text(json.dumps(_ok("a", 0.3)) + "\n" + bad, encoding="utf-8")
     with pytest.raises(InputError, match="line 2 is not a sweep row"):
+        read_rows(path)
+
+
+def test_a_string_strict_share_is_a_line_numbered_input_error(tmp_path):
+    path = tmp_path / "rows.jsonl"
+    row = {**_ok("a", 0.5), "new_strict": "high"}
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match=r"line 1.*`new_strict` must be a number or null"):
         read_rows(path)

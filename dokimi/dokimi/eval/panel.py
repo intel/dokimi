@@ -21,7 +21,7 @@ import math
 import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -192,6 +192,7 @@ class JudgeVote:
     #: The figures the judge wrote out, as replied. Kept so a cap, or an
     #: `unread_claims` index, can be traced to the figure behind it.
     numeric_claims: Optional[List[Any]] = None
+    unsupported_seed: Optional[int] = None
 
 
 @dataclass
@@ -225,6 +226,14 @@ class JudgeConfig:
     provider: str
     temperature: Optional[float] = None
     seed: Optional[int] = None
+    unsupported_seed: Optional[int] = field(default=None, init=False)
+
+
+def _checked_config(config: JudgeConfig) -> JudgeConfig:
+    sent_seed = check_judge_sampling(config.provider, config.model, config.temperature, config.seed)
+    checked = replace(config, seed=sent_seed)
+    checked.unsupported_seed = config.seed if sent_seed is None and config.seed is not None else config.unsupported_seed
+    return checked
 
 
 # ── Panel ─────────────────────────────────────────────────────────────────────
@@ -241,13 +250,12 @@ class JudgePanel:
         temperature: Optional[float] = None,
         seed: Optional[int] = None,
     ):
-        self.judges = judges or [
+        roster = judges or [
             JudgeConfig(role=role, model=default_model, provider=default_provider,
                        temperature=temperature, seed=seed)
             for role in DEFAULT_PANEL
         ]
-        for j in self.judges:
-            check_judge_sampling(j.provider, j.model, j.temperature, j.seed)
+        self.judges = [_checked_config(config) for config in roster]
         self.concurrency = concurrency
 
     @property
@@ -368,12 +376,13 @@ class JudgePanel:
                 scores=scores, reasoning=str(data.get("reasoning", "")), aggregate=agg,
                 caps=capped.get("caps"), unread_claims=capped.get("unread_claims"),
                 numeric_claims=claims if isinstance(claims := data.get("numeric_claims"), list) else None,
+                unsupported_seed=config.unsupported_seed,
             )
         except Exception as exc:  # noqa: BLE001 - logged; the vote carries the error and drops out
             logger.warning(f"Judge '{config.role}' ({config.model}) failed: {exc}")
             return JudgeVote(
                 role=config.role, model=config.model, provider=config.provider,
-                scores={}, reasoning="", error=str(exc),
+                scores={}, reasoning="", error=str(exc), unsupported_seed=config.unsupported_seed,
             )
 
     def score_answer(
@@ -414,7 +423,7 @@ class JudgePanel:
             "disagreement_flag": verdict.disagreement_flag,
             "votes": [
                 {"role": v.role, "model": v.model, "provider": v.provider,
-                 "aggregate": v.aggregate, "error": v.error, **_numeric_fields(v)}
+                 "aggregate": v.aggregate, "error": v.error, **_vote_fields(v)}
                 for v in verdict.votes
             ],
         }
@@ -508,8 +517,8 @@ class JudgePanel:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
-    """The vote's figure check, when it made one: what it listed and what that capped.
+def _vote_fields(vote: JudgeVote) -> Dict[str, Any]:
+    """Optional evidence about the vote's figure check and sampling.
 
     An empty `numeric_claims` is kept, as the single judge keeps it: a check
     that found no figures is not the same as no check.
@@ -521,6 +530,8 @@ def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
         fields["caps"] = vote.caps
     if vote.unread_claims:
         fields["unread_claims"] = vote.unread_claims
+    if vote.unsupported_seed is not None:
+        fields.update(seed=None, seed_requested=vote.unsupported_seed, seed_status="unsupported")
     return fields
 
 
@@ -549,7 +560,7 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
         "votes": [
             {"role": vt.role, "model": vt.model, "aggregate": vt.aggregate,
              "scores": vt.scores, "reasoning": vt.reasoning, "error": vt.error,
-             **_numeric_fields(vt)}
+             **_vote_fields(vt)}
             for vt in v.votes
         ],
     }

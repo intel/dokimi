@@ -100,7 +100,7 @@ from .catalog import SkillCatalogEntry, _within
 from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
-from .content_checks import content_findings
+from .content_checks import content_findings, skill_md_content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import entry_chars, in_field
@@ -357,12 +357,45 @@ def _skill_digest(skill: Skill) -> str:
 
 
 def _unloaded_safety(candidate: Path, meta: dict, root: Path, standalone: bool) -> list[Finding]:
-    """The command checks and the unrestricted-Bash grant of an unloaded ``SKILL.md`` a format rule exempts,
+    """The command and content checks (hidden characters, legacy model IDs in the bundled files) and the
+    unrestricted-Bash grant of an unloaded ``SKILL.md``,
     so ``--strict`` fails it as it fails a loaded skill."""
     at_root = candidate.parent.resolve() == root.resolve() and not standalone
     found = [Finding("warn", code, message) for code, message in command_findings(candidate, at_root=at_root)]
+    found += [Finding("warn", code, message) for code, message in skill_md_content_findings(candidate, at_root=at_root)]
     found += [f for f in _tool_findings(meta.get("allowed-tools")) if f.code == "allowed-tools-unrestricted-bash"]
     return name_risky_commands(found)
+
+
+def _unloaded_content(candidate: Path, root: Path, standalone: bool) -> list[Finding]:
+    """The content findings of an unloaded ``SKILL.md`` and its bundled files (#1089)."""
+    at_root = candidate.parent.resolve() == root.resolve() and not standalone
+    return [Finding("warn", code, message) for code, message in skill_md_content_findings(candidate, at_root=at_root)]
+
+
+def _kept_load_error_review(entry: SkillCatalogEntry, candidate: Path, standalone: bool) -> Optional[SkillReview]:
+    """The content findings of a broken skill's bundled files, led by the loader's error when reviewed alone
+    (the CLI row carries its own ``load-error``); None when there are none."""
+    content = _unloaded_content(candidate, entry.source_root, standalone)
+    if not content:
+        return None
+    own = [Finding("error", "not-loaded", entry.error or "the skill did not load")] if standalone else []
+    return SkillReview(findings=own + content)
+
+
+def _unloaded_text(entry: SkillCatalogEntry) -> Optional[tuple[Path, str]]:
+    """An unloaded entry's ``SKILL.md`` inside the scanned root and its text, "" when not UTF-8; None when unreadable."""
+    if entry.path is None:
+        return None
+    try:
+        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
+        if candidate.name != "SKILL.md" or not candidate.is_file() or not _within(candidate, entry.source_root):
+            return None
+        return candidate, candidate.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return candidate, ""
+    except OSError:
+        return None
 
 
 def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
@@ -372,37 +405,38 @@ def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Opti
     A ``SKILL.md`` that resolves outside the scanned root is not read: the YAML message quotes
     the offending line, and the catalog must not get a file outside it into the report.
     """
-    if entry.path is None:
-        return None
-    try:
-        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
-        if candidate.name != "SKILL.md" or not candidate.is_file():
-            return None
-        if not _within(candidate, entry.source_root):
-            return None
-        text = candidate.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    read = _unloaded_text(entry)
+    if read is None:
         return None  # the loader already reported why the skill did not load
+    candidate, text = read
     if not text.lstrip("\ufeff").strip():
-        return None  # an empty file is not prose: the loader's error stands
+        return _kept_load_error_review(entry, candidate, standalone)  # empty or not UTF-8: not prose, the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
     unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
     fmt = skill_format(candidate, entry.source_root)
     if keeps_load_error(fmt, lines, first, unquoted):
-        return None  # a broken skill, not prose or a missing description; the loader's error stands
+        # a broken skill, not prose or a missing description; the loader's error stands, and its bundled files are still read (#1089)
+        return _kept_load_error_review(entry, candidate, standalone)
     if first.strip() != "---" or not opens_frontmatter(unquoted):  # a rule or prose, not a broken block
         loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
         if loaded:
             return SkillReview(findings=loaded + _unloaded_safety(candidate, {}, entry.source_root, standalone))
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
-        return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
+        return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)] + _unloaded_content(candidate, entry.source_root, standalone))
     meta, parse_error = _strict_meta(text)
     if parse_error is not None:
-        return SkillReview(findings=[parse_error])
+        return SkillReview(findings=[parse_error] + _unloaded_content(candidate, entry.source_root, standalone))
+    return _gap_review(entry, candidate, fmt, meta, standalone)
+
+
+def _gap_review(entry: SkillCatalogEntry, candidate: Path, fmt, meta: dict, standalone: bool) -> Optional[SkillReview]:
+    """The review of a skill whose block parsed: the format's gaps with the safety checks, else the kept load error."""
     gap = format_findings(fmt, meta, loaded=False)
-    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone)) if gap else None
+    if not gap:  # nothing the format adds: the loader's error stands, and the bundled files are still read (#1089)
+        return _kept_load_error_review(entry, candidate, standalone)
+    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone))
 
 
 def _relative_to_root(path: Path, root: Path) -> str:
@@ -657,7 +691,8 @@ def review_skills(
 
     None for an entry that did not load, unless its ``SKILL.md`` is plain Markdown (then its review
     carries the ``not-a-skill-no-frontmatter`` error) or its frontmatter is broken YAML (then the
-    ``frontmatter-parse`` error). A loaded skill whose ``SKILL.md`` cannot
+    ``frontmatter-parse`` error). A broken skill whose load error stands gets a review only when its bundled
+    files hold a content finding. A loaded skill whose ``SKILL.md`` cannot
     be read during review gets a review with one ``unreadable`` error and no digest. Of each
     identical ``SKILL.md``, the copy nearest the root is the original; every other copy names
     it in ``duplicate_of``.
