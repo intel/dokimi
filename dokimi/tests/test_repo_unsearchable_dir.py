@@ -18,7 +18,7 @@ from dokimi.repos.source_errors import SourceArgumentError
 ROOT = Path(__file__).resolve().parents[1]
 
 pytestmark = pytest.mark.skipif(
-    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs mode bits to bind")
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permission bits and a non-root user")
 
 MANIFEST = """schema: repo_manifest.v1
 id: toy
@@ -42,7 +42,7 @@ def _check(d: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     d.chmod(0o444)
     try:
         return subprocess.run([sys.executable, str(ROOT / "cli.py"), "eval", "check", str(d), "--schema-only", *extra],
-                              capture_output=True, text=True, cwd=ROOT)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT)
     finally:
         d.chmod(0o755)
 
@@ -53,7 +53,7 @@ def test_check_unreadable_plain_dir_gives_message(tmp_path: Path) -> None:
     run = _check(d)
     assert "Traceback" not in run.stderr, run.stderr
     assert run.returncode == 2, run.stderr
-    assert str(d) in run.stderr and "cannot be searched" in run.stderr
+    assert repr(str(d)) in run.stderr and "cannot be searched" in run.stderr
 
 
 def test_check_manifest_file_unreadable_plain_dir_is_refused(tmp_path: Path) -> None:
