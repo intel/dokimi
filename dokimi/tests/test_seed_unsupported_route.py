@@ -78,6 +78,17 @@ def test_arms_run_still_refuses_a_temperature_the_route_refuses_even_with_a_seed
                                              temperature=0.0, seed=7))
 
 
+
+def test_a_cli_route_still_refuses_a_seed_it_cannot_send(monkeypatch, capsys):
+    from dokimi.eval import arms_run
+    from dokimi.eval.arms_run import ArmsRunConfig, check_sampling_support
+
+    monkeypatch.setattr(arms_run, "probe_sampling",
+                        lambda *a: pytest.fail("a refused seed reached the probe"))
+    with pytest.raises(ValueError, match="does not support seed"):
+        check_sampling_support(ArmsRunConfig(product="demo", model="haiku", provider="claude-cli", seed=7))
+    assert "does not take a seed" not in capsys.readouterr().err
+
 def test_arms_run_keeps_a_supported_seed(monkeypatch):
     from dokimi.eval import arms_run
     from dokimi.eval.arms_run import ArmsRunConfig, check_sampling_support
