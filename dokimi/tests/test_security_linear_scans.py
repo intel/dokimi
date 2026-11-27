@@ -411,3 +411,73 @@ def test_unpinned_install_matches_the_old_pattern_on_random_lines_of_installs() 
 )
 def test_a_line_of_repeated_downloads_or_installs_is_scanned_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:
     _linear(partial(_security_search, rule), shape, n=200)
+
+
+# --- secret-read: a word of repeated path parts is read from its first `/` only (#688) ---------------------
+
+_OLD_SECRET_READ = re.compile(
+    r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|/\S*?)/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
+    r"|kube/config)(?=[/\s;&|)<>`\"':*,}]|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)",
+    re.IGNORECASE,
+)
+_SECRET_READ_TABLE = [
+    ("cat a/.ssh", False),
+    ("cat x/y/.aws/z", True),
+    ("cat ~/.ssh", True),
+    ("cat $HOME/.aws", True),
+    ("cat ${HOME}/.gnupg", True),
+    ("cat /.ssh", False),
+    ("cat //.ssh", True),
+    ("cat a//.env", True),
+    ("cat a//.netrc", True),
+    ("cat .awsome", False),
+    ("cat a/.awsome", False),
+    ("cat /a/.ssh.d", False),
+    ("cat /a/.ssh/", True),
+    ("cat a/b/c/d/.kube/config", True),
+    ("cat a/b/.docker/config.json", True),
+    ("cat .ssh", True),
+    ("cat ./.ssh", True),
+    ("cat x=a/b/.aws", True),
+    ("cat \"a/b/.aws\"", True),
+    ("cat a /.ssh", False),
+    ("cat a/ b/c/.ssh", True),
+    ("cat a/\n.ssh", True),
+    ("cat a/b\n/c/.ssh", True),
+    ("a/.ssh", False),
+    ("/a/.ssh", True),
+    ("/.env", True),
+    ("cat a/.env", True),
+    ("cat a/.env/bin", False),
+    ("cat a/b .ssh/c", True),
+    ("cat a/../.ssh", True),
+    ("cat a/b/.ssh;", True),
+    ("cat a/b/.SSH", True),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _SECRET_READ_TABLE)
+def test_secret_read_reads_a_line_as_the_old_pattern_did(text: str, expected: bool) -> None:
+    assert (_OLD_SECRET_READ.search(text) is not None) is expected
+    assert (_security_search("secret-read", text) is not None) is expected
+
+
+def test_secret_read_matches_the_old_pattern_on_random_lines_of_paths() -> None:
+    pieces = ["a", "x", "/", "//", "~", "$HOME", "${HOME}", ".ssh", ".aws", ".gnupg", ".netrc", ".env", ".awsome", ".ssh.d", "a/.ssh", "x/y/.aws/z", "/.ssh",
+              ".docker/config.json", ".kube/config", "./", "..", "=", "\"", "'", ";", "|", ")", "\n", "\t", "cat", ".", "$HOME\"", "/etc", "a/", "~/"]
+    rng = random.Random(688)
+    hits = 0
+    for _ in range(6 * CASES):
+        text = rng.choice([" ", "", "", "/"]).join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        new_match = _security_search("secret-read", text) is not None
+        assert new_match == (_OLD_SECRET_READ.search(text) is not None), text
+        hits += new_match
+    assert hits > 300, hits
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [lambda n: "a/" * n, lambda n: "~/" * n, lambda n: "/etc" * n, lambda n: "a/" * n + " ", lambda n: "/" * n, lambda n: "a/.x" * n],
+)
+def test_a_word_of_repeated_path_parts_is_scanned_by_secret_read_in_linear_time(shape: Callable[[int], str]) -> None:
+    _linear(partial(_security_search, "secret-read"), shape, n=200)

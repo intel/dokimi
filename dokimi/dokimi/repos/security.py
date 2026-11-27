@@ -41,7 +41,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from .event_format import followed_path
 from .held_guidance import HeldGuidance
-from .security_patterns import BLANKS, DOWNLOAD, PIP_INSTALL, PIP_STUCK, PIP_URL_OPTS, RM_RECURSIVE
+from .security_patterns import BLANKS, DOWNLOAD, PIP_INSTALL, PIP_STUCK, PIP_URL_OPTS, RM_RECURSIVE, SECRET_WORD_START
 
 SEVERITIES = ("critical", "high", "medium")
 
@@ -185,7 +185,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
-         _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|/\S*?)/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
+         _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|" + SECRET_WORD_START + r")/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
              r"|kube/config)(?=[/\s;&|)<>`\"':*,}]|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)")),
 )
 

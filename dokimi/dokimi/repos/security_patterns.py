@@ -23,6 +23,10 @@ PIP_STUCK = r"(?<!\S)(?:" + PIP_URL_OPTS + r")=(?!\S)"
 #: pipe-to-shell starts at the first download of a segment (up to `|`, `;` or `&`): a later one reaches the same `|` (#1269).
 DOWNLOAD = r"\b(?:curl|wget)\b"
 
+#: secret-read's start inside a word: a `/` of the word, then a later `/.ssh` and the like. The first `/` of the word reaches every `/.name` that a later `/` does,
+#: so the scan starts at the word's start and no later: a word of repeated path parts is read once (#688).
+SECRET_WORD_START = r"(?<!\S)[^\s/]*+/\S*?"
+
 _RM_FLAG = r"(?:-[a-z]*r[a-z]*|--recursive)"
 # the words after the recursive flag, up to a target: /, /*, ~, ~/, $HOME[/][*] or a system directory, bare or with a path under it that is no cache
 _RM_TARGET = (
