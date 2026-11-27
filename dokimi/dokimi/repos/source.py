@@ -204,7 +204,9 @@ class WorkTree:
         """The file ``path`` names; never a pipe, socket or device, which a read would wait on (#1271)."""
         target = self._resolve(path)
         mode = os.stat(target).st_mode
-        if not stat.S_ISREG(mode) and not stat.S_ISDIR(mode):
+        if stat.S_ISDIR(mode):
+            raise SourceArgumentError(f"{path} is a directory")  # #1271: not an IsADirectoryError traceback
+        if not stat.S_ISREG(mode):
             raise SourceArgumentError(f"{path} is not a regular file")  # #1271
         return target
 
@@ -231,7 +233,9 @@ class WorkTree:
         if mode is not None and stat.S_ISDIR(mode) and dirs:
             return rel
         if mode is not None and stat.S_ISDIR(mode):
-            raise SourceArgumentError(f"{path} links to a directory: {rel}")
+            if (self.root / path).is_symlink() or rel != path:
+                raise SourceArgumentError(f"{path} links to a directory: {rel}")
+            raise SourceArgumentError(f"{path} is a directory")  # #1271: no link involved
         if mode is not None and stat.S_ISREG(mode):
             return rel
         if mode is not None:  # a pipe, a socket or a device, itself or at the end of a link

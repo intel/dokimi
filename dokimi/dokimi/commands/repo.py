@@ -213,8 +213,9 @@ def _print_not_loaded(instructions: list[dict]) -> None:
     """#1271: the instruction files the count includes but a harness cannot load, with why."""
     for i in instructions:
         for note in i["notes"]:
-            if note.startswith("not loaded"):
-                print(f"  NOT LOADED {_normalize_whitespace(i['path'], max_len=None)} -- {_normalize_whitespace(note)}")
+            if note.startswith("not loaded: "):
+                print(f"  NOT LOADED {_normalize_whitespace(i['path'], max_len=None)} -- "
+                      f"{_normalize_whitespace(note.removeprefix('not loaded: '))}")
 
 
 def _inspected(inspect_repo, tree, args: argparse.Namespace) -> dict:

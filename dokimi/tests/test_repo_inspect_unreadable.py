@@ -18,6 +18,8 @@ from dokimi.repos.source import SourceArgumentError, WorkTree
 PROJECT = Path(__file__).resolve().parents[1]
 NOT_ROOT = pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
                               reason="needs a directory mode the user cannot bypass")
+FIFO = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+DEV_ZERO = pytest.mark.skipif(not Path("/dev/zero").exists(), reason="needs /dev/zero")
 
 
 def _cli(root: Path, *extra: str):
@@ -143,6 +145,7 @@ def test_6_link_loop_at_head(tmp_path):
     assert not _listed_silently(data, "AGENTS.md"), data["instructions"]
 
 
+@DEV_ZERO
 def test_7_device_instruction(tmp_path):
     """#1271: a link to a device is named."""
     (tmp_path / "CLAUDE.md").symlink_to("/dev/zero")
@@ -160,6 +163,7 @@ def test_8_directory_manifest(tmp_path, manifest):
     assert any(c["path"] == manifest for c in rep["capabilities"]) or any(manifest in n for n in rep["not_observed"])
 
 
+@FIFO
 def test_9_fifo_agents_md(tmp_path):
     """#1271: a pipe named AGENTS.md is named in not_observed."""
     os.mkfifo(tmp_path / "AGENTS.md")
@@ -192,6 +196,7 @@ def test_a_link_to_an_empty_file_is_empty(tmp_path):
     assert any("AGENTS.md" in n for n in rep["not_observed"])
 
 
+@FIFO
 def test_resolve_names_a_pipe_not_a_link(tmp_path):
     """#1271: a non-link that is no regular file is not said to link to nothing."""
     os.mkfifo(tmp_path / "p")
@@ -234,9 +239,50 @@ def test_text_output_names_an_instruction_file_that_is_not_loaded(tmp_path):
     (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "AGENTS.md").symlink_to("missing.md")
     out = _cli(tmp_path).stdout
-    assert "AGENTS.md" in out and "not loaded" in out, out
+    assert "NOT LOADED AGENTS.md -- AGENTS.md links to nothing: missing.md" in out, out
+    assert "not loaded" not in out, out
 
 
+def test_a_directory_named_as_a_file_is_not_said_to_be_a_link(tmp_path):
+    """#1271: a real directory is "a directory"; only a link is said to link to one."""
+    (tmp_path / "AGENTS.md").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "CLAUDE.md").symlink_to("docs")
+    tree = WorkTree(tmp_path)
+    with pytest.raises(SourceArgumentError, match="^AGENTS.md is a directory$"):
+        tree.resolve("AGENTS.md")
+    with pytest.raises(SourceArgumentError, match="CLAUDE.md links to a directory: docs"):
+        tree.resolve("CLAUDE.md")
+
+
+def test_reading_a_directory_is_a_source_error_not_an_oserror(tmp_path):
+    """#1271: read_text and read_bytes refuse a directory with the same error as a pipe."""
+    (tmp_path / "AGENTS.md").mkdir()
+    for read in (WorkTree(tmp_path).read_text, WorkTree(tmp_path).read_bytes):
+        with pytest.raises(SourceArgumentError, match="AGENTS.md is a directory"):
+            read("AGENTS.md")
+
+
+def test_an_instruction_blob_a_partial_clone_cannot_fetch_is_named(tmp_path):
+    """#1271: a read that fails is a reason for the note, not a silent "nothing wrong"."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "AGENTS.md").write_text("guide\n", encoding="utf-8")
+    _git(repo, "add", "AGENTS.md")
+    _git(repo, "commit", "-qm", "guide")
+    blob = subprocess.run(["git", "rev-parse", "HEAD:AGENTS.md"], cwd=repo, capture_output=True, text=True,
+                          check=True).stdout.strip()
+    _git(repo, "config", "remote.origin.promisor", "true")
+    _git(repo, "config", "remote.origin.url", str(tmp_path / "nowhere"))
+    obj = repo / ".git" / "objects" / blob[:2] / blob[2:]
+    obj.chmod(0o644)
+    obj.unlink()
+    data = _data(Path(f"{repo}@HEAD"))
+    assert _said(data, "AGENTS.md"), data["instructions"]
+
+
+@FIFO
 def test_a_tracked_instruction_file_replaced_by_a_pipe_is_still_listed(tmp_path):
     """#1271: the git listing keeps a pipe in place of a tracked file, as the plain listing does."""
     repo = tmp_path / "repo"
@@ -263,6 +309,7 @@ def test_an_empty_ignored_link_target_is_empty(tmp_path):
     assert _said(data, "AGENTS.md"), data["instructions"]
 
 
+@FIFO
 def test_a_link_to_a_pipe_is_not_a_link_to_nothing(tmp_path):
     """#1271: a link to something that exists but is no regular file says so."""
     os.mkfifo(tmp_path / "pipe")
@@ -289,6 +336,7 @@ def _plain_fifo(tmp_path: Path) -> Path:
     return repo
 
 
+@FIFO
 @pytest.mark.parametrize("command", ["budget", "scan"])
 @pytest.mark.parametrize("kind", ["plain", "git"])
 def test_a_pipe_in_the_listing_does_not_hang_budget_or_scan(tmp_path, command, kind):

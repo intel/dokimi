@@ -147,8 +147,10 @@ def _content_problem(tree: RepoTree, target: str, size: int | None) -> str | Non
             return None if tree.read_bytes(target) else "is empty"
     except PermissionError:
         return "cannot be read: Permission denied"
-    except (OSError, SourceError):
-        return None
+    except OSError as exc:
+        return f"cannot be read: {type(exc).__name__}"
+    except SourceError as exc:  # a blob a partial clone cannot fetch
+        return f"cannot be read: {exc}"
     return "is empty" if size == 0 else None
 
 
