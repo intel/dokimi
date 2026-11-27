@@ -424,6 +424,27 @@ def arm_answers(rec: Record) -> Mapping[str, Answer]:
     return rec.answers if isinstance(rec.raw.get("arms"), Mapping) else {}
 
 
+def profile_prompt_digests(recs: Iterable[Record], arm: str) -> set[str]:
+    """The recorded profile prompt digests, including profiles in combined arms."""
+    digests: set[str] = set()
+    for rec in recs:
+        answer = rec.answer(arm)
+        if answer is None:
+            continue
+        metadata = answer.raw.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        candidates = [metadata]
+        treatments = metadata.get("treatments")
+        if isinstance(treatments, list):
+            candidates.extend(t for t in treatments if isinstance(t, Mapping))
+        for candidate in candidates:
+            digest = candidate.get("profile_prompt_sha256")
+            if isinstance(digest, str) and digest:
+                digests.add(digest)
+    return digests
+
+
 def arm_scores(rec: Record) -> Mapping[str, Score]:
     """The scores a record holds under ``scores``, the ``evaluations`` field of an arms run.
 

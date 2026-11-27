@@ -499,10 +499,12 @@ pinned, only measured: run the same configuration several times
   rejected when the command line is parsed.
 
 Before generating answers, `arms run` checks each model’s requested sampling options against
-litellm’s capability table and route-specific value rules. A known refusal, such as `seed` on
-Bedrock or `temperature=0` on a model that accepts only 1, stops the run without a model call.
-Settings that pass the static checks are tried in one short probe call per answer and judge model
-when sampling is requested. The probe catches refusals that litellm’s local rules do not describe.
+litellm’s capability table and route-specific value rules. A refused temperature, such as
+`temperature=0` on a model that accepts only 1, stops the run without a model call.
+When an API route such as Bedrock refuses a seed, Dokimi warns once per route, omits the seed
+from requests, and records the requested value as unsupported. CLI providers still reject a seed.
+After the static checks, each answer and judge model with sampling options gets one short probe
+call. The probe catches refusals that litellm’s local rules do not describe.
 
 The judge re-draws a reply it cannot parse, up to three attempts. At a pinned
 judge temperature the same prompt tends to return the same malformed reply, so
@@ -745,7 +747,8 @@ Consistency is validated before the report is written:
 - Diverging `question_set_hash` values (when present) produce a warning on
   stderr.
 - Runs that share one configuration (model, provider, judge, judge prompt and
-  temperature, `run_config` except the seed value, harness, plugin set, cell and
+  temperature, `run_config` except the seed value (`seed`, or `seed_requested`
+  when the route dropped it), harness, plugin set, cell and
   arm list) are replicates: an error,
   unless `--pool-replicates` averages them per question into one row. A
   question is kept only if every replicate scored both arms; the report says
@@ -1014,8 +1017,9 @@ An artifact of a registered run kind carries the run's envelope right after its
   no envelope.
 - A file saved before the envelope has neither key and stays valid; so do the superseded
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
-- The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
+- The `--json` output of `repo scan`, `repo inspect`, `repo budget`, `eval inspect` and `eval graph` is the
   `cli_output.v1` envelope with the document their `--out` writes under `data`.
-- `repo hits judge` and `skill routing` fill the envelope's `cost`; the other commands report a cost of zero. `cost` is a
+- `repo hits judge`, `skill routing` and `eval graph` fill the envelope's `cost`. The other commands
+  use a default cost of zero. `cost` is a
   field of the `cli_output.v1` document a leaf prints with `--json`: read it from stdout, since the
   saved artifacts (`catalog.json`, `plan.json`, `result.json`) have no top-level `cost`.

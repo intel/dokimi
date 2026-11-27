@@ -118,11 +118,14 @@ def test_cli_overrides_win_over_the_task(tmp_path):
 
 
 @pytest.mark.parametrize("spec, why", [
-    ("verify", "expected PHASE=MODE"),
+    ("verify", r"--network .*expected .*MODE, e.g. verify=none"),
+    ("agent", r"--network .*expected .*MODE, e.g. verify=none"),
+    ("all", r"--network .*expected .*MODE, e.g. verify=none"),
     ("grade=none", "unknown phase grade"),
     ("verify=bridge", "expected one of none, allowlist, public"),
     ("verify=allowlist", "allowlist needs hosts"),
     ("build=allowlist:pypi.org", "the image build takes none or public"),
+    ("allowlist:pypi.org", r"Use --network solve,verify=allowlist:pypi\.org"),
     ("verify=public:pypi.org", "only valid with mode allowlist"),
     ("verify=allowlist:https://pypi.org/simple", "expected host"),
 ])

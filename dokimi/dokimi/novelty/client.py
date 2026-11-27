@@ -165,6 +165,7 @@ class LLMClient:
     def json_object(
         self, prompt: str, *, system: str | None = None,
         usable: Callable[[dict[str, Any]], bool] | None = None,
+        strict: bool = True,
     ) -> dict[str, Any]:
         """Return the model's reply parsed as a JSON object; raise ``ValueError`` otherwise.
 
@@ -175,12 +176,12 @@ class LLMClient:
         """
 
         def shaped(reply: str) -> dict[str, Any]:
-            value = parse_json_object(reply)
+            value = parse_json_object(reply, strict=strict)
             if usable is not None and not usable(value):
                 raise ValueError("unusable reply")
             return value
 
-        return parse_json_object(self.text(prompt, system=system, accept=accepting(shaped)))
+        return parse_json_object(self.text(prompt, system=system, accept=accepting(shaped)), strict=strict)
 
     def json_array(self, prompt: str, *, system: str | None = None) -> list[Any]:
         """Return the model's reply parsed as a JSON array; raise ``ValueError`` otherwise."""
@@ -226,7 +227,7 @@ class LLMClient:
         )
 
 
-def parse_json_object(reply: str) -> dict[str, Any]:
+def parse_json_object(reply: str, *, strict: bool = True) -> dict[str, Any]:
     """The reply as a JSON object. A list, ``null`` or scalar raises ``ValueError``.
 
     :func:`dokimi.llm.extract_json_object` returns whatever ``json.loads`` gives, so a
@@ -235,7 +236,7 @@ def parse_json_object(reply: str) -> dict[str, Any]:
     """
     from dokimi.llm import extract_json_object
 
-    value = extract_json_object(reply)
+    value = extract_json_object(reply, strict=strict)
     if not isinstance(value, dict):
         raise ValueError(f"expected a JSON object, got {type(value).__name__}: {reply[:120]!r}")
     return value

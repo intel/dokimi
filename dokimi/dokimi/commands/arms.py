@@ -47,6 +47,14 @@ def run_config_from_args(args: argparse.Namespace, **overrides) -> ArmsRunConfig
     return ArmsRunConfig(**{**values, **overrides})
 
 
+def _flags_config(args: argparse.Namespace) -> ArmsRunConfig:
+    """A refused combination of CLI flags is an input error."""
+    try:
+        return run_config_from_args(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+
+
 def judge_panel_roles(value: str) -> str:
     """argparse type for --judge-panel: an unknown role fails before any answer is paid for."""
     from dokimi.eval.panel import JUDGE_ROLES
@@ -70,11 +78,12 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
     """Run an N-arm treatment comparison and optionally judge it."""
     from dokimi.eval.arms_run import LibraryIdError, ProbeError, prepare_arms, run_prepared
 
+    config = _flags_config(args)
     # Setup (inputs, arms, plugins, sampling, judge) exits 2; a failed sampling probe is a run failure (1).
     try:
         specs = _parse_arm_specs(args.arms)
         questions = _load_questions(args.questions)
-        config = _with_named_cell(run_config_from_args(args), args.matrix_cells, args.matrix_cell)
+        config = _with_named_cell(config, args.matrix_cells, args.matrix_cell)
         prepared = prepare_arms(config, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
@@ -116,8 +125,9 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
+    config = _flags_config(args)
     run_matrix(
-        run_config_from_args(args), arms=args.arms, questions=args.questions,
+        config, arms=args.arms, questions=args.questions,
         matrix_cells=args.matrix_cells, out_dir=out_dir,
         out_json=Path(args.out_json) if args.out_json else None,
         out_md=Path(args.out_md) if args.out_md else None,
@@ -339,6 +349,7 @@ def register(sub, positive_int) -> None:
                             help=JUDGE_MODEL_HELP)
     arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
+    _add_judge_context(arms_run_p)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                             help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     arms_run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
@@ -413,6 +424,15 @@ def register(sub, positive_int) -> None:
     plugin_delta_p.set_defaults(func=cmd_arms_plugin_delta)
 
 
+def _add_judge_context(parser) -> None:
+    # Literal choices, as the stdlib-only CLI registration needs; ArmRunner checks the same values.
+    cli_flags.add(parser, "judge-context", "--judge-context", default="arm", dest="judge_context",
+                  choices=["arm", "baseline"],
+                  help="What the judge is shown about each arm's treatment material. arm (default): the "
+                       "arm's own material. baseline: no material on any arm, the context a baseline arm's "
+                       "judge sees, so every arm is judged on one context. Answers are unchanged. Needs --judge")
+
+
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
@@ -449,6 +469,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                         help=JUDGE_MODEL_HELP)
     parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
+    _add_judge_context(parser)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                         help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     parser.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")

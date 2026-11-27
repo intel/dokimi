@@ -367,6 +367,21 @@ def test_a_null_evaluation_does_not_keep_the_answers_inline_score_in_a_join():
     assert q1.score("baseline") is None
 
 
+def test_profile_prompt_digests_ignore_empty_and_non_string_metadata():
+    record = records.record({
+        "question_id": "q1",
+        "arms": {"profile:p": {
+            "answer": "Example answer",
+            "metadata": {
+                "profile_prompt_sha256": 42,
+                "treatments": [{"profile_prompt_sha256": ""}, {"profile_prompt_sha256": "sha256:valid"}],
+            },
+        }},
+    })
+
+    assert records.profile_prompt_digests([record], "profile:p") == {"sha256:valid"}
+
+
 def test_arm_names_lists_null_arms_and_skips_binary_conditions():
     """A null arm is an arm that ran; a binary record has no arms at all."""
     arms = records.record({"question_id": "q1", "arms": {"baseline": {"answer": "b"}, "docs": None}})
