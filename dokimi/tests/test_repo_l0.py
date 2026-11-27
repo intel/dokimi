@@ -719,6 +719,7 @@ def test_a_git_timeout_raises_even_unchecked(monkeypatch, tmp_path):
 @pytest.mark.parametrize(("path", "status"), [
     ("config/gone.yaml", "fail"), ("dokimi/sub/gone.yaml", "fail"),
     ("other-repo/.github/workflows/ci.yml", "unresolved"), ("path/to/config.yaml", "unresolved"),
+    ("settings.yaml", "unresolved"),
 ])
 def test_a_missing_config_path_fails_only_where_this_tree_could_hold_it(tmp_path, path, status):
     """A deeper path under an absent top directory names a sibling repository's file or a placeholder."""
