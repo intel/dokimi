@@ -15,7 +15,7 @@ from typing import Any
 
 
 _FIELDS = ("level", "code", "message")
-_BAD = ("not a `catalog check --format json` report: each skill is an object with a string `relpath` whose `findings` is a list of objects "
+_BAD = ("not a `catalog check --format json` report: each skill is an object with a `relpath` (a string or null) whose `findings` is a list of objects "
         "with a string `level`, `code` and `message` (#960, docs/external-content.md, Repair receipt)")
 
 
@@ -27,7 +27,11 @@ def _rows(report: dict) -> list[dict[str, Any]]:
     rows = []
     for skill in skills:
         findings = skill.get("findings") if isinstance(skill, dict) else None  # `catalog check` always writes it
-        name = skill.get("relpath") or skill.get("path") if isinstance(skill, dict) else None
+        if not isinstance(skill, dict) or "relpath" not in skill:
+            raise ValueError(_BAD)
+        name = skill["relpath"]
+        if name is None:  # `catalog_scan` writes null for a pathless manifest entry; `path` then names it
+            name = skill.get("path")
         if not isinstance(findings, list) or not (name is None or isinstance(name, str)):
             raise ValueError(_BAD)
         for finding in findings:

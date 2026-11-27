@@ -150,6 +150,17 @@ def test_a_skill_path_that_is_not_a_string_is_a_usage_error_and_not_a_traceback(
         _cmd([str(bad), str(good), "f"])
 
 
+@pytest.mark.parametrize("skill", ['{"findings": []}', '{"relpath": false, "findings": []}', '{"relpath": [], "findings": []}',
+                                   '{"relpath": 0, "findings": []}', '{"relpath": null, "path": 3, "findings": []}'])
+def test_a_missing_or_falsy_invalid_relpath_is_refused_and_not_read_as_a_fallback(tmp_path, skill):
+    """#960 (docs/external-content.md, Repair receipt): `relpath` must be present and a string or null before any fallback."""
+    bad, good = tmp_path / "bad.json", tmp_path / "good.json"
+    bad.write_text('{"skills": [%s]}' % skill, encoding="utf-8")
+    good.write_text('{"skills": []}', encoding="utf-8")
+    with pytest.raises(InputError, match="not a `catalog check --format json` report"):
+        _cmd([str(bad), str(good), "f"])
+
+
 @pytest.mark.parametrize("findings", ["false", "null", "0", '""', "{}"])
 def test_a_falsy_findings_value_is_refused_and_not_read_as_no_findings(tmp_path, findings):
     """#960 (docs/external-content.md, Repair receipt): an invalid `findings` is a usage error, not a cleared row."""
