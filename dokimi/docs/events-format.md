@@ -35,18 +35,26 @@ depend on the kind:
 | `tool` | `name`; `skill` on a `Skill` call; `searched` (one path) on a Claude Code `Grep` call whose `path` is given and whose `output_mode` is `content`; `searched` (the call's `paths`, one or a list) on a Copilot `grep` call whose `output_mode` is `content` and whose result is not empty, `No matches found.` or a failure |
 | `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |
 | `choice` | `candidate`, `act` (install, import, use or remove), `path` (edit path or null). The runner writes these after their source event when the run names candidates. |
-| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (`null` on a Claude turn: its assistant records carry the output count from the start of the stream, not the call's billed count), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
+| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (on Claude, the call's `output_tokens` as its assistant records streamed them: records that share a message id merge to the largest count, and the streamed count can be below the billed one, see `usage_remainder`), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
+| `usage_remainder` | `input`, `output`, `cache_read`, `cache_write`: the result's token totals (the scope `usage_scope` names) minus the `turn` events of that scope, each `null` when a turn in the scope has a `null` for it, or the result does not report that total as a number (a `modelUsage` entry in the scope that lacks it counts); no `turn`, `t` is `null`. Written once, after the turns, on a Claude trace whose result has usage. Negative when the turns sum above the total |
 
 A `turn` is one model call, so a Claude run's trace has one per call. A call
 whose assistant record has no `usage` object writes no `turn`; a `compaction`
-after it has `turn: null` unless an earlier call wrote one. The `input`,
-`cache_read` and `cache_write` sums of a complete Claude trace's `turn` events should equal the
-run's `result.json` `input_tokens`, `cache_read_tokens` and `cache_write_tokens` when the result's
-usage equals its per-call usage; its `output_tokens` is in the totals only. Over the same scope: with `usage_scope` `tree` the events
-of subagents are in the sum (they carry `agent`), with `main` they are not. A
+after it has `turn: null` unless an earlier call wrote one. On a complete Claude
+trace, the `input`, `cache_read` and `cache_write` sums of its main-thread `turn` events (those without
+`agent`) equal the result's own top-level `usage` (`input_tokens`, `cache_read_input_tokens`,
+`cache_creation_input_tokens`): the parent's billed counts. The result's `modelUsage`
+totals, which `result.json` reports, can exceed them: a helper model's call (a title or
+a classifier) leaves no assistant record in the trace. So the `turn` sums plus the
+`usage_remainder` line equal the totals `result.json` reports, in its scope, where the result reports them: a total the result omits is `null` in the remainder, though `result.json` shows it as 0.
+`output` does not reconcile to the billed output the same way: the streamed counts can
+sum to less than the result's `usage.output_tokens` (in one live run, 27 against 675),
+so read a Claude `output` as the streamed count, and the remainder's `output` as its gap.
+Over the same scope: with `usage_scope` `tree` the events of subagents are in the sum
+(they carry `agent`), with `main` they are not. A
 model that the result's `modelUsage` lists but that made no assistant record has
-no `turn`; its tokens are in the totals only. Codex
+no `turn`; its tokens are in the `usage_remainder` line only. Codex
 reports usage on each `turn.completed`, one `turn` event per turn, with `t`
 `null`; a count Codex did not report is `null`. In a Claude trace the `turn` and `compaction` lines follow its tool lines, so sort those by `t`; Codex's lines are in trace order. Copilot's trace carries no
 usage, so it writes no `turn` events and its token counts stay `null`.
@@ -80,9 +88,8 @@ lines written before version 2 are described by `repo_event.v1.json`, which is u
 
 Every line carries `v`: the major version of the format it was written under.
 This page describes version 2, which lines written by this code carry as `v: 2`.
-Version 2 differs from version 1 in two ways: `output` and `output_truncated` are
-on `command` lines only (version 1 had them on every line, which an integer
-`output` on a `turn` line contradicts), and the `turn` and `compaction` kinds
+Version 2 differs from version 1 in two ways: `output_truncated` is on `command`
+lines only and `output` on `command`, `turn` and `usage_remainder` lines (version 1 had both on every line), and the `turn` and `compaction` kinds
 are in it. Version 1 lines stay valid under `repo_event.v1.json`.
 
 - A line with no `v` was written before the field existed. It has the version 1

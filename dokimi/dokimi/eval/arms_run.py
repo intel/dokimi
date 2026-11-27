@@ -95,6 +95,8 @@ class ArmsRunConfig:
     grounded_from_topics: bool = False
     temperature: float | None = None
     seed: int | None = None
+    # A seed the answer route does not take: ``seed`` is then None and the run records it as unsupported.
+    unsupported_seed: int | None = None
     session_turns: int | None = None
     turn_reminder: str | None = None
     concurrency: int = 5
@@ -284,23 +286,32 @@ def validate_expected_skills(questions: list[dict], treatments) -> None:
                              f"{', '.join(unknown)}")
 
 
-def check_sampling_support(config: ArmsRunConfig) -> None:
-    """Reject sampling flags the answer provider would refuse on every answer."""
+def check_sampling_support(config: ArmsRunConfig) -> ArmsRunConfig:
+    """Reject sampling flags the answer provider would refuse on every answer, except a seed
+    an API route does not take: that run goes on unseeded, warned once and recorded as
+    ``unsupported_seed``. Returns the config to run."""
     from dokimi.llm import sampling_refusals
-    from dokimi.llm_sampling import refusal_clause
+    from dokimi.llm_sampling import refusal_clause, warn_seed_dropped
 
     bad = sampling_refusals(
         config.model, config.provider,
         temperature=config.temperature,
         seed=config.seed,
     )
+    seed_dropped = "seed" in bad and cli_backend(config.provider) is None
+    if seed_dropped:
+        del bad["seed"]
     if bad:
         raise ValueError(
             f"Provider '{config.provider}' does not support {refusal_clause(bad)} for "
             f"model '{config.model}'. Drop the flag(s); every answer would "
             "otherwise fail and the report would show null scores."
         )
+    if seed_dropped:
+        warn_seed_dropped(config.model, config.provider)
+        config = replace(config, seed=None, unsupported_seed=config.seed)
     probe_sampling(config.model, config.provider, config.temperature, config.seed)
+    return config
 
 
 @functools.lru_cache(maxsize=None)
@@ -464,7 +475,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
         check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
     refuse_cli_arms(config, treatments)
-    check_sampling_support(config)
+    config = check_sampling_support(config)
     judge = None
     if config.judge:
         _check_judge(config, questions)
@@ -483,6 +494,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
         stats_correction=config.stats_correction,
         temperature=config.temperature,
         seed=config.seed,
+        unsupported_seed=config.unsupported_seed,
         session_turns=config.session_turns,
         turn_reminder=config.turn_reminder,
     )
