@@ -381,23 +381,36 @@ def load_outcomes(path: Path) -> dict[str, bool]:
     return data
 
 
+def _refuse_shared_spellings(run: Run, spellings: list[str], names: list[str], stems: list[str]) -> None:
+    """A bare name or stem several runs share is no path, whatever the cwd resolves it to."""
+    for k in spellings:
+        for same in (names, stems):
+            if k != run.name and k in same and same.count(k) > 1:
+                raise ValueError(f"outcome key {k!r} matches {same.count(k)} runs; "
+                                 "use the full path of the trace")
+
+
 def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     """Set each run's result from the verifier; returns the runs it had no verdict for.
 
     A key is a run's path as given, any other spelling of that path (an absolute path for a
-    relatively named trace, a path through a symlink), or its file name or stem. A name or stem several runs share
+    relatively named trace, a path through a symlink or `..`: any path that resolves to the same file), or its file name or stem. A name or stem several runs share
     (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path. Two keys
     that spell one trace's path with different verdicts are refused too.
     """
     names = [Path(r.name).name for r in runs]
     stems = [Path(r.name).stem for r in runs]
+    by_path: dict[str, list[str]] = {}  # resolved path -> the keys that spell it
+    for k in outcomes:
+        by_path.setdefault(os.path.realpath(k), []).append(k)
     missing = []
     for run, name, stem in zip(runs, names, stems, strict=True):
         here = os.path.realpath(run.name)  # one file, however the path is spelled (symlinks, `..`)
-        spellings = [k for k in outcomes if os.path.realpath(k) == here]
+        spellings = sorted(by_path.get(here, []))
+        _refuse_shared_spellings(run, spellings, names, stems)
         if spellings:
             if len({outcomes[k] for k in spellings}) > 1:
-                raise ValueError(f"outcome keys {spellings!r} name the same trace {run.name!r} "
+                raise ValueError(f"outcome keys {spellings!r} name the same trace {here!r} "
                                  "with different verdicts (docs/run-consistency.md, #936)")
             run.passed = outcomes[spellings[0]]
             continue

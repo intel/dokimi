@@ -642,7 +642,10 @@ def test_a_key_through_a_symlink_to_another_directory_does_not_judge_the_trace(t
     """#936: a key must resolve to the trace's own file, not to a lookalike beside a symlink."""
     (tmp_path / "example").mkdir()
     (tmp_path / "other/sub").mkdir(parents=True)
-    (tmp_path / "example/link").symlink_to(tmp_path / "other/sub")
+    try:
+        (tmp_path / "example/link").symlink_to(tmp_path / "other/sub")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available here")
     (tmp_path / "other/trace.jsonl").write_text("")
     r = _run(str(tmp_path / "example/trace.jsonl"), EDIT)
     assert apply_outcomes([r], {str(tmp_path / "example/link/../trace.jsonl"): True}) == [r.name]
@@ -653,3 +656,23 @@ def test_a_key_through_a_symlink_to_another_directory_does_not_judge_the_trace(t
     t = _run(str(tmp_path / "alias/trace.jsonl"), EDIT)
     assert apply_outcomes([t], {str(tmp_path / "real/trace.jsonl"): False}) == []
     assert t.passed is False
+
+
+def test_a_bare_name_shared_by_two_runs_is_refused_even_when_it_resolves_in_the_cwd(tmp_path, monkeypatch):
+    """#936: `1.jsonl` resolves to one run from the cwd, but two runs share that name."""
+    (tmp_path / "base").mkdir()
+    monkeypatch.chdir(tmp_path)
+    runs = [_run(str(tmp_path / "1.jsonl"), EDIT), _run(str(tmp_path / "base/1.jsonl"), EDIT)]
+    with pytest.raises(ValueError, match="matches 2 runs"):
+        apply_outcomes(runs, {"1.jsonl": True, str(tmp_path / "base/1.jsonl"): False})
+    with pytest.raises(ValueError, match="matches 2 runs"):
+        apply_outcomes(runs, {"1": True, str(tmp_path / "base/1.jsonl"): False})
+
+
+def test_keys_equal_to_each_runs_relative_path_judge_each_run(tmp_path, monkeypatch):
+    """A key that is a run's own path as given is no shared name: each verdict goes to its run."""
+    (tmp_path / "base").mkdir()
+    monkeypatch.chdir(tmp_path)
+    runs = [_run("1.jsonl", EDIT), _run("base/1.jsonl", EDIT)]
+    assert apply_outcomes(runs, {"1.jsonl": True, "base/1.jsonl": False}) == []
+    assert [r.passed for r in runs] == [True, False]

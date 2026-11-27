@@ -66,7 +66,7 @@ run passes when the harness ended cleanly (`result` event, `success`), which
 says the agent stopped, not that the task is done. The report says which source
 it used. A run that made tool calls but wrote no `result` event (it crashed,
 timed out or was cut off) counts as failed without `--outcomes`, so it cannot drop
-out of the pass rate; the table shows `runs` and `judged`. A key may spell the path as given on the command line or as an absolute path. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
+out of the pass rate; the table shows `runs` and `judged`. A key may spell the trace's path any way that resolves to the same file: as given on the command line, as an absolute path, or through a symlink or `..`. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
 is refused: key those by full path. Two keys that spell one trace's path with different verdicts are refused.
 
 ## Strategies
