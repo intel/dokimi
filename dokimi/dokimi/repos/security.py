@@ -79,7 +79,8 @@ _GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|" + _OPT + r"\S+\s+)"
 _GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|" + _OPT + r"\S+" + _NL + r"+)"
 # an option with a newline in one of its gaps
 _GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*" + _ARG + r"\s+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
-_GIT_PUSH = r"\bgit\s+" + _GIT_OPT + r"*push\b"
+# `git [options] push` within one line, ending at its first `push` word: `-C` is taken alone before it takes `push` as its argument (#1267)
+_GIT_PUSH = r"(?>\bgit" + _NL + r"+(?:" + _OPT + r"\S+" + _NL + r"+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"+)*?push\b)"
 _GIT_PUSH_ACROSS_LINES = (r"\bgit(?:" + _NL + r"*\n\s*" + _GIT_OPT + r"*|" + _NL + r"+" + _GIT_OPT_NO_NL + r"*" + _GIT_OPT_NL + _GIT_OPT + r"*)push\b")
 _DOCKER_RUN = r"\bdocker\s+(?:container\s+)?(?:run|create)\b"
 _DOCKER_RUN_ACROSS_LINES = (r"\bdocker(?:" + _NL + r"*\n\s*(?:container\s+)?|" + _NL + r"+container" + _NL + r"*\n\s*)(?:run|create)\b")
@@ -101,6 +102,8 @@ _COMMIT_ARG = _ARG
 _COMMIT_ARG_LOCAL = r"(?!\S*\bgit\s)[^\s;&|-][^\s;&|]*"
 _COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|" + _OPT + r"\S+\s+)"
 _COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|" + _OPT + r"[^\s;&|]+" + _NL + r"+)"
+# the same options with the word first, for the lazy loop of `local` below: `-C` followed by the subcommand's name ends the opener at that name
+_COMMIT_OPT_LOCAL_WORD_FIRST = r"(?:" + _OPT + r"[^\s;&|]+" + _NL + r"+|-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+)"
 _COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
 
 
@@ -108,8 +111,9 @@ def _first_in_segment(sub: str, closers: str) -> str:
     """``git [options] <sub>`` then ``closers``, the opener tried from the first one of each segment only (#1161, #1212): a later one finds its closers only where the first does.
 
     An opener with a `;`, `&`, `|` or newline in a word or a gap ends in a later segment than it starts in: ``across`` is tried from each `git`.
+    ``local`` ends at its first `<sub>` word, an option `-C` taking the word as its own and not its argument: a later end (`git -C push -C push`) finds its closers only where the first does (#1267).
     """
-    local = r"\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*" + sub + r"\b"
+    local = r"(?>\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL_WORD_FIRST + r"*?" + sub + r"\b)"
     across = (
         r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
         r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
