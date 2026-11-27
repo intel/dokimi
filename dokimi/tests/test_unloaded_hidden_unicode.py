@@ -117,3 +117,21 @@ def test_cli_row_of_unloaded_skill_has_one_load_error_and_no_not_loaded(tmp_path
     [subject] = [s for s in doc["subjects"] if s["subject"] == "bad"]
     assert [f["code"] for f in subject["findings"]] == ["load-error", "hidden-unicode"]
     assert "not-loaded" not in doc["data"]["rates"]["codes"]
+
+
+def test_broken_root_skill_does_not_pull_other_checkout_files_into_the_report(tmp_path):
+    """A broken SKILL.md at the checkout root scans only itself: the files beside it belong to the checkout."""
+    (tmp_path / "SKILL.md").write_text(BROKEN, encoding="utf-8")
+    (tmp_path / "notes.md").write_text("hi " + chr(0x202E) + " x\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("hi " + chr(0x200B) + " x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None and [f.code for f in review.findings] == ["frontmatter-parse"]
+
+
+def test_missing_description_skill_with_clean_files_gets_no_review(tmp_path):
+    """A skill that fails to load with clean bundled files keeps only the loader's error: no review is added."""
+    (tmp_path / "skills" / "bad").mkdir(parents=True)
+    (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\nbody\n", encoding="utf-8")
+    (tmp_path / "skills" / "bad" / "notes.md").write_text("hi there\n", encoding="utf-8")
+    assert review_skills(read_skill_manifest(tmp_path)) == [None]
