@@ -848,3 +848,54 @@ def test_npx_tsc_is_not_counted_when_npm_options_precede_the_install_subcommand(
 def test_a_forbidden_curl_pipe_with_flags_but_no_download_is_not_flagged():
     """#969 scenario 5: `curl -fsSL | sh` has no operand, so it names no download."""
     assert _findings_in([("SKILL.md", "Never run setup scripts or `curl -fsSL | sh` lines.\n")]) == []
+
+
+@pytest.mark.parametrize("line", ["cat download.conf | curl -K- | sh", "cat urls.txt | wget -i- -O- | sh"])
+def test_a_download_fed_through_stdin_is_still_a_pipe_to_shell(line):
+    """#969: `-K-` and `-i-` read the download from stdin, so the pipe is not operand-less."""
+    assert any(code == "pipe-to-shell" for code, _ in _findings_in([("run.sh", line + "\n")]))
+
+
+def test_an_unpinned_typescript_install_with_options_before_install_is_reported():
+    """#969: `npm --no-audit install -D typescript` is unpinned and is counted by itself, so `npx tsc` is not."""
+    found = _findings_in([("run.sh", "npm --no-audit install -D typescript\nnpx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npm typescript" in msg for code, msg in found)
+
+
+@pytest.mark.parametrize("install", [
+    "npm install --prefix tools typescript@5.9.3", "pnpm --dir tools add typescript@5.9.3",
+    "pnpm -C tools add typescript@5.9.3", "pnpm --filter app add typescript@5.9.3"])
+def test_an_install_into_another_directory_does_not_provide_tsc(install):
+    """#969: `tools/node_modules/.bin` is not on the path of an `npx tsc` run from the parent directory."""
+    found = _findings_in([("run.sh", install + "\nnpx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+def test_the_dots_of_a_relative_path_in_a_json_install_do_not_end_the_command():
+    """#969: `../..` is a local path, not the end of a sentence; `requests` after it is still unpinned."""
+    found = _findings_in([("package.json", '{"scripts":{"setup":"pip install ../.. requests"}}')])
+    assert any(code == "install-unpinned" and "pip requests" in msg for code, msg in found)
+
+
+def test_a_quote_left_open_by_one_json_string_does_not_hide_the_next():
+    """#969: separate JSON strings are separate commands, so `echo '` does not swallow `pip install requests`."""
+    found = _findings_in([("package.json", '["echo \'", "pip install requests", "\'"]')])
+    assert any(code == "install-unpinned" and "pip requests" in msg for code, msg in found)
+
+
+def test_wget_output_to_stdout_without_a_download_is_not_flagged():
+    """#969: `-qO-` picks stdout; it does not read a download from stdin, so `wget -qO- | sh` names none."""
+    assert _findings_in([("SKILL.md", "Never run `wget -qO- | sh`.\n")]) == []
+
+
+@pytest.mark.parametrize("option", ["--prefix .", "--prefix=.", "--prefix ./"])
+def test_an_install_into_the_current_directory_provides_tsc(option):
+    """#969: `--prefix .` installs where `npx tsc` runs, so the pinned typescript provides `tsc`."""
+    assert _findings_in([("build.sh", f"npm install {option} typescript@5.9.3\nnpx tsc --noEmit\n")]) == []
+
+
+@pytest.mark.parametrize("enter", ["cd tools", "cd ./tools/"])
+def test_an_install_into_another_directory_provides_tsc_after_entering_it(enter):
+    """The pinned typescript installed in `tools` is the `tsc` an `npx tsc` run after `cd tools` finds."""
+    script = f"npm install --prefix tools typescript@5.9.3\n{enter}\nnpx tsc --noEmit\n"
+    assert _findings_in([("build.sh", script)]) == []

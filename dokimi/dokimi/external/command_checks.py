@@ -65,9 +65,9 @@ _PIPE_TO = (
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
 )
-# ``curl`` or ``wget`` with nothing but flags before the pipe (``curl -fsSL | sh``) names no download: a sentence that forbids it.
+# ``curl -fsSL | sh`` (only flags) names no download; ``-K-`` and ``-i-`` read one from stdin, so they are no such flag.
 PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?!(?:(?:[ \t]|\\\r?\n)+-[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    r"\b(?:curl|wget)\b(?!(?:(?:[ \t]|\\\r?\n)+-(?![\w-]*[Ki]-(?![\w-]))[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
@@ -85,7 +85,6 @@ PERMISSION_BYPASS = re.compile(
 # requirement marker (``'flask; python_version >= "3.10"'``) does not end the install
 WORDS = r"((?:'[^'\n]*'|\"[^\"\n]*\"|[^\n;&|`#\\]|\\\r?\n|\\[^\n]){0,1000})"
 PIP = re.compile(r"(?<![\w.-])(?:python3?(?:\.\d+)?[ \t]+-m[ \t]+pip|uv[ \t]+pip|pip3?(?:\.\d+)?)[ \t]+install\b" + WORDS)
-NPM = re.compile(r"(?<![\w.-])npm[ \t]+(?:install|i|add)\b" + WORDS)
 NPX = re.compile(r"(?<![\w.-])npx\b" + WORDS)
 PIP_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?(.*)")
 PIP_VERSION = re.compile(r"\s*(?:===|==|>=|<=|~=|!=|<|>|@)")
@@ -121,13 +120,15 @@ def _pnpm_options(value_options: frozenset[str]) -> str:
     )
 
 
-# ``npm`` with options before the subcommand (``npm --no-audit install``): read for the packages it installs only
-NPM_OPTIONS_INSTALL = re.compile(
+# ``npm`` with options before the subcommand (``npm --no-audit install``)
+NPM = re.compile(
     r"(?<![\w.-])npm" + _pnpm_options(NPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 PNPM = re.compile(r"(?<![\w.-])pnpm" + _pnpm_options(PNPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 # ``pnpm dlx`` and ``pnpx`` run a package as ``npx`` does; ``--package`` before ``dlx`` is a selection (group 1)
 PNPM_DLX = re.compile(
     r"(?<![\w.-])(?:pnpm(" + _pnpm_options(PNPM_VALUE_OPTIONS | {"--package", "-p"}) + r")[ \t]+dlx|pnpx)\b" + WORDS)
+# options that install somewhere other than the directory the next ``npx`` runs in
+LOCATION_OPTIONS = frozenset({"--prefix", "--dir", "-C", "--workspace", "-w", "--workspaces", "--filter", "-F"})
 # A program ``npx`` runs that an install in the same file provides: ``tsc`` is the ``typescript`` package's, so
 # ``pkg@1.2.3`` applied to ``tsc`` would name another package.
 BIN_PROVIDERS = {"tsc": "typescript", "tsserver": "typescript"}
@@ -292,6 +293,47 @@ def _installed_npm(rest: str, value_options: frozenset[str]) -> set[str]:
         if match and not (match.group(2) or "").startswith("npm:"):  # an alias installs another package
             names.add(match.group(1))
     return names
+
+
+def _installs_here(call: str, pnpm: bool = False) -> bool:
+    """Whether an ``npm``/``pnpm`` install puts its packages where a later ``npx`` finds them: one aimed at another
+    directory or workspace (``--prefix tools``, ``--dir``, ``-C``, ``--workspace``, ``--filter``) does not.
+    pnpm's ``-w`` is a flag for the workspace root, not a target."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    targets = LOCATION_OPTIONS - ({"-w"} if pnpm else set())
+    here = (".", "./")  # the current directory is where ``npx`` runs
+    for i, w in enumerate(words):
+        name, eq, value = w.partition("=")
+        if name in targets and name.startswith("--") and eq:
+            if value not in here:
+                return False
+        elif w in targets and (i + 1 >= len(words) or words[i + 1] not in here):
+            return False
+    return True
+
+
+def _install_dir(call: str) -> str | None:
+    """The directory a ``--prefix``/``--dir``/``-C`` install targets, or None when it names none."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    for i, w in enumerate(words):
+        name, eq, value = w.partition("=")
+        if name in ("--prefix", "--dir") and eq:
+            return value.removeprefix("./").rstrip("/") or None
+        if w in ("--prefix", "--dir", "-C") and i + 1 < len(words):
+            return words[i + 1].removeprefix("./").rstrip("/") or None
+    return None
+
+
+def _entered(code: str, start: int, end: int, directory: str) -> bool:
+    """Whether ``code[start:end]`` holds a ``cd`` into ``directory``, so a later ``npx`` runs where it was installed."""
+    return any(m.group(1).removeprefix("./").rstrip("/") == directory
+               for m in re.finditer(r"(?<![\w.-])cd[ \t]+['\"]?([^\s;&|'\"]+)", code[start:end]))
 
 
 def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
@@ -473,15 +515,18 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
     offset moves."""
     code = _without_printed(code)
-    installed = {n for m in NPM_OPTIONS_INSTALL.finditer(code) for n in _installed_npm(m.group(1), NPM_VALUE_OPTIONS)}
-    installed |= {n for m in PNPM.finditer(code) for n in _installed_npm(m.group(1), PNPM_VALUE_OPTIONS)}
+    installed = {n for m in NPM.finditer(code) if _installs_here(m.group(0)) for n in _installed_npm(m.group(1), NPM_VALUE_OPTIONS)}
+    installed |= {n for m in PNPM.finditer(code) if _installs_here(m.group(0), True) for n in _installed_npm(m.group(1), PNPM_VALUE_OPTIONS)}
+    elsewhere = [(m.end(), _install_dir(m.group(0)), _installed_npm(m.group(1), NPM_VALUE_OPTIONS))
+                 for m in NPM.finditer(code) if not _installs_here(m.group(0))]
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
     found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=installed)])
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=installed | {
+        n for end, d, names in elsewhere if d and end <= m.start() and _entered(code, end, m.start(), d) for n in names})])
               for m in NPX.finditer(code)]
     return found
 
@@ -505,7 +550,8 @@ def _cut_sentences(item: str) -> str:
             quote = "" if c == quote else quote
         elif c in "'\"" and (i == 0 or item[i - 1] in " \t\n="):
             quote = c
-        elif c in ",.!?" and i > 0 and not item[i - 1].isspace() and item[i + 1:i + 2] in ("", " ", "\t", "\n", "\r"):
+        elif (c in ",.!?" and i > 0 and not item[i - 1].isspace() and item[i + 1:i + 2] in ("", " ", "\t", "\n", "\r")
+              and not (c == "." and item[i - 1] in "./")):  # the dot of a path (``..``, ``../..``) ends nothing
             c = "\n"
         out.append(c)
     return "".join(out)
@@ -524,7 +570,7 @@ def _json_text(text: str) -> str:
     while stack:
         item = stack.pop()
         if isinstance(item, str):
-            lines.append(_cut_sentences(item))
+            lines += [_cut_sentences(item), BLOCK_END]  # a quote one string opens never closes in the next
         elif isinstance(item, dict):
             stack += [*item.values(), *item.keys()]
         elif isinstance(item, list):
