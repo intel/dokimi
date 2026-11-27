@@ -303,6 +303,11 @@ def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
     assert summary["overall"]["n"] == 3
 
 
+def test_ranking_never_ranks_a_renamed_skill_from_its_measurement_before_an_edit():
+    rows = [_ok("a", 0.9, digest="d1"), _ok("a", 0.2, digest="d2"), _ok("b", 0.2, digest="d2")]
+    assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("b", 0.2)]
+
+
 def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
     rows = [_ok("a", 0.5, tokens=800, digest="a"), _row("a", "error")]
     assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]

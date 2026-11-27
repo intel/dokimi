@@ -217,11 +217,12 @@ def group_stats(rows: list[dict], *, resamples: int = RESAMPLES) -> dict[str, An
 RANK_LINES = 10
 
 
-def ranking(rows: Iterable[dict]) -> list[dict]:
+def ranking(rows: Iterable[dict], kept: Iterable[dict]) -> list[dict]:
     """Measured skills ranked by descending new share, one entry per key.
 
     A skill measured by more than one sweep into the same JSONL is ranked from its latest ``ok`` row
-    (the last in file order). A row needs a measured new share and a positive token count to qualify.
+    (the last in file order). A key whose latest row is not in *kept* (a later rename took its
+    bundle) is left out. A row needs a measured new share and a positive token count to qualify.
     The sort uses the stored ``new_lenient`` value (rounded to six decimal places when measured).
     Equal shares sort by smaller token count, then by key.
     """
@@ -229,10 +230,11 @@ def ranking(rows: Iterable[dict]) -> list[dict]:
     for r in rows:
         if r["status"] == "ok":
             latest[r["key"]] = r
+    survivors = {id(r) for r in kept}
     scored = [
         {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"]}
         for r in latest.values()
-        if r["new_lenient"] is not None and r.get("tokens")
+        if r["new_lenient"] is not None and r.get("tokens") and id(r) in survivors
     ]
     scored.sort(key=lambda s: (-s["new_lenient"], s["tokens"], s["key"]))
     return scored
@@ -305,7 +307,7 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
         "usd": round(sum(r["usd"] for r in rows), 6),
         "overall": group_stats(measured, resamples=resamples) if measured else None,
         "strata": None,
-        "ranking": ranking(latest.values()),
+        "ranking": ranking(rows, kept=latest.values()),
     }
     if strata is not None:
         groups: dict[str, list[dict]] = {}
