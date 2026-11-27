@@ -3,7 +3,7 @@
 
 """Regex pieces of the command rules of :mod:`dokimi.repos.security`, kept apart for the length of that file.
 
-A rule's scan must be linear in the length of the command line: it starts at one place of each segment of the line, not at every keyword, so a line of repeated keywords is read once (#688).
+A rule's scan must be linear in the length of the command line: it starts at one place of each segment of the line, not at every keyword, so a line of repeated keywords is read once (#688, #1269).
 """
 
 from __future__ import annotations
@@ -14,6 +14,14 @@ SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|pro
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
 #: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
 CLEANUP_PARTS = r"\.?cache|lists|pkgs|tmp|site-packages|dist-packages|__pycache__"
+#: A pip option whose value is a URL that is no package (an index or a links page).
+PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
+#: ``pip install`` followed by a blank. unpinned-install starts at the first one after the start of its segment (a newline, `;`, `&`, `|`)
+#: or after an option word `-i=` that no word can follow (:data:`PIP_STUCK`): a later one reads the same words from there (#1269).
+PIP_INSTALL = r"\bpip3?" + BLANKS + r"install\b(?=" + BLANKS + r")"
+PIP_STUCK = r"(?<!\S)(?:" + PIP_URL_OPTS + r")=(?!\S)"
+#: pipe-to-shell starts at the first download of a segment (up to `|`, `;` or `&`): a later one reaches the same `|` (#1269).
+DOWNLOAD = r"\b(?:curl|wget)\b"
 
 _RM_FLAG = r"(?:-[a-z]*r[a-z]*|--recursive)"
 # the words after the recursive flag, up to a target: /, /*, ~, ~/, $HOME[/][*] or a system directory, bare or with a path under it that is no cache

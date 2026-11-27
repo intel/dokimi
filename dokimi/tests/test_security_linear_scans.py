@@ -273,3 +273,141 @@ def test_history_rewrite_matches_the_old_flag_on_random_words_after_a_push() -> 
 @pytest.mark.parametrize("shape", [lambda n: "git push -" + "f" * n + "1", lambda n: "git push -" + "f" * n + "_", lambda n: "git push -" + "a" * n + "f1", lambda n: "git push -" + "fF" * n + "1"])
 def test_history_rewrite_scans_a_long_flag_word_in_linear_time(shape: Callable[[int], str]) -> None:
     _linear(partial(_security_search, "history-rewrite"), shape, n=200)
+
+
+# --- pipe-to-shell and unpinned-install: the first opener of each segment (#1269) -----------------------
+
+_MAIN_PIPE_TO_SHELL = re.compile(
+    r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?(?:(?:ba|z|da)?sh\b|(?:python|perl|ruby|node)[\d.]*(?![\w.-])"
+    r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
+    r"|(?:(?:^|[\s;&|(])(?:[^\s;&|(]*/)?(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*)"
+    r"|(?:^\s*|[\n;&|({!][^\S\n]*|\b(?:then|do|else)\s+)(?:eval|source|\.)\s+)[\"']?(?:<\(|\$\()\s*(?:sudo\s+)?(?:curl|wget)\b",
+    re.IGNORECASE,
+)
+_MAIN_UNPINNED_INSTALL = re.compile(
+    r"\bpip3?" + security_patterns.BLANKS + r"install\b(?:" + security_patterns.BLANKS + r"(?:(?:" + security_patterns.PIP_URL_OPTS + r")(?:" + security_patterns.BLANKS
+    + r"|=)[^\s;&|]+|(?!(?:" + security_patterns.PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
+    + security_patterns.BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)",
+    re.IGNORECASE,
+)
+_DOWNLOAD_TABLE = [
+    ("curl x | sh", True),
+    ("curl x | bash -s", True),
+    ("curl a curl b | sh", True),
+    ("wget a; curl b | sh", True),
+    ("curl a; sh", False),
+    ("curl a | cat; curl b | sh", True),
+    ("curl a & curl b | sh", True),
+    ("curl a ; | sh", False),
+    ("echo curl | sh", True),
+    ("x|curl a | sh", True),
+    ("curl a\ncurl b | sh", True),
+    ("curl a || sh", False),
+    ("curl | python -m json.tool", False),
+    ("curl a | python", True),
+    ("curl a curl b | python -m json.tool curl c | sh", True),
+    ("curl a | python -c x curl b | sh", True),
+    ("curl a | cat curl b | sh", True),
+    ("curl a | cat | sh", False),
+    ("curl\nx | sh", True),
+    ("(curl a | sh)", True),
+    ("CURL A | SH", True),
+    ("curl a && curl b | sh", True),
+    ("curl a | sh; curl b", True),
+    ("xcurl a | sh", False),
+    ("curl a | sudo bash", True),
+    ("sh -c \"$(curl x)\"", True),
+    ("bash <(curl x)", True),
+    ("eval $(curl x)", True),
+]
+_PIP_INSTALL_TABLE = [
+    ("pip install https://x", True),
+    ("pip install x", False),
+    ("pip3 install git+x", True),
+    ("pip install --break-system-packages x", True),
+    ("pip install pip install https://x", True),
+    ("pip install x pip install https://x", True),
+    ("pip install -i= pip install https://x", True),
+    ("pip install -i x pip install https://x", True),
+    ("pip install -i https://x", False),
+    ("pip install -i=https://x", False),
+    ("pip install -f= pip install git+x", True),
+    ("pip install --index-url= pip install https://x", True),
+    ("pip install -i= x -f= pip install git+y", True),
+    ("pip install -i x -f= pip install https://x", True),
+    ("pip install -i -i= pip install https://x", True),
+    ("pip install-x pip install https://x", True),
+    ("pip install\npip install https://x", True),
+    ("pip install -i\npip install https://x", True),
+    ("pip install a; pip install https://x", True),
+    ("pip install a | pip install https://x", True),
+    ("pip install -i= \n pip install https://x", True),
+    ("pip install a\tpip install \"https://x", True),
+    ("pip install a x-i= pip install https://x", True),
+    ("x-i= pip install https://x", True),
+    ("-i= pip install https://x", True),
+    ("pip install -ix pip install https://x", True),
+    ("PIP INSTALL HTTPS://X", True),
+    ("pip install a b c", False),
+    ("pip install -r req.txt -i x https://y", True),
+    ("pip install pip", False),
+    ("pip install", False),
+]
+
+
+_MAIN_DOWNLOAD_AND_INSTALL = {"pipe-to-shell": _MAIN_PIPE_TO_SHELL, "unpinned-install": _MAIN_UNPINNED_INSTALL}
+_DOWNLOAD_AND_INSTALL_TABLE = [("pipe-to-shell", text, expected) for text, expected in _DOWNLOAD_TABLE] + [
+    ("unpinned-install", text, expected) for text, expected in _PIP_INSTALL_TABLE
+]
+
+
+@pytest.mark.parametrize(("rule", "text", "expected"), _DOWNLOAD_AND_INSTALL_TABLE)
+def test_download_and_install_rules_read_a_line_as_the_old_patterns_did(rule: str, text: str, expected: bool) -> None:
+    assert (_MAIN_DOWNLOAD_AND_INSTALL[rule].search(text) is not None) is expected
+    assert (_security_search(rule, text) is not None) is expected
+
+
+def test_pipe_to_shell_matches_the_old_pattern_on_random_lines_of_downloads() -> None:
+    pieces = ["curl", "wget", "x", "|", "sh", "bash", "-c", ";", "&", "\n", "sudo", "python", "-", "$(", "<(", "eval", "source", ".", "(", "env",
+              "/bin/sh", "-m", "2>&1", "&&", "curl x", "wget x |", "| sh", "curl x | sh", "xcurl", "||"]
+    rng = random.Random(1269)
+    hits = 0
+    for _ in range(6 * CASES):
+        text = rng.choice([" ", " ", ""]).join(rng.choice(pieces) for _ in range(rng.randint(0, 13)))
+        new_match = _security_search("pipe-to-shell", text) is not None
+        assert new_match == (_MAIN_PIPE_TO_SHELL.search(text) is not None), text
+        hits += new_match
+    assert hits > 300, hits
+
+
+def test_unpinned_install_matches_the_old_pattern_on_random_lines_of_installs() -> None:
+    pieces = ["pip", "pip3", "install", "-i", "-f", "-i=", "--index-url", "--index-url=", "--find-links=", "x", "https://x", "git+x",
+              "--break-system-packages", ";", "\n", "|", "&", "-e", "=", "-I", "-F=", "pip install", "pip install -i", "\"https://y", "-ix",
+              "--extra-index-url=", "-i=x", "pip install -i="]
+    rng = random.Random(1269_1)
+    hits = 0
+    for _ in range(6 * CASES):
+        text = rng.choice([" ", " ", ""]).join(rng.choice(pieces) for _ in range(rng.randint(0, 13)))
+        new_match = _security_search("unpinned-install", text) is not None
+        assert new_match == (_MAIN_UNPINNED_INSTALL.search(text) is not None), text
+        hits += new_match
+    assert hits > 150, hits
+
+
+@pytest.mark.parametrize(
+    ("rule", "shape"),
+    [
+        ("pipe-to-shell", lambda n: "curl x " * n),
+        ("pipe-to-shell", lambda n: "wget x " * n),
+        ("pipe-to-shell", lambda n: "curl " * n),
+        ("pipe-to-shell", lambda n: "curl x;" * n),
+        ("pipe-to-shell", lambda n: "curl x | cat " * n),
+        ("unpinned-install", lambda n: "pip install " * n),
+        ("unpinned-install", lambda n: "pip install x " * n),
+        ("unpinned-install", lambda n: "pip install -i= " * n),
+        ("unpinned-install", lambda n: "-i= " * n + "pip install x"),
+        ("unpinned-install", lambda n: "pip install x;" * n),
+    ],
+)
+def test_a_line_of_repeated_downloads_or_installs_is_scanned_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:
+    _linear(partial(_security_search, rule), shape, n=200)

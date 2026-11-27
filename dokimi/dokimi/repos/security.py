@@ -41,7 +41,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from .event_format import followed_path
 from .held_guidance import HeldGuidance
-from .security_patterns import BLANKS, RM_RECURSIVE
+from .security_patterns import BLANKS, DOWNLOAD, PIP_INSTALL, PIP_STUCK, PIP_URL_OPTS, RM_RECURSIVE
 
 SEVERITIES = ("critical", "high", "medium")
 
@@ -135,8 +135,6 @@ _HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*
 _HOME_STAND_IN = "/home/__user__"  # a stand-in home two levels deep: ~/../alice is /home/alice, as on a host
 #: ``>``, ``2>``, ``>>``, ``&>``, ``>|`` with their file, or ``2>&1``.
 _REDIRECT = re.compile(r"(?:\d+|&)?>>?\|?(?:&\d*-?|\s*[^\s;&|<>()`]+)")
-#: A pip option whose value is a URL that is no package (an index or a links page).
-_PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
 
 #: Rules over a command line, from the tool-call trace or the execve log.
 COMMAND_RULES: tuple[Rule, ...] = (
@@ -149,7 +147,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("pipe-to-shell", "high", "download piped into a shell",
          # an interpreter reads a piped program only when it has no script or code argument (`python3 -m json.tool`
          # and `perl -pe` process the data); a shell, eval or source runs a download taken as its command substitution
-         _rx(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
+         _rx(r"(?:^|[|;&])(?:(?!" + DOWNLOAD + r")[^|;&])*" + DOWNLOAD + r"[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
              r"(?:(?:ba|z|da)?sh\b|(?:python|perl|ruby|node)[\d.]*(?![\w.-])"
              # a bare `-` is stdin, not an option, and a redirect (`2>&1`, `> log`) is no argument
              r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
@@ -161,8 +159,9 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
-         _rx(r"\bpip3?" + BLANKS + r"install\b(?:" + BLANKS + r"(?:(?:" + _PIP_URL_OPTS + r")(?:" + BLANKS
-             + r"|=)[^\s;&|]+|(?!(?:" + _PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
+         _rx(r"(?:^|[\n;&|]|" + PIP_STUCK + r")(?:(?!" + PIP_INSTALL + r")(?!" + PIP_STUCK + r")[^\n;&|])*" + PIP_INSTALL
+             + r"(?:" + BLANKS + r"(?:(?:" + PIP_URL_OPTS + r")(?:" + BLANKS
+             + r"|=)[^\s;&|]+|(?!(?:" + PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
              + BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
     # flags in any number of tokens, one of them recursive; then a target among the words: /, /*, ~, ~/,
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (security_patterns.CLEANUP_PARTS)
