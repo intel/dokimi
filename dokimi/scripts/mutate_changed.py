@@ -82,6 +82,7 @@ _CMP_SWAP: dict[type, type] = {
 _CMP_EDGE: dict[type[ast.cmpop], type[ast.cmpop]] = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt}
 # Calls whose removal no test should notice: a log line is not behaviour.
 _LOG_ROOTS = frozenset({"log", "logger", "logging", "warnings", "_log", "_logger", "LOG", "LOGGER"})
+_LOG_METHODS = frozenset({"debug", "info", "warning", "warn", "error", "exception", "critical", "fatal", "log"})
 ELEMENT_DROPS = 3  # elements dropped from one literal collection: first, middle, last
 
 
@@ -192,8 +193,9 @@ def _logic_edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
 
 
 def _text_default(node: ast.BoolOp) -> bool:
-    """``value or "text"``: a fallback text, not a decision; its mutants survive on every line that prints a default."""
-    return isinstance(node.op, ast.Or) and any(isinstance(v, ast.Constant) and isinstance(v.value, str) for v in node.values)
+    """``value or "text"``: a trailing fallback text, not a decision; its mutants survive on every line that prints a default."""
+    last = node.values[-1]
+    return isinstance(node.op, ast.Or) and isinstance(last, ast.Constant) and isinstance(last.value, str)
 
 
 def _value_edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
@@ -233,6 +235,8 @@ def _is_log_call(call: ast.Call) -> bool:
     func = call.func
     if isinstance(func, ast.Name):
         return func.id == "print"
+    if not isinstance(func, ast.Attribute) or func.attr not in _LOG_METHODS:  # `warnings.append` collects results
+        return False
     while isinstance(func, ast.Attribute):
         func = func.value
     return isinstance(func, ast.Name) and func.id in _LOG_ROOTS
@@ -360,12 +364,13 @@ def waive(mutants: list[Mutant], sources: dict[str, str], report: dict) -> None:
     bare = report.setdefault("waivers_without_reason", [])
     for m in mutants:
         reason = marks.get(m.path, {}).get(m.line)
-        if m.status != "survived" or reason is None:
+        if reason is None:
             continue
-        if reason:
+        if not reason:
+            if f"{m.path}:{m.line}" not in bare:
+                bare.append(f"{m.path}:{m.line}")
+        elif m.status == "survived":
             m.status, m.waiver = "waived", reason
-        elif f"{m.path}:{m.line}" not in bare:
-            bare.append(f"{m.path}:{m.line}")
 
 
 def candidate_tests(paths: list[str], tests_dir: Path) -> list[str]:
@@ -604,6 +609,13 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")[:CELL]
 
 
+def _code(text: str) -> str:
+    """``text`` as a code span whose fence is longer than any backtick run inside it."""
+    t = _cell(text)
+    fence = "`" * (max((len(r) for r in re.findall("`+", t)), default=0) + 1)
+    return f"{fence} {t} {fence}"
+
+
 def _tables(ms: list[dict], bare: list[str]) -> list[str]:
     """The survivor and waived tables of the summary, each after its line on what to do."""
     out = []
@@ -618,7 +630,7 @@ def _tables(ms: list[dict], bare: list[str]) -> list[str]:
     if waived := [m for m in ms if m["status"] == "waived"]:
         out.append("Waived by `mutation-ok`:\n\n| Line | Operator | Was | Became | Reason |\n|---|---|---|---|---|")
         out += [f"| `{m['path']}:{m['line']}` | {m['op']} | `{_cell(m['original'])}` | `{_cell(m['replacement'])}` "
-                f"| {_cell(m['waiver'])} |" for m in waived]
+                f"| {_code(m['waiver'])} |" for m in waived]
         out.append("")
     if bare:
         out.append("A `mutation-ok:` with no reason waives nothing: " + ", ".join(f"`{b}`" for b in bare) + "\n")

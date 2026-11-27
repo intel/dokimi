@@ -877,7 +877,7 @@ def test_markdown_lists_waived_mutants_with_their_reason_and_bare_waivers() -> N
     text = mc.markdown({"mutants": [vars(s), vars(w)], "mutants_covered": 2, "max_mutants": 40, "uncovered_lines": {},
                         "seconds": 1.0, "waivers_without_reason": ["dokimi/dokimi/x.py:3"]})
     assert "**1 survived**, 1 waived" in text and "`# mutation-ok: <reason>`" in text
-    assert "| `dokimi/dokimi/x.py:4` | bump-int | `1` | `2` | a \\| b is the same |" in text
+    assert "| `dokimi/dokimi/x.py:4` | bump-int | `1` | `2` | ` a \\| b is the same ` |" in text
     assert "A `mutation-ok:` with no reason waives nothing: `dokimi/dokimi/x.py:3`" in text
 
 
@@ -888,3 +888,31 @@ def test_the_comment_result_cuts_long_source_text_and_counts_the_tests() -> None
     assert result["survivors"] == [{"path": "p.py", "line": 2, "op": "return-none", "original": "x" * mc.CELL,
                                     "replacement": "None", "tests_run": 2}]
     assert result["counts"]["survived"] == 1 and result["waived"] == [] and result["waivers_without_reason"] == []
+
+
+def test_a_mixed_boolean_with_a_text_in_the_middle_is_still_a_decision() -> None:
+    mutants = mc.mutants_for("x.py", 'if ready or "" or allowed:\n    pass\n', {1})
+    assert any(m.op == "swap-boolop" for m in mutants)
+    assert {m.replacement for m in mutants if m.op == "drop-clause"} == {"('' or allowed)", "(ready or allowed)", "(ready or '')"}
+    assert mc.mutants_for("x.py", "label = name or 'N/A'\n", {1}) == []
+
+
+def test_collecting_into_a_list_named_warnings_is_not_a_log_call() -> None:
+    for src in ('warnings.append("missing evidence")\n', 'warnings.extend(more)\n'):
+        assert [m.op for m in mc.mutants_for("x.py", src, {1}) if m.op == "delete-statement"] == ["delete-statement"]
+    for src in ('warnings.warn("x")\n', 'logger.info("x")\n', 'print("x")\n'):
+        assert not [m for m in mc.mutants_for("x.py", src, {1}) if m.op == "delete-statement"]
+
+
+def test_a_waiver_without_a_reason_is_listed_whatever_the_status_of_its_mutant() -> None:
+    ms = [mc.Mutant("p.py", 1, "bump-int", (1, 4), (1, 5), "2", "1", status="killed")]
+    report: dict = {}
+    mc.waive(ms, {"p.py": "x = 1  # mutation-ok:\n"}, report)
+    assert report["waivers_without_reason"] == ["p.py:1"] and ms[0].status == "killed"
+
+
+def test_markdown_shows_a_waiver_reason_as_a_code_span_that_backticks_cannot_break() -> None:
+    w = mc.Mutant("x.py", 4, "bump-int", (4, 8), (4, 9), "2", "1", status="waived", tests=["t"], waiver="[a](http://x) `b`")
+    text = mc.markdown({"mutants": [vars(w)], "mutants_covered": 1, "max_mutants": 40, "uncovered_lines": {},
+                        "seconds": 1.0})
+    assert "| `` [a](http://x) `b` `` |" in text

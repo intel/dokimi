@@ -88,6 +88,14 @@ def test_many_long_rows_stay_under_githubs_body_limit(tmp_path):
     assert len(body) < 65536 and "more in the [ci run](https://x/run/7) summary." in body
 
 
+def test_both_tables_and_their_notes_stay_within_the_table_cap(tmp_path):
+    row = {**SURVIVOR, "original": "a" * 80, "replacement": "b" * 80, "path": "p" * 200}
+    body = _bodies(_post(tmp_path, _result(survivors=[row] * 150, waived=[{**WAIVED, "reason": "r" * 80}] * 150)))[0]
+    shown = sum(len(ln) + 1 for ln in body.split("\n") if ln.startswith("|") or "more in the" in ln)
+    assert shown <= 55000 + 2 and body.count("more in the") == 2
+    assert "| Line | Operator | Was | Became | Reason |\n|---|---|---|---|---|\n|" in body  # the waived table keeps rows
+
+
 def test_an_error_result_says_the_check_could_not_run_in_the_jobs_own_words(tmp_path):
     body = _bodies(_post(tmp_path, {"pr_number": 12, "head_sha": SHA, "status": "error", "result": None}))[0]
     assert body.startswith(MARKER) and "could not run" in body and "https://x/run/7" in body
