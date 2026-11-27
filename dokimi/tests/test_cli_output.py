@@ -748,6 +748,17 @@ def test_a_cache_dir_starting_with_a_dash_gives_a_step_that_runs(monkeypatch, ca
     assert _exit_code(monkeypatch, [*step["argv"][1:], "--json"]) == 0
 
 
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+def test_a_source_starting_with_a_dash_is_refused_so_no_step_is_built_from_it(monkeypatch, capsys, tmp_path, leaf):
+    repo = _guidance_repo(tmp_path)
+    repo.rename(tmp_path / "-repo")
+    monkeypatch.chdir(tmp_path)
+    assert _exit_code(monkeypatch, ["repo", leaf, "--json", "--", "-repo"]) == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] == "failed" and doc["reason"] == "invalid repository source: '-repo'"
+    assert doc["next"] == []
+
+
 def test_a_failed_repo_inspect_has_no_next_step(monkeypatch, capsys, tmp_path):
     # #941: no step on a document that is not complete
     repo = _guidance_repo(tmp_path)

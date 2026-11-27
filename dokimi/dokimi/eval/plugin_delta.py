@@ -69,7 +69,8 @@ def _validate_run_config(control: Dict[str, Any], plugin: Dict[str, Any]) -> lis
             )
     if bool(before) != bool(after):
         return ["run_config was recorded by only one run; budgets and sampling were not compared"]
-    for field in sorted((before.keys() | after.keys()) - {"seed"}):
+    # The seed value, or the one a route dropped (`seed_requested`), is the replicate index.
+    for field in sorted((before.keys() | after.keys()) - {"seed", "seed_requested"}):
         if before.get(field) != after.get(field):
             raise PluginDeltaError(
                 f"cannot compute plugin delta across different {field}: "

@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import functools
 import importlib
 import importlib.util
 import inspect
+import io
 import re
 import shlex
 import sys
@@ -32,7 +34,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.cli import build_parser
+from dokimi.cli import _repo_scan_compat, build_parser
 from dokimi.cli_routes import TOMBSTONES, RetiredFlagError, moved_argv, moved_flags_argv
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -91,6 +93,22 @@ def _root() -> argparse.ArgumentParser:
     return build_parser()
 
 
+def _moved(tokens: list[str]) -> list[str] | None:
+    """Where the CLI sends ``tokens`` (a retired command, or a group such as `eval score` with an old call)."""
+    try:
+        return moved_argv(tokens)
+    except RetiredFlagError:
+        return None
+
+
+def _old_flag(argv: list[str]) -> bool:
+    """True when ``argv`` names a flag spelling the CLI still answers: a move, or the `repo scan` shim."""
+    if moved_flags_argv(argv) is not None:
+        return True
+    with contextlib.redirect_stderr(io.StringIO()):  # the shim warns on stderr
+        return _repo_scan_compat(argv) != argv
+
+
 def _walk(args: str, retired: bool) -> tuple[list[str] | None, list[str]]:
     """The command path ``args`` names (None if it names none, or a retired one) and its problems.
 
@@ -101,6 +119,10 @@ def _walk(args: str, retired: bool) -> tuple[list[str] | None, list[str]]:
         tokens = shlex.split(re.split(r"\s(?:\||&&|;|#|>)", args)[0])
     except ValueError:
         return None, []
+    moved = _moved(tokens) if retired else None
+    if moved is not None:
+        # Validate the destination, so a flag the new command lacks is still reported.
+        return _walk(shlex.join(moved), retired=True)
     parser, path, problems = _root(), [], []
     for token in tokens:
         subs = _subcommands(parser)
@@ -109,16 +131,12 @@ def _walk(args: str, retired: bool) -> tuple[list[str] | None, list[str]]:
                 parser = subs[token]
                 path.append(token)
                 continue
-            moved = moved_argv(tokens) if retired else None
-            if moved is not None:
-                # Validate the destination, so a flag the new command lacks is still reported.
-                return _walk(shlex.join(moved), retired=True)
             if re.fullmatch(r"[a-z][a-z0-9-]*", token):
                 problems.append(f"unknown command: {' '.join([*path, token])}")
             break
         if token.startswith("--") and not PLACEHOLDER.search(token):
             flag = token.split("=", 1)[0]
-            if flag not in _flags(parser) and not (retired and moved_flags_argv([*path, flag]) is not None):
+            if flag not in _flags(parser) and not (retired and _old_flag([*path, flag])):
                 problems.append(f"unknown flag: {' '.join(path)} {flag}")
     return path or None, problems
 
@@ -195,7 +213,7 @@ def _subtree(path: list[str]) -> Iterator[tuple[list[str], argparse.ArgumentPars
 @functools.cache
 def _flag_of(path: tuple[str, ...], flag: str) -> bool:
     """True when ``flag`` is, or was (a retired spelling the CLI still answers), a flag at or under ``path``."""
-    return any(flag in _flags(parser) or moved_flags_argv([*here, flag]) is not None for here, parser in _subtree(list(path)))
+    return any(flag in _flags(parser) or _old_flag([*here, flag]) for here, parser in _subtree(list(path)))
 
 
 def _command(span: str) -> tuple[list[str] | None, list[str]]:
@@ -225,7 +243,7 @@ def _consumed_by_move(argv: list[str], flag: str, written: list[str]) -> bool:
     that refuses the flag by itself (`--all-vs-all` needs its `--catalog`) still names a retired flag.
     """
     try:
-        return moved_argv(argv) is not None and flag not in (moved_argv([*argv, *written]) or [])
+        return moved_argv(argv) is not None and flag not in {t.split("=", 1)[0] for t in moved_argv([*argv, *written]) or []}
     except RetiredFlagError:
         return True
 
@@ -470,3 +488,18 @@ def test_a_baseline_entry_that_no_longer_misses_fails():
     assert _baseline("# header\n\na: x\nb: y\n") == {"a: x", "b: y"}
     assert _drift({"a: x"}, {"a: x", "b: y"}) == {"new": [], "fixed, remove from the baseline": ["b: y"]}
     assert _drift({"a: x", "c: z"}, {"a: x"}) == {"new": ["c: z"], "fixed, remove from the baseline": []}
+
+
+def test_a_group_the_cli_moved_resolves_with_its_old_flag_in_one_span():
+    assert _fragment_problems("- `eval score --judge-placeholder` moved.\n") == []
+    assert _fragment_problems("- `eval score --no-such-flag` moved.\n") == ["unknown flag: eval score pointwise --no-such-flag"]
+
+
+def test_a_flag_with_a_value_after_a_retired_command_is_still_checked():
+    assert _fragment_problems("- `repo validate` `--no-such-flag=foo` was run.\n") == ["unknown flag: eval check --no-such-flag"]
+    assert _fragment_problems("- `--no-such-flag=foo` on `repo validate`.\n") == ["unknown flag: eval check --no-such-flag"]
+
+
+def test_the_repo_scan_gate_flag_the_cli_still_accepts_resolves():
+    assert _fragment_problems("- `--fail-on-fail` is now `--fail-on=fail` on `repo scan`.\n") == []
+    assert _fragment_problems("- `repo scan --fail-on-fail` warns.\n") == []
