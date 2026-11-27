@@ -259,3 +259,30 @@ def test_the_fixture_catalog_raises_every_code_that_can_be_raised_from_disk(tmp_
     found = {f["code"] for row in json.loads(out)["skills"] for f in row["findings"]}
     assert set(NOT_ON_DISK) <= set(FINDING_CODES)
     assert found - NEEDS_TOOL == set(FINDING_CODES) - set(NOT_ON_DISK) - NEEDS_TOOL
+
+
+def test_a_reference_definition_above_an_inline_link_is_the_first_line(tmp_path, capsys):
+    """#942: the same missing target written as ``[n]: x`` then ``(x)`` is located at the earlier line."""
+    _skill(tmp_path, "a", body="Intro.\n\n[n]: missing.md\n\nSee [later](missing.md).\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 7
+    assert text_line("a\n[n]: x.md\n[l](x.md)\n", ("(x.md)", "]: x.md"), "x.md") == 2
+
+
+def test_key_line_allows_a_frontmatter_indented_as_a_whole():
+    """#942: ``  name: x`` is top level when every key is indented alike; a nested key is not."""
+    assert key_line("---\n  name: x\n  description: d\n---\n", "description") == 3
+    assert key_line("---\nmetadata:\n  name: x\n---\n", "name") is None
+
+
+def test_locate_keeps_falsy_values_and_drops_unset_ones():
+    """#942: only an unset (None) ``line`` or ``path`` is left out of a row."""
+    from dokimi.external.findings import Finding, locate
+
+    assert locate(Finding("note", "c", "m", line=0, path="")) == {"line": 0, "path": ""}
+    assert locate(Finding("note", "c", "m")) == {}
+
+
+def test_several_unknown_keys_carry_no_line(tmp_path, capsys):
+    """#942: one finding lists all the unknown keys, so it names no single line; one key has its line."""
+    _skill(tmp_path, "a", extra="aaa: 1\nbbb: 2\n")
+    assert "line" not in _one(tmp_path, capsys, "frontmatter-unknown-key")

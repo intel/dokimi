@@ -282,7 +282,7 @@ def _unknown_key_findings(meta: dict, text: str = "") -> list[Finding]:
                 f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
                 "spec and Claude Code conventions. These keys may be read by another harness or may be typos; "
                 "remove or rename any that are typos.",
-                line=key_line(text, sorted(unknown_keys)[0]),
+                line=key_line(text, next(iter(unknown_keys))) if len(unknown_keys) == 1 else None,  # one line per finding
             )
         )
     return findings
@@ -491,7 +491,7 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
     text = skill.path.read_text(encoding="utf-8")
     # The line is the first line of SKILL.md that holds the written link or span (its quoted form for a path).
-    needles = [(f"({raw})", f"({raw} ", f"]: {raw}", f"({raw}", raw) for raw in targets] + [(f"`{raw}`", raw) for raw in spans]
+    needles = [((f"({raw})", f"({raw} ", f"]: {raw}"), f"({raw}", raw) for raw in targets] + [(f"`{raw}`", raw) for raw in spans]
     located = [replace(f, line=text_line(text, *needle)) for f, needle in zip(found, needles, strict=True) if f is not None]
     return located + [
         Finding("warn", "path-missing", message, line=text_line(text, *path_needles(message)))

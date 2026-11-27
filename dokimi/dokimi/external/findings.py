@@ -37,7 +37,7 @@ def locate(f: Finding, *, path: bool = True) -> dict:
     ``path=False`` leaves ``path`` out, for a row whose own ``path`` already names the skill directory.
     """
     keys = (("script", f.script), ("line", f.line)) + ((("path", f.path),) if path else ())
-    return {key: value for key, value in keys if value}
+    return {key: value for key, value in keys if value is not None}
 
 
 def state_of(findings: Iterable[Finding]) -> str:

@@ -33,21 +33,28 @@ def key_line(text: str, key: str) -> Optional[int]:
     end = _frontmatter_end(lines)
     if end is None:
         return None
-    written = re.compile(rf"""^(?:{re.escape(key)}|"{re.escape(key)}"|'{re.escape(key)}')\s*:""")
+    first = next((l for l in lines[1:end] if l.strip() and not l.lstrip().startswith("#")), "")
+    indent = re.escape(first[: len(first) - len(first.lstrip())])  # a block indented as a whole is still top level
+    written = re.compile(rf"""^{indent}(?:{re.escape(key)}|"{re.escape(key)}"|'{re.escape(key)}')\s*:""")
     for number in range(2, end + 1):
         if written.match(lines[number - 1]):
             return number
     return None
 
 
-def text_line(text: str, *needles: str) -> Optional[int]:
-    """The 1-based line of the first line after the frontmatter that holds the first of ``needles`` found, or None."""
+def text_line(text: str, *needles: "str | tuple[str, ...]") -> Optional[int]:
+    """The 1-based line after the frontmatter of the first match, or None.
+
+    The arguments are tried in order and the first that is found wins; an argument that is a tuple is one
+    group, whose earliest line counts (so ``]: x`` above ``(x)`` is the first occurrence of the same target).
+    """
     lines = _lines(text)
     end = _frontmatter_end(lines)
     first = 0 if end is None else end + 1
-    for needle in needles:
+    for group in needles:
+        group = (group,) if isinstance(group, str) else group
         for index in range(first, len(lines)):
-            if needle in lines[index]:
+            if any(needle in lines[index] for needle in group):
                 return index + 1
     return None
 
