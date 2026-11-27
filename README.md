@@ -48,10 +48,10 @@ With Python 3.11 or newer:
 
 ```bash
 pip install dokimi
-dokimi repo scan /path/to/your/repository --json --fail-on=fail
+dokimi repo scan /path/to/your/repository
 ```
 
-Replace the path with the repository you want to inspect. CI can use the scan's exit status to gate broken guidance. The scan makes no model calls. To run from a source checkout, use `pip install -e ./dokimi` at its root.
+Replace the path with the repository you want to inspect. The scan makes no model calls. To gate CI on broken guidance, add `--json --fail-on=fail`; until a release after 0.2.0 ships that flag, install from a source checkout with `pip install -e ./dokimi` at its root.
 
 To check a skill collection:
 
