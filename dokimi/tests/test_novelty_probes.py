@@ -748,3 +748,11 @@ def test_a_genuine_inversion_of_a_do_not_source_is_still_accepted(candidate):
 def test_an_isnt_it_true_frame_inverting_a_spelled_out_source_is_not_a_restatement(source, apostrophe):
     candidate = f"Isn{apostrophe}t it true that I should run the installer as root?"
     assert check_wording("reversal", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"])
+def test_a_dont_question_with_a_noun_subject_inverting_a_do_not_source_is_accepted(apostrophe):
+    # Review of #1256: "applications" is the question's subject, not an imperative verb.
+    candidate = f"Don{apostrophe}t applications store credentials in logs?"
+    source = "Do not store credentials in logs."
+    assert check_wording("reversal", source=source, candidate=candidate) == []
