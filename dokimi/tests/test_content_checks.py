@@ -868,3 +868,37 @@ def test_decoded_fillers_beyond_the_per_line_limit_are_all_reported(tmp_path):
     """#1334: the filler rule of ``hidden-unicode`` (more than three exempt U+034F on a line) holds for decoded values."""
     value = "".join("\u03b1" + _BS + "u034f" for _ in range(4))
     assert len(_front_messages(tmp_path, f'description: "Use when {value}"')) == 4
+
+
+def test_literal_character_does_not_use_up_a_decoded_escape(tmp_path):
+    """#1341: a literal U+200E beside an escaped one: the escape is still reported, the literal once."""
+    messages = _front_messages(tmp_path, _DESC, f'extra: {{a: "{_BS}u200E x \u05D0\u200e", \u05D0: clean}}')
+    assert sum("front matter" in m for m in messages) == 1
+
+
+def test_literal_fillers_folded_over_the_limit_are_not_reported_as_escapes(tmp_path):
+    """#1341: two source lines of two literal fillers fold into one value of four; none is an escape."""
+    line = "\u03b1\u034f\u03b2\u034f"
+    messages = _front_messages(tmp_path, f'description: "Use when {line}', f'  {line}"')
+    assert not any("front matter" in m for m in messages)
+
+
+def test_control_characters_in_a_key_are_escaped_in_the_warning(tmp_path):
+    """#1341: a decoded key with an escape sequence must not reach the terminal as it is."""
+    [message] = _front_messages(tmp_path, _DESC, f'metadata: {{"{_BS}e[2J": "{_BS}u202e"}}')
+    assert "\x1b" not in message
+    assert _BS + "u001b[2J" in message
+
+
+def test_many_escaped_quotes_are_read_in_linear_time():
+    """#1341: the opening quote is found without copying the scalar for each escaped quote."""
+    from dokimi.external.content_checks import _front_matter_hits
+
+    big = (_BS + '"') * 200_000
+    assert _front_matter_hits(f'---\nname: s1\ndescription: "{big}"\n---\n') == []
+
+
+def test_escape_after_an_escaped_line_break_and_a_blank_line_is_reported(tmp_path):
+    """#1341: the blank line after an escaped line break is kept as a newline, so the decoded value matches."""
+    [message] = _front_messages(tmp_path, f'description: "Use when testing{_BS}', "", f'  x{_BS}u202ey"')
+    assert "U+202E" in message
