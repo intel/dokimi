@@ -16,6 +16,32 @@ import pytest
 
 from dokimi.repos.l0.gitignore import GitIgnore
 from tests.growth_timing import GROWTH_LIMIT, growth
+from tests.test_repo_l0_cases import _cli, _git_repo, _scan
+
+
+def test_parent_relative_config_claims_use_the_matching_ignore_rule(tmp_path):
+    files = {
+        ".gitignore": "/config/\n/settings/\n",
+        "docs/AGENTS.md": "`../config/local.yaml` `../missing/run.yaml`\n",
+        "docs/guide/AGENTS.md": "`../settings/missing.yaml`\n",
+        "docs/settings/keep.yaml": "",
+    }
+    claims = {c["claim"]: c for c in _scan(tmp_path, "", files)["claims"]}
+    ignored = claims["../config/local.yaml"]
+    assert ignored["status"] == "unresolved"
+    assert ".gitignore:1 (`/config/`) ignores it" in ignored["why"]
+    assert claims["../missing/run.yaml"]["status"] == "fail"
+    assert claims["../settings/missing.yaml"]["status"] == "fail"
+
+
+@pytest.mark.parametrize("path", ["./local.yaml", "config/../local.yaml", "./local.toml"])
+@pytest.mark.parametrize("ignored", [True, False])
+def test_config_paths_normalized_to_one_component_respect_gitignore(tmp_path, path, ignored):
+    root = tmp_path / "r"
+    files = {"AGENTS.md": f"Use `{path}`.\n", ".gitignore": f"/{Path(path).name}\n" if ignored else "/other.yaml\n"}
+    _git_repo(root, files)
+    assert _cli(tmp_path, root, "--fail-on", "fail") == (0 if ignored else 1)
+
 
 IGNORES = {
     ".gitignore": "\n".join([

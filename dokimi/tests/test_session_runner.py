@@ -377,7 +377,7 @@ def test_arms_run_wires_the_session_flags_into_the_run(fake_llm, monkeypatch):
     import dokimi.eval.arms_run as arms_run
     from dokimi.commands.arms import run_config_from_args
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     fake_llm.push("a1", "a2", "r1", "r2")
     args = _parse_arms_run(["--session-turns", "2", "--turn-reminder", "BE TERSE"])
 
@@ -393,7 +393,7 @@ def test_arms_run_without_session_flags_runs_single_turn(fake_llm, monkeypatch):
     import dokimi.eval.arms_run as arms_run
     from dokimi.commands.arms import run_config_from_args
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     fake_llm.push("a1")
     out = arms_run.run_arms(run_config_from_args(_parse_arms_run([])), ["baseline"], [SESSION_Q])
     assert "session" not in out and "session_turns" not in out["run_config"]
@@ -526,7 +526,7 @@ def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp
 def test_prepare_arms_refuses_a_session_question_that_cannot_run(fake_llm, monkeypatch, bad):
     import dokimi.eval.arms_run as arms_run
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     config = arms_run.ArmsRunConfig(product="oneTBB", session_turns=2)
 
     with pytest.raises(ValueError, match="q9"):
@@ -540,7 +540,7 @@ def test_arms_run_exits_2_on_a_session_question_without_follow_ups(fake_llm, mon
     import dokimi.eval.arms_run as arms_run
     from dokimi.cli import build_parser
 
-    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: config)
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "How?"}]}), encoding="utf-8")
     args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions", str(questions),

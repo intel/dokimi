@@ -352,6 +352,17 @@ def test_camel_case_and_bare_compactions():
     ]
 
 
+def test_camel_case_post_tokens_is_read():
+    """#1292: `compactMetadata.postTokens` fills `post_tokens`, as `preTokens` fills `pre_tokens`."""
+    got = parse_trace(_jsonl(
+        _assistant("m1", _usage(20000, 0, 0)),
+        {"type": "system", "subtype": "compact_boundary",
+         "compactMetadata": {"trigger": "auto", "preTokens": 20000, "postTokens": 8123}},
+        {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"postTokens": 0}},
+    ))
+    assert [(c["pre_tokens"], c["post_tokens"]) for c in got.compactions] == [(20000, 8123), (None, 0)]
+
+
 # partial traces and the table's edges
 
 def test_an_init_only_trace_reads_with_empty_numbers(tmp_path, capsys):
