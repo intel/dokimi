@@ -9,6 +9,7 @@ import ast
 import re
 from typing import Optional
 
+_BLOCKQUOTE = re.compile(r"^(?: {0,3}>)+ ?")
 _QUOTED_START = re.compile(r"""^('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")""")
 
 
@@ -59,21 +60,42 @@ def text_line(text: str, *needles: "str | tuple[str, ...]") -> Optional[int]:
     return None
 
 
+def _unquoted(lines: list[str]) -> str:
+    """``lines`` joined with their blockquote markers dropped (the line count is kept). A line break between lines of
+    a different quote depth is marked with a NUL, since a link cannot continue from a quote into a paragraph."""
+    out: list[str] = []
+    previous = 0
+    for index, line in enumerate(lines):
+        marker = _BLOCKQUOTE.match(line)
+        depth = marker.group(0).count(">") if marker else 0
+        if index and depth != previous:
+            out[-1] += "\x00"
+        previous = depth
+        out.append(line[marker.end():] if marker else line)
+    return "\n".join(out)
+
+
 def link_line(text: str, raw: str) -> Optional[int]:
     """The 1-based line after the frontmatter of the first link whose destination is exactly ``raw``, or None.
 
     An inline ``(raw)``, ``( raw )``, ``(raw "title")`` or ``(<raw>)`` and a reference ``]: raw`` all count, but
-    a destination that only starts with ``raw`` (``]: raw.bak``) does not; a line that merely contains ``raw``
-    is the fallback when no link form matches.
+    a destination that only starts with ``raw`` (``]: raw.bak``) does not. A blockquote marker is ignored (but a link does not continue into or out of a quote) and the
+    destination may be on the line after its opener, never past a blank line (the destination's line is returned);
+    a line that merely contains ``raw`` is the fallback when no link form matches.
     """
     lines = _lines(text)
     end = _frontmatter_end(lines)
     first = 0 if end is None else end + 1
+    body = _unquoted(lines[first:])
     word = re.escape(raw)
-    form = re.compile(rf"(?:\]\(|^ {{0,3}}\[[^\]]*\]:)\s*(?:<{word}>|{word}(?=[\s)]|$))")  # inside <...> only ">" ends it
-    for index in range(first, len(lines)):
-        if form.search(lines[index]):
-            return index + 1
+    form = re.compile(
+        rf"(?:\]\(|^ {{0,3}}\[[^\]]*\]:)[ \t]*(?:\n[ \t]*)?(?:<(?P<a>{word})>|(?P<b>{word})(?=[\s)\x00]|$))",
+        re.MULTILINE,
+    )  # inside <...> only ">" ends it; the destination may sit on a line after its opener
+    found = form.search(body)
+    if found:
+        start = found.start("a") if found.group("a") is not None else found.start("b")
+        return first + body.count("\n", 0, start) + 1
     return text_line(text, raw)
 
 

@@ -21,7 +21,7 @@ import pytest
 
 from tests.test_catalog_ignore import _run
 
-from dokimi.external.finding_lines import key_line, path_needles, text_line, written_path
+from dokimi.external.finding_lines import key_line, link_line, path_needles, text_line, written_path
 from dokimi.external.validate import FINDING_CODES
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "finding_codes"
@@ -299,6 +299,29 @@ def test_a_reference_definition_above_an_inline_link_is_the_first_line(tmp_path,
     _skill(tmp_path, "a", body="Intro.\n\n[n]: missing.md\n\nSee [later](missing.md).\n")
     assert _one(tmp_path, capsys, "link-missing")["line"] == 7
     assert text_line("a\n[n]: x.md\n[l](x.md)\n", ("(x.md)", "]: x.md"), "x.md") == 2
+
+
+def test_a_blockquoted_reference_definition_is_the_first_line(tmp_path, capsys):
+    """#942: ``> [n]: missing.md`` above ``[later](missing.md)`` is located at the quoted definition."""
+    _skill(tmp_path, "a", body="> [n]: missing.md\n\n[later](missing.md)\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 5
+
+
+def test_a_multiline_inline_link_is_located_at_its_destination(tmp_path, capsys):
+    """#942: ``[first](`` then ``missing.md`` on the next line, above ``[later](missing.md)``, is the earlier line."""
+    _skill(tmp_path, "a", body="[first](\nmissing.md\n)\n[later](missing.md)\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 6
+
+
+def test_an_unfinished_link_opener_does_not_reach_across_a_blank_line():
+    """#942: ``[unfinished](`` then a blank line then ``missing.md`` is no link; the real one is located."""
+    assert link_line("[unfinished](\n\nmissing.md\n\n[real](missing.md)\n", "missing.md") == 5
+
+
+def test_an_opener_does_not_continue_into_a_blockquote():
+    """#942: ``[unfinished](`` then ``> missing.md`` is two blocks; the real link on line 4 is located."""
+    assert link_line("[unfinished](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 4
+    assert link_line("> [q](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 2
 
 
 def test_key_line_allows_a_frontmatter_indented_as_a_whole():
