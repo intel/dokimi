@@ -119,7 +119,7 @@ def _manifest_dirs(scan: Scan) -> list[str]:
         try:
             if p not in scan.file_set and scan.tree.is_dir(p):
                 out.append(p)
-        except (OSError, SourceError):  # unreadable, or a link out of the tree: not a manifest directory
+        except (OSError, SourceError, RuntimeError):  # unreadable, out of the tree, or a loop (RuntimeError before 3.13): not a manifest directory
             continue
     return out
 

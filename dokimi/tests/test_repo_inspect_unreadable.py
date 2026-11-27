@@ -145,6 +145,26 @@ def test_6_link_loop_at_head(tmp_path):
     assert not _listed_silently(data, "AGENTS.md"), data["instructions"]
 
 
+def test_a_looping_plugin_directory_link_does_not_crash_inspect(tmp_path, monkeypatch):
+    """#1271: a ``.claude-plugin`` link to itself is no manifest directory; Python before 3.13 raises
+    ``RuntimeError`` from ``Path.resolve`` on a loop, which is simulated so every Python is covered."""
+    (tmp_path / "AGENTS.md").write_text("x")
+    (tmp_path / ".claude-plugin").symlink_to(".claude-plugin")
+    real = Path.resolve
+
+    def resolve(self, strict=False):
+        try:
+            return real(self, strict=strict)
+        finally:
+            if ".claude-plugin" in self.parts:
+                raise RuntimeError(f"Symlink loop from {self!r}")
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    tree = WorkTree(tmp_path)
+    rep = inspect_repo(tree)
+    assert not any(c["path"].startswith(".claude-plugin") for c in rep["capabilities"])  # a loop is no manifest directory
+
+
 @DEV_ZERO
 def test_7_device_instruction(tmp_path):
     """#1271: a link to a device is named."""
