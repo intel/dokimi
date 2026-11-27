@@ -36,9 +36,10 @@ from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC_DELIMITER = r"<<-?[ \t]*(['\"]?)(\w+)\1"
-_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
-                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2, quote=1)
+_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?[\\(])\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END``, ``<<$(printf EOF)`` and ``<<"a\$b"`` open nothing); not ``<<<``, a here-string
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t\r]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
+                          re.compile(r"^(.+)$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2,
+                          before=" \t", after=" \t\r")
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
