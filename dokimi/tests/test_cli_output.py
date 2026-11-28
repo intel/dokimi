@@ -635,7 +635,7 @@ def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monke
 LEAVES_WITH_NEXT = {("repo", "scan"), ("repo", "inspect"), ("runs", "list")}
 LEAVES_WITHOUT_NEXT_BY_DESIGN = {
     ("backends",), ("catalog", "check"), ("catalog", "eval"), ("catalog", "formats"), ("eval", "check"),
-    ("eval", "graph"),
+    ("docs", "llms-txt"), ("eval", "graph"),
     ("eval", "inspect"), ("memory", "lint"), ("repo", "budget"), ("repo", "compare"), ("repo", "fetch"),
     ("repo", "hits", "judge"), ("repo", "report"), ("runs", "gc"), ("runs", "rm"), ("runs", "show"),
     ("skill", "routing"), ("trace", "consistency"), ("trace", "inspect"), ("trace", "prefilter"),

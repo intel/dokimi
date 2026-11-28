@@ -1,7 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-from dokimi import llms_txt
+import pytest
+
+from dokimi import code_spans, llms_txt
 
 GOOD = """# Acme API
 
@@ -70,3 +72,166 @@ def test_fenced_examples_and_images_do_not_supply_document_structure():
 def test_indented_heading_and_titled_list_links_are_checked():
     text = ' # A\n > Summary\n ## When to use\n ## When not to use\n1. [A](a "Title"): overview; [B](b)'
     assert [(f.check, f.line) for f in llms_txt.check(text)] == [("links", 5)]
+
+
+def test_described_link_can_include_balanced_parentheses():
+    text = GOOD.replace("https://acme.test/quickstart.md", "https://example.test/api/function(a(b))")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_a_file_of_exactly_the_token_budget_is_within_it():
+    budget = llms_txt.estimate_tokens(GOOD)
+    assert llms_txt.check(GOOD, token_budget=budget) == []
+    assert [f.check for f in llms_txt.check(GOOD, token_budget=budget - 1)] == ["size"]
+
+
+def test_fenced_examples_cost_time_linear_in_their_number(monkeypatch):
+    calls = []
+    closer = code_spans._Runs.closer
+    monkeypatch.setattr(code_spans._Runs, "closer", lambda runs, *a: calls.append(1) or closer(runs, *a))
+
+    def cost(blocks: int) -> int:
+        calls.clear()
+        text = GOOD + "Example:\n\n```python\nprint(1)\n```\n\n" * blocks
+        assert llms_txt.check(text, token_budget=len(text)) == []
+        return len(calls)
+
+    assert cost(400) < 3 * cost(200)
+
+
+def test_inline_backticks_do_not_open_a_fence():
+    text = GOOD.replace("## Docs", "```example```\n\n## Docs")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_html_comments_do_not_satisfy_structure_checks():
+    assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_indented_code_comment_delimiter_keeps_following_sections_and_links(indent):
+    example = '\n\n' + indent + 'const opener = "<!--";'
+    text = GOOD.replace("- Subscription billing", "Subscription billing." + example)
+    assert llms_txt.check(text) == []
+
+
+def test_inline_code_comment_delimiter_keeps_following_links():
+    text = GOOD.replace('## Docs', '## Docs\n\nWrite `<!--` to begin a comment.')
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+@pytest.mark.parametrize("prose", [
+    "Write <!-- to open a comment.",
+    "See \\`<!--` here.",
+])
+def test_an_unclosed_comment_opener_in_prose_hides_nothing(prose):
+    text = GOOD.replace("> Payments for SaaS products.", f"> Payments for SaaS products. {prose}")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_an_unclosed_comment_block_still_hides_the_rest_of_the_file():
+    text = GOOD.replace("## Docs", "   <!--\n## Docs")
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
+def test_a_commented_out_link_after_an_escaped_backtick_fails_the_links_check():
+    text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', r'\`<!-- [Hidden](url) -->\`')
+    assert [(f.check, f.severity, f.message) for f in llms_txt.check(text)] == [
+        ("links", "fail", "no Markdown links to the documentation")
+    ]
+
+
+def test_inline_examples_are_not_links_and_code_descriptions_are_visible():
+    text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', 'Write links as `[Example](url)`')
+    assert [(f.check, f.severity, f.message) for f in llms_txt.check(text)] == [
+        ("links", "fail", "no Markdown links to the documentation")
+    ]
+    assert not _checks(GOOD.replace('first charge in five minutes', '`quickstart`'))
+
+
+def test_code_span_across_a_soft_break_keeps_a_comment_literal():
+    text = GOOD.replace('## Docs', '## Docs\n\nWrite `example\n<!--` to begin a comment.')
+    assert not _checks(text)
+
+
+def test_multiline_code_label_keeps_its_text_and_the_link_position():
+    text = GOOD.replace(
+        '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '[`example\n  <!--`](/guide)',
+    )
+    line = next(i for i, value in enumerate(text.split('\n'), 1) if '[`example' in value)
+    assert [(f.line, f.identity) for f in llms_txt.check(text)] == [(line, '`example\n<!--`|/guide')]
+
+
+def test_reference_links_resolve_their_definition_after_use():
+    text = GOOD.replace(
+        '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '[Quickstart][quick]: first charge in five minutes',
+    )
+    assert llms_txt.check(text + '\n[quick]: https://acme.test/quickstart.md\n') == []
+    assert {(f.check, f.severity) for f in llms_txt.check(text)} == {('links', 'fail')}
+
+
+def test_link_labels_can_contain_brackets_and_images():
+    text = GOOD.replace('[Quickstart]', '[Node [LTS]]')
+    assert llms_txt.check(text) == []
+    linked_logo = GOOD.replace('[Quickstart]', '[![Logo](logo.png)]')
+    assert llms_txt.check(linked_logo) == []
+
+
+def test_angle_destination_and_parenthesized_title():
+    text = GOOD.replace('https://acme.test/quickstart.md', '<docs/Getting Started.md> (Quickstart)')
+    assert llms_txt.check(text) == []
+
+
+def test_a_list_link_inside_raw_html_does_not_count():
+    link = "- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes"
+    text = GOOD.replace(link, f"<div>\n{link}\n</div>")
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
+def test_a_bare_autolink_does_not_count_as_a_documentation_link():
+    text = GOOD.replace(
+        "- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes",
+        "<https://acme.test/quickstart.md>",
+    )
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
+def test_a_paragraph_link_does_not_need_a_list_description():
+    link = "[Quickstart](https://acme.test/quickstart.md)"
+    text = GOOD.replace(f"- {link}: first charge in five minutes", link)
+    assert llms_txt.check(text) == []
+
+
+def test_list_link_warning_uses_the_physical_line_and_resolved_target():
+    text = GOOD.replace(
+        '- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '- More information\n  [Quickstart][quick]: <!-- empty description -->\n\n[quick]: guide.md',
+    )
+    line = next(i for i, value in enumerate(text.split('\n'), 1) if '[Quickstart]' in value)
+    assert [(f.line, f.identity, f.severity) for f in llms_txt.check(text)] == [(line, 'Quickstart|guide.md', 'warn')]
+
+
+
+def test_summary_and_line_numbers_preserve_unicode_line_separator():
+    text = GOOD.replace("> Payments", ">\u2028Payments").replace(": first charge in five minutes", "")
+    text = text.replace("\n", "\r\n")
+    line = next(i for i, value in enumerate(text.split("\r\n"), 1) if "[Quickstart]" in value)
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("links", "warn", line)]
+
+
+
+def test_bare_blockquote_marker_is_not_a_summary():
+    text = GOOD.replace("> Payments for SaaS products.", ">")
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("summary", "fail", 2)]
+
+
+def test_second_h1_title_is_a_warning():
+    text = GOOD.replace("## Docs", "# Docs")
+    second_h1 = text.split("\n").index("# Docs") + 1
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("title", "warn", second_h1)]
