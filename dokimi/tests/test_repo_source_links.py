@@ -265,6 +265,16 @@ def test_a_link_to_a_file_with_a_trailing_slash_names_no_file_in_both_trees(tmp_
         assert tree.resolve("dirlink", dirs=True) == "sub"  # a trailing slash on a directory is fine
 
 
+def test_a_link_to_a_file_followed_by_slash_dot_names_no_file_in_both_trees(tmp_path):
+    """#1272: ``nul.md -> real.yaml/.`` is ENOTDIR in a checkout too; ``dirlink -> sub/.`` still names the directory."""
+    root = _repo(tmp_path, {"nul.md": "real.yaml/.", "dot.md": "./real.yaml/./.", "dirlink": "sub/."})
+    for tree in _trees(root):
+        for name in ("nul.md", "dot.md"):
+            with pytest.raises(SourceError):
+                tree.resolve(name)
+        assert tree.resolve("dirlink", dirs=True) == "sub"
+
+
 def test_a_link_chain_ending_in_a_slash_names_no_file(tmp_path):
     """#1272: the slash of the last link counts through a chain of links."""
     root = _repo(tmp_path, {"a": "b/", "b": "real.yaml"})

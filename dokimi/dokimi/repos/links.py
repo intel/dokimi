@@ -84,8 +84,8 @@ def _inside(root: Path, text: str) -> str:
 
 
 def _names_dir(seen: bool, text: str, rest: list[str]) -> bool:
-    """Whether a path ends in a link whose text ends in ``/``: it names a directory, as in a checkout (#1272)."""
-    return seen or (text.endswith("/") and all(piece in ("", ".") for piece in rest))
+    """Whether a path ends in a link whose text ends in ``/`` or ``/.``: it names a directory, as in a checkout (#1272)."""
+    return seen or (text.endswith(("/", "/.")) and all(piece in ("", ".") for piece in rest))
 
 
 def _require_dir(need_dir: bool, is_dir: Callable[[], bool], path: str, walked: list[str]) -> None:
