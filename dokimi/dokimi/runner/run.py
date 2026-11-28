@@ -93,7 +93,10 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
         docs = select_docs(root, manifest)
     else:
         # Legacy/minimal specs without a manifest: discover all markdown under docs/.
-        docs = discover_markdown(root / "docs")
+        try:
+            docs = discover_markdown(root / "docs")
+        except OSError as exc:
+            raise DocLoadError(f"could not list {exc.filename or root / 'docs'}: {exc.strerror or exc}") from None
     loaded = _load_found_docs(docs)
 
     # Collect per-doc metrics and cached example results

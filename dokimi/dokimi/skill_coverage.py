@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dokimi.digest_entries import listed_entries
 from dokimi.eval_coverage import _evals_files, _is_task
 from dokimi.novelty.client import LLMClient
 
@@ -122,11 +123,19 @@ def _evals_checks(root: Path) -> list[tuple[str, str, str]]:
     return out
 
 
+def _python_files(tests: Path) -> list[Path]:
+    """Every ``*.py`` under a task's ``tests/``, in no set order. A directory that cannot be listed raises its
+    ``OSError`` (``rglob`` would skip it and the files behind it), so the checks and the ``--out`` guard agree."""
+    if not tests.is_dir():
+        return []
+    return [p for p in listed_entries(tests) if p.match("*.py")]
+
+
 def check_files(root: Path) -> list[Path]:
     """The task test files :func:`load_checks` reads under a tasks root, resolved (an ``--out`` must not name one)."""
     if not root.is_dir():
         return []
-    return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").rglob("*.py")]
+    return [p.resolve() for task in root.iterdir() if _is_task(task) for p in _python_files(task / "tests")]
 
 
 def _lines(text: str) -> list[str]:
@@ -168,7 +177,7 @@ def _module_code(tests: Path) -> list[str]:
     ``test_*`` function, a ``Test*`` class). It is the context of every check of the folder, read or not: a constant,
     helper, fixture or list that one statement fills can decide an assertion in another file."""
     out: list[str] = []
-    for path in sorted(tests.rglob("*.py")):
+    for path in sorted(_python_files(tests)):
         text, tree = _parse(path)
         out += [_source(text, node) for node in tree.body if not _is_test(node) and not _is_test_class(node)]
     return out
@@ -183,7 +192,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
     for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
         tests = task_dir / "tests"
         module = _module_code(tests)
-        for path in sorted(tests.rglob("*.py")):
+        for path in sorted(_python_files(tests)):
             if not _is_test_file(path):
                 continue
             text, tree = _parse(path)
