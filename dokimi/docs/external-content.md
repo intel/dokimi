@@ -137,6 +137,8 @@ Two checks, both `warn`:
   halfwidth), and U+2800 beside Braille. When a line holds more than three of the exempt U+034F, U+115F and U+1160, all of them on that line are reported (U+2800 is not counted). Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
+  A character that a double-quoted value in the `SKILL.md` front matter only holds after YAML decoding (`"\u202e"`) is
+  reported too, with its key; single-quoted and plain values are not decoded, so an escape there is text.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
   a folder that holds another skill's `SKILL.md` is checked as that skill only.
 

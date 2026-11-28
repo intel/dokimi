@@ -742,3 +742,178 @@ def test_variation_selector_at_offset_zero_is_reported():
 
     assert len(_hidden_hits("notes.txt", chr(0xFE0F) + "x")) == 1
     assert _hidden_hits("notes.txt", "") == []
+
+
+# ---- hidden-unicode in decoded front matter (#1334) ---------------------------------------------
+
+_BS = chr(92)
+
+
+def _front_messages(root: Path, *front: str) -> list[str]:
+    """``hidden-unicode`` messages of a skill whose front matter is ``name`` plus the ``front`` lines."""
+    skill_dir = root / "s1"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("\n".join(["---", "name: s1", *front, "---", "# Body", ""]), encoding="utf-8")
+    return _messages(root, "hidden-unicode")
+
+
+_DESC = 'description: "Use when testing the check."'
+
+
+@pytest.mark.parametrize(
+    "escape, codepoint",
+    [(_BS + "u202e", "U+202E"), (_BS + "U000E0041", "U+E0041"), (_BS + "u200b", "U+200B")],
+)
+def test_escape_in_when_to_use_is_reported(tmp_path, escape, codepoint):
+    """#1334: a character that only YAML decoding produces is reported, with its key."""
+    [message] = _front_messages(tmp_path, _DESC, f'when_to_use: "Use when x{escape}y"')
+    assert codepoint in message
+    assert "when_to_use" in message
+
+
+@pytest.mark.parametrize("escape", [_BS + "u202e", _BS + "U000E0041"])
+def test_escape_in_description_is_reported(tmp_path, escape):
+    """#1334, #1285: the same for ``description``."""
+    [message] = _front_messages(tmp_path, f'description: "Use when x{escape}y"')
+    assert "description" in message
+
+
+def test_escape_in_nested_value_and_list_is_reported(tmp_path):
+    """#1334: every string of the front matter is walked, whatever the key."""
+    messages = _front_messages(tmp_path, _DESC, f'extra:\n  - "a{_BS}u202eb"\n  - k: "c{_BS}u200bd"')
+    assert len(messages) == 2
+
+
+def test_decoded_escapes_beyond_the_report_cap_are_counted(tmp_path):
+    """#1334: the same cap as a file's literal hits."""
+    messages = _front_messages(tmp_path, _DESC, 'when_to_use: "' + (_BS + "u202e") * 7 + '"')
+    assert len(messages) == 6
+    assert "2 more" in messages[-1]
+
+
+def test_literal_character_is_reported_once_not_twice(tmp_path):
+    """#1334: the raw scan reports a literal character, so the decoded scan leaves it."""
+    assert len(_front_messages(tmp_path, _DESC, "when_to_use: \"Use when x\u202ey\"")) == 1
+
+
+def test_literal_and_escape_of_one_codepoint_are_both_reported(tmp_path):
+    messages = _front_messages(tmp_path, _DESC, f'when_to_use: "a\u202eb {_BS}u202e"')
+    assert len(messages) == 2
+
+
+def test_escape_that_is_not_hidden_or_not_decoded_stays_clean(tmp_path):
+    """#1334: ``\\x41`` decodes to a letter and a single-quoted value is not decoded."""
+    assert _front_messages(tmp_path, _DESC, f'when_to_use: "Use when x{_BS}x41y"', f"other: 'x{_BS}u202ey'") == []
+
+
+def test_controls_are_clean_beside_a_real_escape_and_a_literal_is_reported_once(tmp_path):
+    """#1334: with a literal U+202E, ``\\x41`` and a single-quoted escape in one file, only the literal and the
+    one decoded escape are reported."""
+    messages = _front_messages(
+        tmp_path,
+        _DESC,
+        'when_to_use: "Use when x\u202ey"',
+        f'a: "b{_BS}x41c"',
+        f"c: 'd{_BS}u202ee'",
+        f'e: "f{_BS}u200bg"',
+    )
+    assert len(messages) == 2
+    assert sum("front matter" in m for m in messages) == 1
+
+
+def test_broken_or_missing_front_matter_adds_no_decoded_finding(tmp_path):
+    """#1334: front matter that is absent, unclosed or invalid YAML adds no decoded finding; the loader names it."""
+    from dokimi.external.content_checks import _front_matter_hits
+
+    assert _front_matter_hits("") == []
+    assert _front_matter_hits("# no front matter " + _BS + "u202e\n") == []
+    assert _front_matter_hits("---\nname: [unclosed " + _BS + "u202e\n---\n") == []
+    assert _front_matter_hits("---\nname: x " + _BS + "u202e\n") == []
+
+
+def test_literal_character_in_a_comment_does_not_hide_a_decoded_escape(tmp_path):
+    """#1334: a literal hidden character in a comment is not the decoded value's own source."""
+    messages = _front_messages(tmp_path, "# Literal control: " + chr(0x202E), f'description: "Use when x{_BS}u202ey"')
+    assert len(messages) == 2
+    assert sum("front matter description" in m for m in messages) == 1
+
+
+def test_alias_to_a_literal_character_is_not_reported_as_an_escape(tmp_path):
+    """#1334: the aliased value has no escape, so only the key that holds a real escape gets a decoded finding."""
+    messages = _front_messages(
+        tmp_path,
+        'description: &d "Use when x' + chr(0x202E) + 'y"',
+        "when_to_use: *d",
+        f'other: "a{_BS}u200bb"',
+    )
+    assert len(messages) == 2
+    [decoded] = [m for m in messages if "front matter" in m]
+    assert "other" in decoded
+
+
+def test_comment_between_an_anchor_and_its_scalar_does_not_hide_an_escape(tmp_path):
+    """#1334: a literal character in a comment is not the quoted value's own source."""
+    messages = _front_messages(tmp_path, "description: &d", "  # Literal control: " + chr(0x202E), f'  "Use when x{_BS}u202ey"')
+    assert len(messages) == 2
+    assert sum("front matter description" in m for m in messages) == 1
+
+
+def test_escaped_byte_order_mark_at_the_start_of_a_value_is_reported(tmp_path):
+    """#1334: U+FEFF is expected only at the start of the file, not at the start of a front matter value."""
+    [message] = _front_messages(tmp_path, f'description: "{_BS}uFEFFUse when testing."')
+    assert "U+FEFF" in message
+
+
+def test_decoded_fillers_beyond_the_per_line_limit_are_all_reported(tmp_path):
+    """#1334: the filler rule of ``hidden-unicode`` (more than three exempt U+034F on a line) holds for decoded values."""
+    value = "".join("\u03b1" + _BS + "u034f" for _ in range(4))
+    assert len(_front_messages(tmp_path, f'description: "Use when {value}"')) == 4
+
+
+def test_literal_character_does_not_use_up_a_decoded_escape(tmp_path):
+    """#1341: a literal U+200E beside an escaped one: the escape is still reported, the literal once."""
+    messages = _front_messages(tmp_path, _DESC, f'extra: {{a: "{_BS}u200E x \u05D0\u200e", \u05D0: clean}}')
+    assert sum("front matter" in m for m in messages) == 1
+
+
+def test_literal_fillers_folded_over_the_limit_are_not_reported_as_escapes(tmp_path):
+    """#1341: two source lines of two literal fillers fold into one value of four; none is an escape."""
+    line = "\u03b1\u034f\u03b2\u034f"
+    messages = _front_messages(tmp_path, f'description: "Use when {line}', f'  {line}"')
+    assert not any("front matter" in m for m in messages)
+
+
+def test_control_characters_in_a_key_are_escaped_in_the_warning(tmp_path):
+    """#1341: a decoded key with an escape sequence must not reach the terminal as it is."""
+    [message] = _front_messages(tmp_path, _DESC, f'metadata: {{"{_BS}e[2J": "{_BS}u202e"}}')
+    assert "\x1b" not in message
+    assert _BS + "u001b[2J" in message
+
+
+def test_many_escaped_quotes_are_read_in_linear_time():
+    """#1341: the opening quote is found without copying the scalar for each escaped quote."""
+    from dokimi.external.content_checks import _front_matter_hits
+
+    big = (_BS + '"') * 200_000
+    assert _front_matter_hits(f'---\nname: s1\ndescription: "{big}"\n---\n') == []
+
+
+def test_escape_after_an_escaped_line_break_and_a_blank_line_is_reported(tmp_path):
+    """#1341: the blank line after an escaped line break is kept as a newline, so the decoded value matches."""
+    [message] = _front_messages(tmp_path, f'description: "Use when testing{_BS}', "", f'  x{_BS}u202ey"')
+    assert "U+202E" in message
+
+
+def test_escape_beside_an_escaped_space_before_a_line_break_is_reported(tmp_path):
+    """#1341: an escaped space before a fold is kept, so the decoded value matches and its escape is not lost."""
+    [message] = _front_messages(tmp_path, f'description: "Use when x{_BS}u202ey{_BS} ', '  next"')
+    assert "U+202E" in message
+
+
+def test_front_matter_of_a_bundled_file_is_not_decoded(tmp_path):
+    """#1341: only SKILL.md front matter is decoded; a bundled file's escape is plain text there."""
+    skill_dir = tmp_path / "s1"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(f"---\nname: s1\n{_DESC}\n---\n# Body\n", encoding="utf-8")
+    (skill_dir / "reference.md").write_text(f'---\nnote: "a{_BS}u200bb"\n---\n# Ref\n', encoding="utf-8")
+    assert _messages(tmp_path, "hidden-unicode") == []
