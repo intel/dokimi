@@ -63,7 +63,9 @@ class _Scan:
                 self.eat()
         elif ch == "\\":  # a continued line is dropped; an escaped character is a word character
             self.eat(2, keep=nxt != "\n")
-        elif ch in "'\"`" or (ch == "$" and nxt == "(") or (self.depth and ch in "()"):
+        elif self.comment(ch, nxt):
+            pass
+        elif ch in "'\"`" or (ch == "$" and nxt in ("(", "'")) or (self.depth and ch in "()"):
             self.open_close(ch, nxt)
         elif self.bracket(ch + nxt):
             pass
@@ -77,6 +79,16 @@ class _Scan:
                 return sep
             self.eat()
         return ""
+
+    def comment(self, ch: str, nxt: str) -> bool:
+        """A ``#`` that starts a word inside ``$(...)`` or backticks: keep the comment up to the newline (up to the closing backtick in backticks), reading no quote or parenthesis in it."""
+        if not (ch == "#" and nxt != ")" and (self.depth or self.tick) and self.cur and self.cur[-1][-1:] in " \t\n(;&|"):
+            return False
+        end = self.i
+        while end < len(self.text) and self.text[end] != "\n" and not (self.tick and not self.depth and self.text[end] == "`"):
+            end += 1
+        self.eat(end - self.i)
+        return True
 
     def bracket(self, pair: str) -> bool:
         """``((``, ``[[`` or ``]]``: track and keep it, so ``;`` and ``&&`` inside do not split."""
@@ -98,6 +110,9 @@ class _Scan:
             self.quote = ch
         elif ch == "`":
             self.tick = not self.tick
+        elif ch == "$" and nxt == "'":  # `$'...'`: kept whole, a backslash escapes the next character
+            self.eat(_ansi_c_end(self.text, self.i) - self.i)
+            return
         elif ch == "$":
             self.depth += 1
             self.eat(2)
@@ -105,6 +120,14 @@ class _Scan:
         else:
             self.depth += 1 if ch == "(" else -1
         self.eat()
+
+
+def _ansi_c_end(text: str, i: int) -> int:
+    """Where the ``$'...'`` that starts at ``i`` ends: a backslash escapes the next character, an apostrophe too."""
+    end = i + 2
+    while end < len(text) and text[end] != "'":
+        end += 2 if text[end] == "\\" else 1
+    return min(end + 1, len(text))
 
 
 def split_commands(command: str) -> list[tuple[str, str]]:
@@ -182,11 +205,19 @@ def _mask(text: str) -> str:
         ch = text[i]
         if quote:
             quote = "" if ch == quote else quote
+        elif ch == "$" and text[i + 1:i + 2] == "'":
+            end = _ansi_c_end(text, i)
+            out.append(text[i:end])
+            i = end
+            continue
         elif ch in "'\"" and not depth:
             quote = ch
         if not quote and ch == "$" and text[i + 1:i + 2] == "(":
             j, d = i + 2, 1
             while j < len(text) and d:
+                if text[j] == "#" and text[j - 1] in " \t\n(;&|" and text[j + 1:j + 2] != ")":  # a comment's `)` is no closer
+                    j = text.find("\n", j) % (len(text) + 1)
+                    continue
                 d += (text[j] == "(") - (text[j] == ")")
                 j += 1
             out.append("SUBST")
@@ -208,9 +239,13 @@ def parens(segment: str) -> tuple[int, int]:
     the subshells it opens and closes (``(cd sub``, ``make)``)."""
     opens = closes = 0
     quote, escaped = "", False
-    for ch in _mask(segment):
+    masked, i = _mask(segment), 0
+    while i < len(masked):
+        ch, i = masked[i], i + 1
         if escaped:
             escaped = False
+        elif ch == "$" and masked[i:i + 1] == "'" and not quote:
+            i = _ansi_c_end(masked, i - 1)
         elif ch == "\\" and quote != "'":
             escaped = True
         elif quote:

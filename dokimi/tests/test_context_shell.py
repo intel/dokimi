@@ -141,6 +141,42 @@ def test_a_hash_inside_a_word_does_not_cut_the_line_before_a_pipe():
     assert [e.masked for e in _events("Bash", {"command": "echo ${#x} | grep 1"})] == [True]
 
 
+@pytest.mark.parametrize("command, parts", [
+    ("echo $(echo 1 # it's\n)\ncat AGENTS.md\n", [("echo $(echo 1 # it's\n)", "\n"), ("cat AGENTS.md", "\n")]),
+    ("echo `echo 1 # it's\n`\ncat AGENTS.md\n", [("echo `echo 1 # it's\n`", "\n"), ("cat AGENTS.md", "\n")]),
+    ("echo `echo 1 # x` ; ls\n", [("echo `echo 1 # x`", ";"), ("ls", "\n")]),
+    ("echo $(echo 1 # its\n)\ncat AGENTS.md\n", [("echo $(echo 1 # its\n)", "\n"), ("cat AGENTS.md", "\n")]),
+    ("echo $(echo 1;# it's\n)\nls\n", [("echo $(echo 1;# it's\n)", "\n"), ("ls", "\n")]),
+    ("echo $(echo $# ${#x} a#b)\nls\n", [("echo $(echo $# ${#x} a#b)", "\n"), ("ls", "\n")]),
+    ("echo $(echo 1 # a) b\n)\nls\n", [("echo $(echo 1 # a) b\n)", "\n"), ("ls", "\n")]),
+    ("echo $(echo #)\nls\n", [("echo $(echo #)", "\n"), ("ls", "\n")]),
+])
+def test_a_comment_inside_a_substitution_runs_to_the_end_of_its_line(command, parts):
+    assert split_commands(command) == parts
+
+
+def test_masking_and_parentheses_read_a_comment_inside_a_substitution_whole():
+    command = "echo $(echo 1 # a) b\n) c"
+    assert shell._mask(command) == "echo SUBST c"
+    assert shell.parens(command) == (0, 0)
+
+
+@pytest.mark.parametrize("command, parts", [
+    ("printf $'don\\'t'\nrm g\n", [("printf $'don\\'t'", "\n"), ("rm g", "\n")]),
+    ("printf $'a\\\\'\nrm g\n", [("printf $'a\\\\'", "\n"), ("rm g", "\n")]),
+    ("echo $(printf $'it\\'s')\nrm g\n", [("echo $(printf $'it\\'s')", "\n"), ("rm g", "\n")]),
+    ("echo \"$'\"\nrm g\n", [("echo \"$'\"", "\n"), ("rm g", "\n")]),
+    ("printf $'abc\nrm g\n", [("printf $'abc\nrm g", "")]),
+])
+def test_an_ansi_c_string_is_read_to_its_unescaped_apostrophe(command, parts):
+    assert split_commands(command) == parts
+
+
+def test_masking_and_parentheses_read_an_ansi_c_string_whole():
+    assert shell._mask("printf $'a\\'' $(echo b)") == "printf $'a\\'' SUBST"
+    assert shell.parens("(printf $'\\')'") == (1, 0)
+
+
 def test_a_shell_write_is_an_edit_for_edit_matchers_only():
     ev = _events("Bash", {"command": "sed -i s/a/b/ f"})[0]
     assert Matcher(tools=("Edit",))(ev) and not Matcher(tools=("Read",))(ev)
