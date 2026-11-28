@@ -19,7 +19,7 @@ from markdown_it.rules_block import StateBlock, html_block
 from markdown_it.rules_inline import StateInline, link
 from markdown_it.token import Token
 
-from dokimi.code_spans import CodeSpanScanner
+from dokimi.code_spans import CodeSpan, CodeSpanScanner
 
 #: Above this an index stops being a cheap first read; the llms.txt convention says compact.
 TOKEN_BUDGET = 2000
@@ -157,10 +157,19 @@ class _InlineText:
     def __init__(self, text: str):
         self.text = text
         self.scanner = CodeSpanScanner(text, stop=_BLOCK)
-        self.span = self.scanner.find(0)
+        self.found: tuple[int, CodeSpan | None] = (len(text) + 1, None)
+        self.span = self.find(0)
         self.last_close = text.rfind("-->")
         self.comment = self._opener(0)
         self.in_comment = False
+
+    def find(self, pos: int) -> CodeSpan | None:
+        """The first code span from ``pos``; a query before that span reuses it, so no run is read twice."""
+        since, span = self.found
+        if since <= pos and (span is None or pos <= span.start()):
+            return span
+        self.found = (pos, self.scanner.find(pos))
+        return self.found[1]
 
     def _opener(self, pos: int) -> int:
         """The next ``<!--`` that opens a comment: a ``-->`` follows it, or it starts an HTML block."""
@@ -181,7 +190,7 @@ class _InlineText:
                 back -= 1
             if (span.start() - back) % 2:
                 parts.append(self.text[pos:span.body_begin])
-                self.span = self.scanner.find(span.body_begin)
+                self.span = self.find(span.body_begin)
                 return span.body_begin
             parts.append(self.text[pos:span.start()])
         stop = min(span.end(), end)
@@ -197,10 +206,10 @@ class _InlineText:
                     break
                 self.in_comment = False
                 pos = close + 3
-                self.span = self.scanner.find(pos)
+                self.span = self.find(pos)
                 continue
             if self.span and self.span.end() <= pos:
-                self.span = self.scanner.find(pos)
+                self.span = self.find(pos)
             stop = min(self.span.start(), end) if self.span else end
             if 0 <= self.comment < pos:
                 self.comment = self._opener(pos)
@@ -242,7 +251,7 @@ def _structure_lines(text: str, *, keep_code: bool = False) -> tuple[list[str], 
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""
-                inline.span = inline.scanner.find(end + 1)
+                inline.span = inline.find(end + 1)
             lines.append("")
         elif marker and not inline.in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
             fence = marker[1]

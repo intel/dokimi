@@ -3,7 +3,7 @@
 
 import pytest
 
-from dokimi import llms_txt
+from dokimi import code_spans, llms_txt
 
 GOOD = """# Acme API
 
@@ -78,6 +78,20 @@ def test_described_link_can_include_balanced_parentheses():
     text = GOOD.replace("https://acme.test/quickstart.md", "https://example.test/api/function(a(b))")
     assert text != GOOD
     assert llms_txt.check(text) == []
+
+
+def test_fenced_examples_cost_time_linear_in_their_number(monkeypatch):
+    calls = []
+    closer = code_spans._Runs.closer
+    monkeypatch.setattr(code_spans._Runs, "closer", lambda runs, *a: calls.append(1) or closer(runs, *a))
+
+    def cost(blocks: int) -> int:
+        calls.clear()
+        text = GOOD + "Example:\n\n```python\nprint(1)\n```\n\n" * blocks
+        assert llms_txt.check(text, token_budget=len(text)) == []
+        return len(calls)
+
+    assert cost(400) < 3 * cost(200)
 
 
 def test_inline_backticks_do_not_open_a_fence():
