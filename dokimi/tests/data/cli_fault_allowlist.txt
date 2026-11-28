@@ -1,0 +1,83 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Known failures of the CLI fault contract (tests/test_cli_fault_contract.py).
+#
+# One row per case: `command | parameter | fault | what fails`. Each row is a defect: fix
+# it and delete the row. A row whose case now passes, is not reached, or names no case fails
+# the test. The fault names and the files they build are in tests/cli_faults.py; the row
+# `command | * | good` is a command that answers well-formed values with a traceback.
+# A reason that starts `python <3.14:` or `python >=3.14:` is a row on those interpreters only.
+
+# Commands none of whose path parameters the harness reaches: `command | * | unreached | what
+# refuses first`. Not defects of the command. A row goes when the harness gets a filler for
+# the argument named (tests/cli_faults.py); a row whose command is reached fails the test.
+catalog check | --root | unreadable | exit 5 with a traceback (PermissionError reading locked_dir/skills.yaml)
+catalog check | --tasks-subdir | absolute | exit 0: a tasks directory outside --root is read
+catalog check | --tasks-subdir | dangling-link | exit 0, nothing on stderr: a missing tasks directory is not refused
+catalog check | --tasks-subdir | dotdot | exit 0: a `..` tasks directory outside --root is read
+catalog check | --tasks-subdir | link-out-of-root | exit 0: a link leading out of --root is followed
+catalog check | --tasks-subdir | missing | exit 0, nothing on stderr: a missing tasks directory is not refused
+catalog check | --tasks-subdir | not-a-directory | exit 0, nothing on stderr: a file as the tasks directory is not refused
+catalog check | --upstream | unreadable | exit 5 with a traceback (PermissionError on the upstream checkout)
+catalog eval | catalog_root | dangling-link | exit 2 but leaves --out-dir/report.md behind
+catalog eval | catalog_root | missing | exit 2 but leaves --out-dir/report.md behind
+catalog eval | catalog_root | not-a-directory | exit 2 but leaves --out-dir/report.md behind
+catalog eval | catalog_root | unreadable | exit 2 but leaves --out-dir/report.md behind
+catalog formats | --root | unreadable | exit 0, nothing on stderr: an unreadable checkout reads as an empty one
+catalog intents | --intents | empty | exit 0: an empty intents file reads as an empty registry
+catalog list | --intents | absolute | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | dangling-link | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | directory | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | dotdot | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | empty | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | invalid-utf8 | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | link-out-of-root | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | missing | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --intents | unreadable | exit 0: --intents is read only with --domain, so a bad file passes silently
+catalog list | --registry | empty | exit 0: an empty registry file reads as a registry with no products
+catalog provenance | --upstream | unreadable | exit 5 with a traceback (PermissionError on the upstream checkout)
+eval inspect | path | unreadable | exit 0, nothing on stderr: an unreadable directory reads as an empty one
+eval judge wording | --answers | json-list | exit 5 with a traceback (NoUsablePairs: a JSON list with no usable answer is not refused)
+eval native-import | log | dangling-link | exit 5 with a traceback (FileNotFoundError)
+eval native-import | log | directory | exit 5 with a traceback (IsADirectoryError)
+eval native-import | log | missing | exit 5 with a traceback (FileNotFoundError)
+eval native-import | log | unreadable | exit 5 with a traceback (PermissionError)
+eval tasks list | --tasks-root | unreadable | exit 5 with a traceback (PermissionError listing the tasks root)
+repo budget | source | unreadable | exit 0, nothing on stderr: an unreadable source reads as an empty one
+repo compare | batch_dirs | unreadable | python <3.14: exit 5 with a traceback (PermissionError reading _eval/plan.json)
+repo hits judge | --labels | truncated-json | left behind _eval/lock in the batch directory
+repo scan | source | unreadable | python >=3.14: exit 0: an unreadable checkout is scanned as one with no config, on the default guidance files
+repo hits judge | --labels | absolute | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | dangling-link | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | directory | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | dotdot | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | empty | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | invalid-utf8 | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | link-out-of-root | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | missing | exit 2 but leaves the batch's _eval/lock behind
+repo hits judge | --labels | unreadable | exit 2 but leaves the batch's _eval/lock behind
+repo hits sheet | batch_dir | unreadable | exit 5 with a traceback (PermissionError reading _eval/plan.json)
+repo inspect | source | unreadable | exit 0, nothing on stderr: an unreadable source reads as an empty one
+repo report | batch_dir | unreadable | exit 5 with a traceback (PermissionError reading _eval/plan.json)
+skill check | --root | unreadable | python <3.14: exit 5 with a traceback (PermissionError reading locked_dir/skills.yaml)
+skill novelty analyze | --out-dir | not-a-directory | a model call before the unusable --out-dir is refused
+skill novelty analyze | --out-dir | unwritable-parent | a model call before the unwritable --out-dir is refused
+subjects run | subject | unreadable | exit 5 with a traceback (PermissionError reading the descriptor)
+skill novelty analyze | --out | directory | a model call before the unusable --out is refused
+skill novelty analyze | --out | unwritable-parent | a model call before the unwritable --out is refused
+skill novelty atoms | --out | directory | exit 1 after a model call: the unusable --out is not refused first
+skill novelty atoms | --out | unwritable-parent | exit 1 after a model call: the unwritable --out is not refused first
+skill shorten | --out | directory | exit 0, nothing on stderr: an unusable --out passes silently
+skill shorten | --out | unwritable-parent | exit 0, nothing on stderr: an unwritable --out passes silently
+skill novelty probe | * | good | an --atoms file holding `{}` crashes: exit 5, KeyError 'atoms'
+catalog routing | * | unreached | needs --queries-by-skill and --out together, and a queries file of the right shape
+catalog routing-compare | * | unreached | both operands must be saved routing results
+dashboard generate | * | unreached | needs evaluation results under the runs root
+data import docling | * | unreached | needs the ocr extra
+eval personas discover | * | unreached | needs --repo or --description
+evaluate | * | unreached | needs --repo or --description
+explore run | * | unreached | needs --tasks or --all
+runs rm | * | unreached | needs a runs root holding the run named
+runs show | * | unreached | needs a runs root holding the run named
+skill novelty ground | * | unreached | --header and --shared-lib need --prefix, and a real tool, header or library
