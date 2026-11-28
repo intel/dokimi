@@ -1,0 +1,3 @@
+### Fixed
+
+- **A heredoc delimiter written as several quoted and unquoted pieces closes on its text without quotes** — `cat <<EOF"-END"`, `<<'EOF'-END` and `<<'A''B'` were read as the first piece (`EOF`, `EOF`, `A`), so no line closed the heredoc and the commands after the real closing line (`EOF-END`, `EOF-END`, `AB`) were dropped by `shell.split_commands` and the heredoc strip of `repos/shell_walk.py`. The delimiter is now the whole word and its quotes are removed before a line is compared with it, as in bash, so those commands are read. A quote that never closes (`<<AB'`) is still no part of the word, and `<<''` and a word with a backslash still open no heredoc.

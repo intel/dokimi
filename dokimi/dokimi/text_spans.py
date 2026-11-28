@@ -15,6 +15,7 @@ import re
 from bisect import bisect_left
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 def pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str]) -> Iterator[tuple[re.Match[str], re.Match[str]]]:
@@ -56,6 +57,19 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
 _QUOTE_MARKS = re.compile(r"[\\'\"\n#$()`}]")
 _SCOPES = {"(": "(", "{": "{"}  # the character after a `$` that opens a scope
 _CLOSERS = {")": "(", "}": "{["}  # `[` is a ``${`` inside double quotes, where a single quote is plain text
+
+#: The delimiter of a heredoc after ``<<``: group 1 is the quote of a word that is one quoted piece (group 2 is then its text), else empty and group 2 is the word as written, unquoted and quoted pieces side by side (``EOF"-END"``, ``'A''B'``).
+#: A word with a backslash, a ``(`` after it, or a double-quoted piece with a backslash opens nothing (``<<EOF\-END``, ``<<$(printf EOF)``, ``<<"a\$b"``); a quote that never closes is no part of the word (``<<AB'``).
+HEREDOC_WORD = (r"(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+(?=\1(?![^\s;&|<>()\\]))"
+                r"|(?<!['\"])(?!(?:''|\"\")+(?![^\s;&|<>()\\]))(?:'[^'\n]*'|\"[^\"\\\n]*\"|[^\s;&|<>()'\"\\-])(?:'[^'\n]*'|\"[^\"\\\n]*\"|[^\s;&|<>()'\"\\]++)*+)(?!['\"]?[\\(])\1")
+_QUOTED_PIECE = re.compile(r"'([^']*)'|\"([^\"]*)\"")
+
+
+def dequote_word(word: str) -> str:
+    """``word`` as the shell reads it after quote removal: ``EOF"-END"`` is ``EOF-END``."""
+    if "'" not in word and '"' not in word:
+        return word
+    return _QUOTED_PIECE.sub(lambda m: m.group(m.lastindex or 1), word)
 
 
 def _starts_word(text: str, at: int) -> bool:
@@ -262,6 +276,12 @@ class _ArithmeticReader:
         self.pos = max(self.pos, to)
 
 
+@lru_cache(maxsize=256)
+def _closed_by(full: re.Pattern[str], group: int, delimiter: str) -> re.Pattern[str]:
+    """``full`` with its backreference ``\\<group>`` to the delimiter as written replaced by the text ``delimiter`` a closing line holds."""
+    return re.compile(full.pattern.replace(f"\\{group}", re.escape(delimiter)), full.flags)
+
+
 @dataclass(frozen=True)
 class HeredocPattern:
     """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
@@ -285,6 +305,16 @@ class HeredocPattern:
     gap: int = 0
     before: str | None = None
     after: str | None = None
+    quote: int = 0
+
+    def delimiter(self, opener: re.Match[str]) -> str:
+        """The line that closes the heredoc ``opener`` opens: its word after quote removal, ``EOF-END`` for ``EOF"-END"`` (``quote`` is the group of the quote of a word that is one quoted piece, read up to it already)."""
+        word = opener.group(self.word)
+        return word if self.quote and opener.group(self.quote) else dequote_word(word)
+
+    def _full_for(self, opener: re.Match[str], delimiter: str) -> re.Pattern[str]:
+        """``full``, or when the closing line is not the word as written, the pattern of ``full`` with its backreference to the word replaced by the closing line."""
+        return self.full if delimiter == opener.group(self.word) else _closed_by(self.full, self.word, delimiter)
 
     def matches(self, text: str) -> Iterator[re.Match[str]]:
         """The matches of ``full``, then ``unclosed`` for the first opener that no line closes, which ends the scan.
@@ -296,7 +326,7 @@ class HeredocPattern:
         openers = self._openers(text)
         if not openers:
             return
-        last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
+        last = dict.fromkeys((d for _, _, d in openers), -1)
         cores: dict[str, dict[int, set[str]]] = {}
         for delimiter in last:
             cores.setdefault(self._core(delimiter), {}).setdefault(len(delimiter), set()).add(delimiter)
@@ -304,12 +334,12 @@ class HeredocPattern:
             for delimiter in self._closed(line.group(1), cores.get(self._core(line.group(1)), {})):
                 last[delimiter] = line.start()
         pos = 0
-        for o, line_end in openers:
+        for o, line_end, delimiter in openers:
             if o.start() < pos:
                 continue
-            closing = last[o.group(self.word)]
+            closing = last[delimiter]
             if closing >= line_end + self.gap:
-                m = self.full.match(text, o.start())
+                m = self._full_for(o, delimiter).match(text, o.start())
                 assert m is not None  # a closing line past the opener is what ``full`` ends on
                 yield m
                 pos = m.end()
@@ -341,8 +371,8 @@ class HeredocPattern:
                 continue
             yield from delimiters.intersection(line[i:i + size] for i in range(first, last + 1))
 
-    def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
-        """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
+    def _openers(self, text: str) -> list[tuple[re.Match[str], int, str]]:
+        """Each opener with the start of the line after its own and its delimiter; an opener whose line has no end is left out."""
         openers, start, eol = [], 0, -1
         quote, scanned = "", 0
         reader, next_span = _ArithmeticReader(text, self), 0
@@ -365,8 +395,11 @@ class HeredocPattern:
                 eol = text.find("\n", o.end())
                 if eol < 0:  # no opener from here on has a line end
                     break
-            openers.append((o, eol + 1))
-            words.append(o.group(self.word))
+            delimiter = o.group(self.word)
+            if "'" in delimiter or '"' in delimiter:  # quote removal: most words have none, and this loop runs per opener
+                delimiter = self.delimiter(o)
+            openers.append((o, eol + 1, delimiter))
+            words.append(delimiter)
             scanned = max(scanned, o.end())  # the delimiter is literal text: ``<<"${"`` opens no expansion
             reader.skip(o.end())
             start = o.start() + 1
@@ -405,7 +438,7 @@ class HeredocPattern:
             pos = o.start() + 1
             quote, scanned = _quote_after(text, scanned, o.start(), quote, step)
             if not _inert(quote) and scanned <= o.start():
-                words.append(o.group(self.word))
+                words.append(self.delimiter(o))
                 scanned = max(scanned, o.end())
         return words
 
