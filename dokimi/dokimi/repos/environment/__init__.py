@@ -20,7 +20,7 @@ from typing import Any
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.l0.core import Scan
 from dokimi.repos.project_markers import MAKEFILE_NAMES
-from dokimi.repos.source import RepoTree, SourceError
+from dokimi.repos.source import RepoTree, SourceError, WorkTree
 
 from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
@@ -108,21 +108,56 @@ def _runner_file_unread(scan: Scan) -> bool:
     return any(mk in scan.file_set and re.search(r"^-?include\s", scan.text(mk), re.M) for mk in MAKEFILE_NAMES)
 
 
-def _read_sizes(tree: RepoTree, files: list[str], size_of: dict[str, int] | None) -> dict[str, int] | None:
-    """``size_of`` with a linked instruction file sized by the file it names: the harness reads that."""
-    if size_of is None:
-        return None
-    out = dict(size_of)
+def _read_sizes(tree: RepoTree, files: list[str],
+                size_of: dict[str, int] | None) -> tuple[dict[str, int] | None, dict[str, str]]:
+    """``size_of`` with a linked instruction file sized by the file it names (the harness reads that),
+    and why each instruction file that cannot be loaded cannot: a link to nothing, a loop, a directory,
+    a pipe or device, an unreadable directory above it (#1271), or no content."""
+    unusable: dict[str, str] = {}
+    out = None if size_of is None else dict(size_of)
     for path in files:
         if not any(rule.match(path) for rule in INSTRUCTION_RULES):
             continue
         try:
             target = tree.resolve(path)
-        except SourceError:
+        except SourceError as exc:
+            unusable[path] = str(exc)
             continue
-        if target != path and target in size_of:
-            out[path] = size_of[target]
-    return out
+        if out is not None and size_of is not None and target != path:
+            if target in size_of:
+                out[path] = size_of[target]
+            elif isinstance(tree, WorkTree):  # a target git leaves out of the listing is still read
+                try:
+                    out[path] = (tree.root / target).stat().st_size
+                except OSError:
+                    pass
+        if why := _content_problem(tree, target, None if out is None else out.get(path)):
+            unusable[path] = why
+    return out, unusable
+
+
+def _content_problem(tree: RepoTree, target: str, size: int | None) -> str | None:
+    """Why the file ``target`` gives a harness nothing (#1271): it cannot be opened, or it is empty.
+    A partial clone lists no sizes, so the few instruction files are read instead."""
+    try:
+        if isinstance(tree, WorkTree):
+            with open(tree.root / target, "rb") as handle:
+                return None if handle.read(1) else "is empty"
+        if size is None:
+            return None if tree.read_bytes(target) else "is empty"
+    except PermissionError:
+        return "cannot be read: Permission denied"
+    except OSError as exc:
+        return f"cannot be read: {type(exc).__name__}"
+    except SourceError as exc:  # a blob a partial clone cannot fetch
+        return f"cannot be read: {exc}"
+    return "is empty" if size == 0 else None
+
+
+def _note_unusable(instructions: list[Instruction], unusable: dict[str, str]) -> None:
+    for i in instructions:
+        if i.path in unusable:
+            i.notes.append(f"not loaded: {unusable[i.path]}")
 
 
 def _structure_findings(section: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -145,8 +180,10 @@ def _guided(instructions: list[Instruction]) -> frozenset[str]:
     return frozenset(nested | ({"."} if any(i.scope == "root" for i in instructions) else set()))
 
 
-def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str, Any] | None) -> list[str]:
+def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str, Any] | None,
+                  unusable: dict[str, str]) -> list[str]:
     out = list(NOT_OBSERVED)
+    out.extend(f"{path} instructions (not loaded: {why})" for path, why in sorted(unusable.items()))
     if size_of is None:
         out.append("file sizes (a partial clone: listing them would fetch every blob)")
     for manifest in unreadable_plugin_manifests(scan):
@@ -173,7 +210,8 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES, index: CodeIndex | No
     section and findings drawn from it."""
     scan = Scan(tree, frozenset())
     size_of = sizes(tree)
-    instructions = detect_instructions(scan.files, _read_sizes(tree, scan.files, size_of))
+    read_sizes, unusable = _read_sizes(tree, scan.files, size_of)
+    instructions = detect_instructions(scan.files, read_sizes)
     checks = detect_checks(scan)
     capabilities = detect_capabilities(scan)
     scripts = detect_script_signals(scan)
@@ -254,7 +292,8 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES, index: CodeIndex | No
 
     risk = ("high" if hooks or any(c.risk == "high" for c in capabilities) else
             "medium" if scripts or any(c.risk == "medium" for c in capabilities) else "low")
-    not_observed = _not_observed(scan, size_of, section)
+    not_observed = _not_observed(scan, size_of, section, unusable)
+    _note_unusable(instructions, unusable)  # after the findings: ``activation-unknown`` reads the notes
     payload = {
         "repo": {"tree": tree.label, "sha": getattr(tree, "sha", None)},
         "instructions": [i.to_dict() for i in instructions],
