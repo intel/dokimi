@@ -143,6 +143,20 @@ def test_a_login_that_could_change_the_api_path_is_refused(tmp_path: Path, login
     assert (tmp_path / "gh.log").read_text(encoding="utf-8") == ""
 
 
+@pytest.mark.parametrize("head", ["", "main", "null"])
+def test_an_unreadable_head_commit_stops_the_run(tmp_path: Path, head: str) -> None:
+    # An empty head-sha would check out the default branch and publish it as the pull request's result.
+    r, out = _gate(tmp_path, FAKE_SHA=head)
+    assert (r.returncode, out) == (1, {"run": "false"})
+    assert "reactions" not in (tmp_path / "gh.log").read_text(encoding="utf-8")
+
+
+def test_a_failed_reaction_does_not_stop_the_run(tmp_path: Path) -> None:
+    r, out = _gate(tmp_path, FAKE_REACT="fail")
+    assert r.returncode == 0, r.stdout
+    assert out == {"run": "true", "pr": "7", "head-sha": SHA}
+
+
 def test_an_issue_comment_does_nothing(tmp_path: Path) -> None:
     r, out = _gate(tmp_path, IS_PR="false")
     assert (r.returncode, out) == (0, {"run": "false"})
