@@ -93,7 +93,7 @@ def _claim(path: Path, *, empty_ok: bool) -> bool:
     """Create ``path`` (or take an empty directory there when ``empty_ok``), then create its
     ``run.json`` exclusively: the file, not the directory, decides which run owns it. Whether
     the directory was made here."""
-    made = True
+    made = False
     taken = f"run directory {path} already exists: a run never writes into another run's directory"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)  # a parent that is a file raises FileExistsError here
@@ -102,15 +102,18 @@ def _claim(path: Path, *, empty_ok: bool) -> bool:
     try:
         try:
             path.mkdir()
+            made = True
         except FileExistsError:
             if not (empty_ok and path.is_dir() and not any(path.iterdir())):
                 raise InputError(taken) from None
-            made = False
         with open(path / RUN_FILE, "x", encoding="utf-8"):
             pass
     except FileExistsError:
         raise InputError(taken) from None
     except OSError as exc:  # no permission to make, list or write the directory
+        if made:  # give back the directory made here (a full disk), so the same name can be tried again
+            with contextlib.suppress(OSError):
+                path.rmdir()
         raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
     return made
 
