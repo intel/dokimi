@@ -6,12 +6,10 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
-from dokimi import process
-from tests.test_process import _POSIX_ONLY, _alive, _py, _wait_for
+from tests.test_process import _POSIX_ONLY, _alive, _fire_timeout_once_written, _py
 from tests.waiting import wait_for_event, wait_until
 
 
@@ -35,13 +33,7 @@ def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
             "print('before', flush=True)\n"
             "open(sys.argv[2], 'w').write('x')\n"
             "hold()\n")
-    real_collect = process._collect
-    armed, finished, outcome = threading.Event(), threading.Event(), {}
-
-    def collect_once_the_child_has_escaped(proc, pipes, deadline, job, term_grace=0.0):
-        _wait_for(said, 120)  # the timeout then fires at once, not at a wall-clock time a busy host can pass
-        armed.set()
-        return real_collect(proc, pipes, time.monotonic(), job, term_grace)
+    finished, outcome = threading.Event(), {}
 
     def call():
         try:
@@ -51,11 +43,11 @@ def test_timeout_returns_despite_a_setsid_child(tmp_path, monkeypatch):
         finally:
             finished.set()
 
-    monkeypatch.setattr(process, "_collect", collect_once_the_child_has_escaped)
+    fired = _fire_timeout_once_written(monkeypatch, said)  # the timeout fires at once when the child says so
     worker = threading.Thread(target=call, daemon=True)
     worker.start()
     try:
-        wait_until(lambda: armed.is_set() or finished.is_set(), 120, what="the child to escape and say so")
+        wait_until(lambda: fired or finished.is_set(), 120, what="the child to escape and say so")
         wait_for_event(finished, 30, what="the call to return while the escaped child holds the pipes")
         done = outcome.get("done") or pytest.fail(f"the call raised {outcome.get('error')!r}")
         assert _alive(int(pid_file.read_text()))  # the escaped child is alive and holds stdout and stderr

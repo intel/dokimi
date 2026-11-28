@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.metrics.example_runner import ExecutionPolicy, run_example
+from tests.test_process import _fire_timeout_once_written
 from tests.waiting import poll_until
 
 
@@ -77,8 +78,9 @@ def test_subprocess_background_job_is_killed_on_exit(tmp_path):
 
 
 @_POSIX_ONLY
-def test_subprocess_timeout_kills_the_process_group(tmp_path):
+def test_subprocess_timeout_kills_the_process_group(tmp_path, monkeypatch):
     pidfile = tmp_path / "pid"
+    _fire_timeout_once_written(monkeypatch, pidfile)  # the timeout fires once the background job exists
     res = run_example(
         "bash", f"sleep 60 & echo $! > '{pidfile}'; sleep 60",
         ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=1),

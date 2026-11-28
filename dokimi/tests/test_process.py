@@ -62,6 +62,21 @@ def _wait_for(path: Path, within: float = 60.0) -> str:
                       interval=0.05)
 
 
+def _fire_timeout_once_written(monkeypatch, marker: Path) -> list[float]:
+    """Make the timeout of `process.run` fire only once the child has written ``marker``, not at a
+    wall-clock time a starved host can pass before the child has started. Returns a list that holds
+    `time.monotonic()` of the firing once it happened, for a test to measure the grace from."""
+    real_collect, fired = process._collect, []
+
+    def collect_once_written(proc, pipes, deadline, job, term_grace=0.0):
+        _wait_for(marker, 120)
+        fired.append(time.monotonic())
+        return real_collect(proc, pipes, fired[0], job, term_grace)
+
+    monkeypatch.setattr(process, "_collect", collect_once_written)
+    return fired
+
+
 # ── exit, output, encoding ──────────────────────────────────────────────────
 
 
@@ -223,68 +238,76 @@ def bye(*_):
     sys.exit(3)
 signal.signal(signal.SIGTERM, bye)
 print("started", flush=True)
+open(sys.argv[1], "w").write("u")
 time.sleep(60)
 """
 
 
 @_POSIX_ONLY
-def test_term_grace_lets_the_group_clean_up_on_timeout():
+def test_term_grace_lets_the_group_clean_up_on_timeout(tmp_path, monkeypatch):
     """What the child prints while it handles the SIGTERM is kept: its output is still read."""
-    start = time.monotonic()
-    done = _py(_TRAP_TERM, timeout=1, term_grace=10)
-    assert time.monotonic() - start < 1 + 5  # it exited on SIGTERM, well inside the grace
+    up = tmp_path / "up"
+    fired = _fire_timeout_once_written(monkeypatch, up)
+    done = _py(_TRAP_TERM, str(up), timeout=1, term_grace=10)
+    assert time.monotonic() - fired[0] < 5  # it exited on SIGTERM, well inside the grace
     assert done.timed_out and done.returncode == TIMEOUT_RC
     assert done.stdout == "started\ncleaned up\n"
 
 
 @_POSIX_ONLY
-def test_term_grace_ends_in_sigkill_for_a_child_that_ignores_sigterm():
-    code = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); time.sleep(60)"
-    start = time.monotonic()
-    done = _py(code, timeout=1, term_grace=1)
-    elapsed = time.monotonic() - start
-    assert 1 + 1 - 0.5 < elapsed < 1 + 1 + process.DRAIN_GRACE_SEC + 3
+def test_term_grace_ends_in_sigkill_for_a_child_that_ignores_sigterm(tmp_path, monkeypatch):
+    up = tmp_path / "up"
+    code = ("import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); "
+            "open(sys.argv[1], 'w').write('u'); time.sleep(60)")
+    fired = _fire_timeout_once_written(monkeypatch, up)
+    done = _py(code, str(up), timeout=1, term_grace=1)
+    elapsed = time.monotonic() - fired[0]
+    assert 1 - 0.5 < elapsed < 1 + process.DRAIN_GRACE_SEC + 3
     assert done.timed_out and done.stdout == "up\n"
 
 
 @_POSIX_ONLY
-def test_term_grace_waits_for_the_whole_group_not_only_the_child(tmp_path):
+def test_term_grace_waits_for_the_whole_group_not_only_the_child(tmp_path, monkeypatch):
     """The command exits on SIGTERM; a helper of its that ignores SIGTERM still gets the grace,
     then the kill, and is gone when the call returns."""
-    pid_file, got_term = tmp_path / "pid", tmp_path / "helper-term"
-    helper = ("import signal, sys, time; "
+    pid_file, got_term, up = tmp_path / "pid", tmp_path / "helper-term", tmp_path / "up"
+    helper = ("import os, signal, sys, time; "
               "signal.signal(signal.SIGTERM, lambda *_: open(sys.argv[1], 'w').write('t')); "
+              "open(sys.argv[2], 'w').write(str(os.getpid())); "
               "time.sleep(60)")
-    code = ("import signal, subprocess, sys, time\n"
-            f"helper = subprocess.Popen([sys.executable, '-c', {helper!r}, sys.argv[2]])\n"
-            "open(sys.argv[1], 'w').write(str(helper.pid))\n"
+    code = ("import os, signal, subprocess, sys, time\n"
+            f"helper = subprocess.Popen([sys.executable, '-c', {helper!r}, sys.argv[2], sys.argv[1]])\n"
+            "while not (os.path.exists(sys.argv[1]) and os.path.getsize(sys.argv[1])):\n"
+            "    time.sleep(0.01)\n"
             "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+            "open(sys.argv[3], 'w').write('u')\n"
             "time.sleep(60)\n")
-    start = time.monotonic()
-    done = _py(code, str(pid_file), str(got_term), timeout=1, term_grace=1.5)
-    elapsed = time.monotonic() - start
-    assert done.timed_out and 1 + 1.5 - 0.5 < elapsed < 1 + 1.5 + process.DRAIN_GRACE_SEC + 3
+    fired = _fire_timeout_once_written(monkeypatch, up)
+    done = _py(code, str(pid_file), str(got_term), str(up), timeout=1, term_grace=1.5)
+    elapsed = time.monotonic() - fired[0]
+    assert done.timed_out and 1.5 - 0.5 < elapsed < 1.5 + process.DRAIN_GRACE_SEC + 3
     assert got_term.read_text() == "t"  # the SIGTERM went to the group, not only the leader
     assert _gone_soon(int(pid_file.read_text()))
 
 
 @_POSIX_ONLY
-def test_term_grace_applies_when_the_output_closed_before_the_timeout(tmp_path):
+def test_term_grace_applies_when_the_output_closed_before_the_timeout(tmp_path, monkeypatch):
     """A child that closed its output and hangs still gets the SIGTERM and its grace."""
-    marker = tmp_path / "term"
+    marker, up = tmp_path / "term", tmp_path / "up"
     code = ("import os, signal, sys, time\n"
             "signal.signal(signal.SIGTERM, lambda *_: (open(sys.argv[1], 'w').write('t'), sys.exit(0)))\n"
             "os.close(1); os.close(2)\n"
+            "open(sys.argv[2], 'w').write('u')\n"
             "time.sleep(60)\n")
-    start = time.monotonic()
-    done = _py(code, str(marker), timeout=1, term_grace=10)
-    assert done.timed_out and time.monotonic() - start < 1 + 5
+    fired = _fire_timeout_once_written(monkeypatch, up)
+    done = _py(code, str(marker), str(up), timeout=1, term_grace=10)
+    assert done.timed_out and time.monotonic() - fired[0] < 5
     assert marker.read_text() == "t"
 
 
 @_POSIX_ONLY
-def test_term_grace_keeps_waiting_when_the_output_closes_during_the_cleanup(tmp_path):
-    marker = tmp_path / "term"
+def test_term_grace_keeps_waiting_when_the_output_closes_during_the_cleanup(tmp_path, monkeypatch):
+    marker, up = tmp_path / "term", tmp_path / "up"
     code = ("import os, signal, sys, time\n"
             "def bye(*_):\n"
             "    os.close(1); os.close(2)\n"
@@ -292,8 +315,10 @@ def test_term_grace_keeps_waiting_when_the_output_closes_during_the_cleanup(tmp_
             "    open(sys.argv[1], 'w').write('cleaned')\n"
             "    os._exit(0)\n"
             "signal.signal(signal.SIGTERM, bye)\n"
+            "open(sys.argv[2], 'w').write('u')\n"
             "time.sleep(60)\n")
-    done = _py(code, str(marker), timeout=1, term_grace=10)
+    _fire_timeout_once_written(monkeypatch, up)
+    done = _py(code, str(marker), str(up), timeout=1, term_grace=10)
     assert done.timed_out and marker.read_text() == "cleaned"
 
 
@@ -342,11 +367,13 @@ def test_an_interrupt_waits_for_a_helper_that_outlives_its_leader(tmp_path, monk
 
 @_POSIX_ONLY
 def test_an_interrupt_during_the_grace_of_a_closed_output_sends_one_sigterm(tmp_path, monkeypatch):
-    log = tmp_path / "term"
+    log, up = tmp_path / "term", tmp_path / "up"
     code = ("import os, signal, sys, time\n"
             "signal.signal(signal.SIGTERM, lambda *_: open(sys.argv[1], 'a').write('T'))\n"
             "os.close(1); os.close(2)\n"
+            "open(sys.argv[2], 'w').write('u')\n"
             "time.sleep(60)\n")
+    _fire_timeout_once_written(monkeypatch, up)
     real_wait_group, calls = process._wait_group, []
 
     def wait_group(proc, until):
@@ -358,7 +385,7 @@ def test_an_interrupt_during_the_grace_of_a_closed_output_sends_one_sigterm(tmp_
 
     monkeypatch.setattr(process, "_wait_group", wait_group)
     with pytest.raises(KeyboardInterrupt):
-        _py(code, str(log), timeout=0.5, term_grace=2)
+        _py(code, str(log), str(up), timeout=0.5, term_grace=2)
     assert log.read_text() == "T"
     assert len(calls) == 2 and calls[1] == calls[0]  # the interrupt keeps the first deadline
 
@@ -786,12 +813,12 @@ _IGNORE_TERM_CLOSED = ("import os, signal, sys, time\n"
 
 
 @_POSIX_ONLY
-def test_term_grace_is_honoured_then_killed_when_the_output_closed_first(tmp_path):
+def test_term_grace_is_honoured_then_killed_when_the_output_closed_first(tmp_path, monkeypatch):
     log = tmp_path / "term"
-    start = time.monotonic()
+    fired = _fire_timeout_once_written(monkeypatch, Path(str(log) + ".pid"))
     done = _py(_IGNORE_TERM_CLOSED, str(log), timeout=0.5, term_grace=1.5)
-    elapsed = time.monotonic() - start
-    assert done.timed_out and 0.5 + 1.5 - 0.3 < elapsed < 0.5 + 1.5 + 3
+    elapsed = time.monotonic() - fired[0]
+    assert done.timed_out and 1.5 - 0.3 < elapsed < 1.5 + 3
     assert log.read_text() == "T"
     assert _gone_soon(int(Path(str(log) + ".pid").read_text()))
 
@@ -817,7 +844,7 @@ def test_term_grace_is_honoured_then_killed_on_an_interrupt(tmp_path, monkeypatc
 @_POSIX_ONLY
 def test_an_interrupt_during_the_grace_sends_no_second_sigterm(tmp_path, monkeypatch):
     """The timeout's SIGTERM already started the grace; Ctrl-C then waits out only what is left."""
-    log = tmp_path / "term"
+    log, up = tmp_path / "term", tmp_path / "up"
     code = ("import os, signal, sys, time\n"
             "def term(*_):\n"
             "    open(sys.argv[1], 'a').write('T')\n"
@@ -826,7 +853,9 @@ def test_an_interrupt_during_the_grace_sends_no_second_sigterm(tmp_path, monkeyp
             "    except OSError:\n"
             "        pass\n"
             "signal.signal(signal.SIGTERM, term)\n"
+            "open(sys.argv[2], 'w').write('u')\n"
             "time.sleep(60)\n")
+    fired = _fire_timeout_once_written(monkeypatch, up)
     real_wait_group = process._wait_group
     calls = []
 
@@ -838,13 +867,12 @@ def test_an_interrupt_during_the_grace_sends_no_second_sigterm(tmp_path, monkeyp
         real_wait_group(proc, until)
 
     monkeypatch.setattr(process, "_wait_group", wait_group)
-    start = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
-        _py(code, str(log), timeout=0.5, term_grace=2)
-    elapsed = time.monotonic() - start
+        _py(code, str(log), str(up), timeout=0.5, term_grace=2)
+    elapsed = time.monotonic() - fired[0]
     assert log.read_text() == "T"
     assert calls[1] == calls[0]  # the same grace, not a fresh one
-    assert elapsed < 0.5 + 2 + 1.5
+    assert elapsed < 2 + 1.5
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_CHILD_SUBREAPER and /proc are Linux")
