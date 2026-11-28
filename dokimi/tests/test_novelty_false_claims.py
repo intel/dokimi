@@ -10,8 +10,16 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import caching
 from dokimi.novelty.atoms import Atom
-from dokimi.novelty.false_claims import find_false_claims, lexical_conflict, pair_atoms, split_sentences
+from dokimi.novelty.client import LLMClient
+from dokimi.novelty.false_claims import (
+    client_judge,
+    find_false_claims,
+    lexical_conflict,
+    pair_atoms,
+    split_sentences,
+)
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "false_claims" / "accel.json")
                      .read_text(encoding="utf-8"))
@@ -334,3 +342,13 @@ def test_numbered_list_markers_are_not_counted_as_unchecked_sentences():
     assert [(r.n_sentences, r.n_unchecked) for r in reports] == [(4, 1), (4, 1)]
     atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use _123 to configure matrix precision."})
     assert find_false_claims("_123.", [atom]).n_pairs == 1
+
+
+def test_an_off_scale_client_verdict_is_asked_again_not_replayed(provider_calls, monkeypatch, tmp_path):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path / "responses"))
+    provider_calls.push('{"verdict": "maybe"}', '{"verdict": "contradicts", "quote": "3.0"}')
+    answer = "The accelerator requires driver version 3.0."
+    runs = [find_false_claims(answer, ATOMS[:1], judge=client_judge(LLMClient(model="gpt-4o")))
+            for _ in range(2)]
+    assert [(r.n_judge_errors, [c.quote for c in r.claims]) for r in runs] == [(1, []), (0, ["3.0"])]
+    assert len(provider_calls.calls) == 2

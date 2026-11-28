@@ -25,13 +25,18 @@ Two passes:
 
 from __future__ import annotations
 
+import functools
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from .atoms import Atom
+
+if TYPE_CHECKING:
+    from .client import LLMClient
 
 JUDGE_VERDICTS = ("contradicts", "supports", "unrelated")
 
@@ -262,7 +267,7 @@ def find_false_claims(
         atoms: Atoms of the product's documentation (``load_atoms``). Atoms whose
             faithfulness check found them ``distorted`` or ``unsupported`` are skipped:
             a contradiction with a wrong atom is not a false claim.
-        judge: ``prompt -> {"verdict", "quote"}``, e.g. ``LLMClient.json_object``. When
+        judge: ``prompt -> {"verdict", "quote"}``, e.g. ``client_judge(client)``. When
             ``None`` only lexical signals are reported.
         min_overlap: Share of an atom's content words a sentence must contain to pair.
     """
@@ -280,6 +285,11 @@ def find_false_claims(
             if claim:
                 report.claims.append(claim)
     return report
+
+
+def client_judge(client: LLMClient) -> Callable[[str], dict]:
+    """``client.json_object`` as a judge: a reply with no known verdict is never cached."""
+    return functools.partial(client.json_object, usable=lambda reply: reply.get("verdict") in JUDGE_VERDICTS)
 
 
 def _claim(atom: Atom, sentence: str, quote: str, how: str) -> FalseClaim:
