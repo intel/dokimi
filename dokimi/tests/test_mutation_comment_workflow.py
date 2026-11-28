@@ -64,12 +64,15 @@ def test_a_push_that_kills_every_survivor_marks_the_comment_clean(tmp_path):
     assert "createComment" not in _names(calls)
 
 
-def test_a_run_that_could_not_test_is_not_shown_as_clean(tmp_path):
-    untested = {"failing_tests": 3, "tests_not_run": 0, "uncovered_lines": 5}
+@pytest.mark.parametrize(("untested", "said"), [
+    ({**UNTESTED, "failing_tests": 3}, "3 candidate tests fail without a mutant"),
+    ({**UNTESTED, "tests_not_run": 2}, "2 candidate test files were not run"),
+])
+def test_a_run_that_could_not_test_is_not_shown_as_clean(tmp_path, untested, said):
     for comments in (OLD, []):
         calls = _post(tmp_path, _result(survivors=(), untested=untested), comments=comments)
         body = _bodies(calls)[0]
-        assert "No surviving mutants" not in body and "3 candidate tests fail without a mutant" in body
+        assert "No surviving mutants" not in body and said in body
         assert "not a clean result" in body
 
 
