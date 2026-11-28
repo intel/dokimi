@@ -14,8 +14,11 @@ _QUOTED_START = re.compile(r"""^('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")""")
 
 
 def _lines(text: str) -> list[str]:
-    """The lines of ``text``; a leading UTF-8 BOM is not part of the first (the loader accepts it)."""
-    return text.removeprefix("\ufeff").splitlines()
+    """The lines of ``text``; a leading UTF-8 BOM is not part of the first (the loader accepts it).
+
+    Only CR LF, CR and LF end a line, as in an editor: ``str.splitlines`` also splits at U+2028, a form feed
+    and the other separators it knows, which would put every later finding on a wrong line."""
+    return re.split(r"\r\n|\r|\n", text.removeprefix("\ufeff"))
 
 
 def _frontmatter_end(lines: list[str]) -> Optional[int]:

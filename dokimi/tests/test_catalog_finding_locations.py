@@ -342,3 +342,15 @@ def test_several_unknown_keys_carry_no_line(tmp_path, capsys):
     """#942: one finding lists all the unknown keys, so it names no single line; one key has its line."""
     _skill(tmp_path, "a", extra="aaa: 1\nbbb: 2\n")
     assert "line" not in _one(tmp_path, capsys, "frontmatter-unknown-key")
+
+
+@pytest.mark.parametrize("separator, in_description", [
+    (0x2028, True), (0x2028, False), (0x2029, False), (0x85, False), (0x0B, False), (0x0C, False), (0x1C, False),
+])
+def test_only_cr_and_lf_end_a_line(tmp_path, capsys, separator, in_description):
+    """#942: a separator ``str.splitlines`` knows but an editor does not show as a break moves no ``line``."""
+    sep = chr(separator)  # built here, so a reviewer of this file sees no hidden text
+    desc = f'"Formats tax{sep}tables. Use when asked."' if in_description else OK
+    _skill(tmp_path, "a", desc=desc, extra="descripton: typo\n", body=f"Intro{sep}more.\n\nSee [n](missing.md).\n")
+    assert _one(tmp_path, capsys, "frontmatter-unknown-key")["line"] == 4
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 8
