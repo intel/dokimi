@@ -107,3 +107,28 @@ def test_failed_consumer_container_keeps_the_answer_and_its_output(pack, monkeyp
         "verifier_exit": None,
         "failure": failure,
     }
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        (None, None),
+        ("product_version", "9.9.9"),
+        ("image", "sha256:" + "b" * 64),
+        ("platform", "linux/arm64"),
+        ("tasks_sha256", "0" * 64),
+    ],
+)
+def test_release_is_graded_only_against_its_own_policy_profile(pack, monkeypatch, field, value):
+    policy = json.loads(pack.policy.read_text())
+    if field:
+        policy["profiles"]["linux-cpu"][field] = value
+    pack.policy.write_text(json.dumps(policy))
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: process.reply("cpu:34\ncpu:-8\n"))
+    result = delivery.run(pack)
+    reasons = {row["reason"] for row in result["observations"]}
+    if field is None:
+        assert result["summary"]["verdict"] == "PASS"
+    else:
+        assert result["summary"]["verdict"] == "INCONCLUSIVE"
+        assert reasons == {"ValueError: manifest or catalog does not match the release profile"}
