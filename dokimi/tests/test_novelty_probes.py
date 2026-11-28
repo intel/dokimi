@@ -721,3 +721,47 @@ def test_a_question_that_keeps_the_negation_of_a_statement_source_is_still_rejec
 @pytest.mark.parametrize("candidate", ["Don't run the installer as root?", "Don’t run the installer as root?"])
 def test_a_question_that_keeps_the_leading_dont_of_the_source_restates_it(source, candidate):
     assert check_wording("reversal", source=source, candidate=candidate) == ["restates_source"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["Do not run the installer as root.", "Does not run the installer as root.",
+     "Never run the installer as root.", "Cannot run the installer as root."],
+)
+@pytest.mark.parametrize("candidate", ["Don't run the installer as root?", "Don’t run the installer as root?"])
+def test_a_question_that_keeps_the_leading_dont_of_a_spelled_out_source_restates_it(source, candidate):
+    # #1232: a source opening with "Do not" keeps the candidate's leading "Don't", as "Don't" does.
+    assert check_wording("reversal", source=source, candidate=candidate) == ["restates_source"]
+
+
+@pytest.mark.parametrize("adverb", ["ever", "always", "just", "really"])
+def test_a_dont_question_with_an_adverb_before_the_verb_is_no_inversion_of_a_do_not_source(adverb):
+    # The adverb is new wording, so the diagnostic is polarity_not_flipped, not restates_source.
+    candidate = f"Don't {adverb} run the installer as root?"
+    assert check_wording("reversal", source="Do not run the installer as root.", candidate=candidate) == [
+        "polarity_not_flipped"
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    ["Should the installer be run as root?", "Is it fine to run the installer as root?",
+     "Should the installer be run as root, shouldn't it?"],
+)
+def test_a_genuine_inversion_of_a_do_not_source_is_still_accepted(candidate):
+    assert check_wording("reversal", source="Do not run the installer as root.", candidate=candidate) == []
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"])
+@pytest.mark.parametrize("source", ["Do not run the installer as root.", "Never run the installer as root."])
+def test_an_isnt_it_true_frame_inverting_a_spelled_out_source_is_not_a_restatement(source, apostrophe):
+    candidate = f"Isn{apostrophe}t it true that I should run the installer as root?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"])
+def test_a_dont_question_with_a_noun_subject_inverting_a_do_not_source_is_accepted(apostrophe):
+    # Review of #1256: "applications" is the question's subject, not an imperative verb.
+    candidate = f"Don{apostrophe}t applications store credentials in logs?"
+    source = "Do not store credentials in logs."
+    assert check_wording("reversal", source=source, candidate=candidate) == []
