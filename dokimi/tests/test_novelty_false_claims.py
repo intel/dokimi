@@ -199,7 +199,8 @@ def test_only_a_final_standalone_numeric_confidence_line_is_metadata():
     assert any(claim.atom_id == "a_windows" for claim in report.claims)
     assert [sentence.text for sentence in split_sentences("Restart.\rConfidence: 0.7")] == ["Restart."]
     assert [sentence.text for sentence in split_sentences("Restart.\nConfidence:\u00a00.7")] == ["Restart."]
-    for text in ("Confidence: this is prohibited.", "Restart. Confidence: 0.7", "Confidence: 0.7\nRestart."):
+    for text in ("Confidence: this is prohibited.", "Restart. Confidence: 0.7", "Confidence: 0.7\nRestart.",
+                 "Restart.\nConfidence: 0.9 since it works."):
         assert any(sentence.text.startswith("Confidence:") for sentence in split_sentences(text))
 
 
