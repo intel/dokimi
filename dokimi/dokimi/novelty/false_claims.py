@@ -162,7 +162,7 @@ def _value_key(match: re.Match[str]) -> tuple[str, str | Decimal]:
     number = re.sub(r"^([+-]?)v(?=\d)", r"\1", match["number"].lower()).removeprefix("+").replace(",", "")
     unit = match["unit"]
     if unit is None or number.count(".") > 1:
-        return ("version" if "." in number else "number"), number
+        return ("version" if "." in number else "number"), re.sub(r"(?:\.0+)+$", "", number)
     quantity = Decimal(number)
     if unit in _TIME_UNITS:
         return "duration", _scale_decimal(quantity, _TIME_UNITS[unit])
@@ -236,7 +236,7 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
         elif key[0] in remaining_shapes:
             return "lexical:value", quote
     # Preserve the fallback for a lone number compared to a lone dotted version.
-    if len(documented) == len(proposed) == 1 and not (documented.keys() & {proposed[0][0]}):
+    if len(documented) == len(proposed) == 1 and next(iter(documented))[1] != proposed[0][0][1]:
         expected_shape = next(iter(documented))[0]
         if {expected_shape, proposed[0][0][0]} == {"number", "version"}:
             return "lexical:value", proposed[0][1]

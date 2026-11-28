@@ -230,6 +230,17 @@ def test_a_lone_number_against_a_documented_version_is_a_conflict():
                             "The accelerator needs driver 2.") == ("lexical:value", "2")
 
 
+@pytest.mark.parametrize(("documented", "stated"), [("2.1", "2.1.0"), ("2.1.0", "2.1"), ("3", "3.0")])
+def test_trailing_zero_groups_spell_the_same_version(documented, stated):
+    assert lexical_conflict(f"The accelerator requires driver {documented}.",
+                            f"The accelerator needs driver {stated}.") is None
+
+
+def test_a_version_that_differs_beyond_trailing_zeros_still_conflicts():
+    assert lexical_conflict("The accelerator requires driver 2.1.",
+                            "The accelerator needs driver 2.10.") == ("lexical:value", "2.10")
+
+
 def test_hyphenated_range_compares_the_second_quantity():
     assert lexical_conflict("Latency is 10-20 ms.", "Latency is 10-30 ms.") == ("lexical:value", "30 ms")
     assert lexical_conflict("Latency is -10--20 ms.", "Latency is -10--30 ms.") == ("lexical:value", "-30 ms")
