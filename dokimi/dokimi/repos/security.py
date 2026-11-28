@@ -41,6 +41,16 @@ from typing import Any, Iterable, Optional, Sequence
 
 from .event_format import followed_path
 from .held_guidance import HeldGuidance
+from .security_patterns import (
+    BLANKS,
+    DOWNLOAD,
+    PIP_INSTALL,
+    PIP_STUCK,
+    PIP_TARGET,
+    PIP_WORDS,
+    RM_RECURSIVE,
+    SECRET_WORD_START,
+)
 
 SEVERITIES = ("critical", "high", "medium")
 
@@ -78,7 +88,8 @@ _GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|" + _OPT + r"\S+\s+)"
 _GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|" + _OPT + r"\S+" + _NL + r"+)"
 # an option with a newline in one of its gaps
 _GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*" + _ARG + r"\s+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
-_GIT_PUSH = r"\bgit\s+" + _GIT_OPT + r"*push\b"
+# `git [options] push` within one line, ending at its first `push` word: `-C` is taken alone before it takes `push` as its argument (#1267)
+_GIT_PUSH = r"(?>\bgit" + _NL + r"+(?:" + _OPT + r"\S+" + _NL + r"+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"+)*?push\b)"
 _GIT_PUSH_ACROSS_LINES = (r"\bgit(?:" + _NL + r"*\n\s*" + _GIT_OPT + r"*|" + _NL + r"+" + _GIT_OPT_NO_NL + r"*" + _GIT_OPT_NL + _GIT_OPT + r"*)push\b")
 _DOCKER_RUN = r"\bdocker\s+(?:container\s+)?(?:run|create)\b"
 _DOCKER_RUN_ACROSS_LINES = (r"\bdocker(?:" + _NL + r"*\n\s*(?:container\s+)?|" + _NL + r"+container" + _NL + r"*\n\s*)(?:run|create)\b")
@@ -100,6 +111,8 @@ _COMMIT_ARG = _ARG
 _COMMIT_ARG_LOCAL = r"(?!\S*\bgit\s)[^\s;&|-][^\s;&|]*"
 _COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|" + _OPT + r"\S+\s+)"
 _COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|" + _OPT + r"[^\s;&|]+" + _NL + r"+)"
+# the same options with the word first, for the lazy loop of `local` below: `-C` followed by the subcommand's name ends the opener at that name
+_COMMIT_OPT_LOCAL_WORD_FIRST = r"(?:" + _OPT + r"[^\s;&|]+" + _NL + r"+|-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+)"
 _COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
 
 
@@ -107,8 +120,9 @@ def _first_in_segment(sub: str, closers: str) -> str:
     """``git [options] <sub>`` then ``closers``, the opener tried from the first one of each segment only (#1161, #1212): a later one finds its closers only where the first does.
 
     An opener with a `;`, `&`, `|` or newline in a word or a gap ends in a later segment than it starts in: ``across`` is tried from each `git`.
+    ``local`` ends at its first `<sub>` word, an option `-C` taking the word as its own and not its argument: a later end (`git -C push -C push`) finds its closers only where the first does (#1267).
     """
-    local = r"\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*" + sub + r"\b"
+    local = r"(?>\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL_WORD_FIRST + r"*?" + sub + r"\b)"
     across = (
         r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
         r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
@@ -118,7 +132,8 @@ def _first_in_segment(sub: str, closers: str) -> str:
 
 
 _COMMIT_NO_VERIFY = _first_in_segment("commit", _COMMIT_CLOSERS)
-_PUSH_FORCE = r"[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)|\s\+\S)"
+# a short flag word with an `f`, taken whole: the word ends at the end of its letters, as a `\b` after an earlier letter never holds (#1268)
+_PUSH_FORCE = r"[^;&|\n]*(?:\s-(?=[a-z]*f)[a-z]++\b|--force\b(?!-with-lease|-if-includes)|\s\+\S)"
 _RESET_HARD = r"[^;&|\n]*\s--hard(?![\w-])"
 
 #: A shell word that is an absolute path.
@@ -127,16 +142,8 @@ _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 _HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
 _HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})")
 _HOME_STAND_IN = "/home/__user__"  # a stand-in home two levels deep: ~/../alice is /home/alice, as on a host
-_SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
-#: A path under a system directory with one of these components is routine cleanup (apt lists, pip
-#: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
-_CLEANUP_PARTS = r"\.?cache|lists|pkgs|tmp|site-packages|dist-packages|__pycache__"
 #: ``>``, ``2>``, ``>>``, ``&>``, ``>|`` with their file, or ``2>&1``.
 _REDIRECT = re.compile(r"(?:\d+|&)?>>?\|?(?:&\d*-?|\s*[^\s;&|<>()`]+)")
-#: A pip option whose value is a URL that is no package (an index or a links page).
-_PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
-#: Blanks between the words of one command: a newline ends the command (``rm -rf build`` then ``cat /etc/x``).
-_BLANKS = r"[^\S\n]+"
 
 #: Rules over a command line, from the tool-call trace or the execve log.
 COMMAND_RULES: tuple[Rule, ...] = (
@@ -149,7 +156,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("pipe-to-shell", "high", "download piped into a shell",
          # an interpreter reads a piped program only when it has no script or code argument (`python3 -m json.tool`
          # and `perl -pe` process the data); a shell, eval or source runs a download taken as its command substitution
-         _rx(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
+         _rx(r"(?:^|[|;&])(?:(?!" + DOWNLOAD + r")[^|;&])*" + DOWNLOAD + r"[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
              r"(?:(?:ba|z|da)?sh\b|(?:python|perl|ruby|node)[\d.]*(?![\w.-])"
              # a bare `-` is stdin, not an option, and a redirect (`2>&1`, `> log`) is no argument
              r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
@@ -161,17 +168,11 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
-         _rx(r"\bpip3?" + _BLANKS + r"install\b(?:" + _BLANKS + r"(?:(?:" + _PIP_URL_OPTS + r")(?:" + _BLANKS
-             + r"|=)[^\s;&|]+|(?!(?:" + _PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
-             + _BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
+         _rx(r"(?:^|[\n;&|])(?:(?:(?!" + PIP_INSTALL + r")[^\n;&|])*+" + PIP_INSTALL + PIP_WORDS + PIP_STUCK + r")*+"
+             r"(?:(?!" + PIP_INSTALL + r")[^\n;&|])*+" + PIP_INSTALL + PIP_WORDS + BLANKS + PIP_TARGET)),
     # flags in any number of tokens, one of them recursive; then a target among the words: /, /*, ~, ~/,
-    # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
-    Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
-         _rx(r"\brm" + _BLANKS + r"(?:-\S+" + _BLANKS + r")*?(?:-[a-z]*r[a-z]*|--recursive)" + _BLANKS
-             + r"(?:[^\s;&|]+" + _BLANKS + r")*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
-             r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
-             r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
+    # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (security_patterns.CLEANUP_PARTS)
+    Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory", _rx(RM_RECURSIVE), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _after_first_opener(
              _DOCKER_RUN, _DOCKER_RUN_ACROSS_LINES,
@@ -191,7 +192,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
-         _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|/\S*?)/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
+         _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|" + SECRET_WORD_START + r")/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
              r"|kube/config)(?=[/\s;&|)<>`\"':*,}]|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)")),
 )
 
