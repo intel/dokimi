@@ -214,11 +214,12 @@ jobs:
               }
               const r = res.result;
               const c = r.counts;
-              // A check that could not run its tests is not a clean result, and is said even with no comment yet.
+              // A check that could not run its tests, or that the cap cut, is not a clean result, and is said even
+              // with no comment yet.
               const total = STATUSES.reduce((n, s) => n + c[s], 0);
               const incomplete = r.untested.failing_tests > 0 || r.untested.tests_not_run > 0 ||
                 c['not run'] > 0 || (total === 0 && r.untested.uncovered_lines > 0);
-              if (!r.survivors.length && !existing && !incomplete) return;
+              if (!r.survivors.length && !existing && !incomplete && r.capped === 0) return;
               const parts = [`${marker}\n## Mutation of changed lines\n`,
                 `${total} mutants of the lines this PR changes, at ${sha}: ${c.killed} killed, ` +
                 `**${r.survivors.length} survived**, ${r.waived.length} waived, ${c.inconclusive} inconclusive, ` +

@@ -91,6 +91,15 @@ def test_a_run_the_mutant_cap_cut_is_not_shown_as_clean_on_every_changed_line(tm
         assert "No surviving mutants" not in body and "The mutant cap left out 14 more mutants" in body
 
 
+def test_a_first_run_the_cap_cut_with_every_tried_mutant_killed_still_posts_the_cap(tmp_path):
+    result = _result(survivors=(), waived=(), capped=14)
+    result["result"] = {**result["result"], "counts": {**{k: 0 for k in COUNTS}, "killed": 80}}
+    for comments in ([], OLD):
+        body = _bodies(_post(tmp_path, result, comments=comments))[0]
+        assert "80 mutants of the lines this PR changes" in body and "The mutant cap left out 14 more mutants" in body
+        assert "None of the mutants tried survived; the rest were not tried." in body
+
+
 def test_a_run_that_mutated_nothing_because_no_line_was_covered_is_not_shown_as_clean(tmp_path):
     zero = {k: 0 for k in COUNTS}
     untested = {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 5}
