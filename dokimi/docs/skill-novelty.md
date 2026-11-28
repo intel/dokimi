@@ -993,8 +993,8 @@ research runs and for any run you may repeat. `--cache-dir` keeps only the reten
 
 **A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
-known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
-cap message and the path of the file. The file carries
+known price) stopped it, prints the summary and `cost` lines, and exits 3 with the
+cap message and the path of the file (1 for a `permanent_error` stop). The file carries
 `"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above, `"no_price"` for an unpriced call) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
@@ -1429,7 +1429,7 @@ with no network that is a pause of a few seconds and a warning. Setting
 **Spend cap on `atoms`, `probe` and `analyze`.** `--max-usd` stops these at the limit and keeps the work it
 paid for. `atoms` writes `<stem>.partial.json` beside the `--out` file (`atoms.json` by default;
 the spans read so far, the rest marked unread), and `probe` does the same beside its `--out`
-file (`probes.json` by default; the answers so far). Both exit with a message naming the file. A partial file is never read as a
+file (`probes.json` by default; the answers so far). Both exit 3 (1 for a `permanent_error` stop) with a message naming the file. A partial file is never read as a
 finished one: `probe` and the other atom readers refuse `atoms.partial.json`, and `novelty items`
 refuses a partial probe file. A partial probe file keeps its `runs` and `probes` and holds null for
 the summaries computed over the answers the cap left (`paired`, `arms`, `abstentions`, the reversal and
@@ -1446,7 +1446,7 @@ spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` 
 (the unread spans are in `extraction.unread_span_ids`), the `probes` once built (with the
 wordings and answer keys in `probes.items`, so a stop before the first answer still keeps them) and
 the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0` or view summaries, and no
-`novelty.md` or annotated view is written. The exit is non-zero (1), the message names the file and
+`novelty.md` or annotated view is written. The exit is 3 (1 for a `permanent_error` stop), the message names the file and
 how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set to a writable directory on the capped run, a rerun with a
 higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
 asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`

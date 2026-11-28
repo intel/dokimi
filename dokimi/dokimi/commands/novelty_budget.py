@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-from dokimi.commands.novelty_routing_report import _partial_destinations
+from dokimi.commands.novelty_routing_report import _partial_destinations, stop_partial
 
 
 def partial_destination(out: Path) -> Path:
@@ -63,9 +63,10 @@ def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
     raise RuntimeError("unreachable: the sidecar names never run out")
 
 
-def exit_partial(summary: str, path: Path, note: str = "") -> NoReturn:
-    """Stop with a message that names the partial file, as a run the cap stopped must."""
-    raise SystemExit(f"{summary}; the partial result is in {path}{note}")
+def exit_partial(summary: str, path: Path, note: str = "", *, reason: str) -> NoReturn:
+    """Stop with a message that names the partial file, as a run the cap stopped must; ``reason`` is the
+    stop's (``partial["reason"]``) and picks the exit code (:func:`partial_exit_code`)."""
+    stop_partial(f"{summary}; the partial result is in {path}{note}", reason)
 
 
 def response_cache_active() -> bool:
@@ -110,7 +111,7 @@ def save_analyze_partial(result, out: Path) -> NoReturn:
     cause = partial.get("cause")
     summary = f"{partial['message']} ({cause})" if cause else partial["message"]
     exit_partial(summary, write_run(result.artifact, out, partial),
-                 replay_hint(partial["reason"]))
+                 replay_hint(partial["reason"]), reason=partial["reason"])
 
 
 def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
@@ -157,7 +158,7 @@ def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
             payload[block] = None
     if panel:
         payload["judge_panel"] = {k: panel[k] for k in ("judges", "rule") if k in panel}
-    exit_partial(message, write_run(payload, out, partial))
+    exit_partial(message, write_run(payload, out, partial), reason=reason)
 
 
 def save_probe_measure(payload: dict, out: Path, result) -> Path:
@@ -176,7 +177,7 @@ def save_atoms_run(atoms, spans, out: Path, partial: dict | None, **record) -> P
         return out
     dest = partial_write(out, lambda side: save_atoms(atoms, spans, side, partial=partial,
                                                       **record))
-    exit_partial(partial["message"], dest)
+    exit_partial(partial["message"], dest, reason=partial["reason"])
 
 
 def verify_or_partial(sample, spans, client) -> dict | None:

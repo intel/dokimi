@@ -100,7 +100,7 @@ What a stopped run leaves behind depends on the step:
   refused after it came back keeps the verdict it names; one that names none is kept as
   `error` too. If the cap stops it while the
   paraphrase or reversal wordings are built, nothing is written.
-- Each exits with a message that names the partial file. A partial file is never read as a
+- Each exits 3 (1 when a permanent provider error stopped it) with a message that names the partial file. A partial file is never read as a
   finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces
   an earlier partial file, but never a finished one: if `<stem>.partial.json` holds anything
   other than a partial result, the new one goes to `<stem>.partial2.json` (and so on).

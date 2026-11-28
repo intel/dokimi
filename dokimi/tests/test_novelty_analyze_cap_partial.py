@@ -277,6 +277,7 @@ def test_the_command_writes_the_partial_file_beside_novelty_json_and_names_it(tm
     args, out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     message = str(stop.value)
     partial = out_dir / "novelty.partial.json"
     assert f"the partial result is in {partial}" in message
@@ -295,8 +296,9 @@ def test_the_message_says_a_rerun_replays_the_paid_calls_when_the_cache_was_set(
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "cache"))
     args, _out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     with pytest.raises(SystemExit, match="same DOKIMI_RESPONSE_CACHE: the calls already paid for "
-                                         "replay at \\$0"):
+                                         "replay at \\$0") as stop:
         args.func(args)
+    assert stop.value.code == 3
 
 
 def test_a_no_price_stop_does_not_advise_a_higher_cap(tmp_path, monkeypatch):
@@ -305,6 +307,7 @@ def test_a_no_price_stop_does_not_advise_a_higher_cap(tmp_path, monkeypatch):
     args, _out_dir = _command(tmp_path, monkeypatch, lambda prompt: None)
     with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     message = str(stop.value)
     assert "Rerun with the model priced, or without --max-usd, and the same DOKIMI_RESPONSE_CACHE" \
         in message
@@ -319,6 +322,7 @@ def test_the_message_does_not_claim_a_replay_when_the_cache_variable_names_a_fil
     args, _out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     message = str(stop.value)
     assert "DOKIMI_RESPONSE_CACHE was not set on this run" in message
     assert "a rerun pays for these calls again" in message
@@ -425,8 +429,9 @@ def test_a_partial_result_never_replaces_a_finished_novelty_json(tmp_path, monke
     out_dir.mkdir()
     finished = out_dir / "novelty.json"
     finished.write_text('{"schema_version": "novelty.v1", "finished": true}', encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert json.loads(finished.read_text(encoding="utf-8"))["finished"] is True
     assert json.loads((out_dir / "novelty.partial.json").read_text(encoding="utf-8"))["status"] \
         == "partial"
@@ -439,8 +444,9 @@ def test_a_partial_analyze_file_is_refused_by_the_readers_of_a_finished_one(tmp_
     from dokimi.subjects.novelty_track import load_novelty_artifacts
 
     args, out_dir = _command(tmp_path, monkeypatch, _answers_cost)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     partial = out_dir / "novelty.partial.json"
     record = json.loads(partial.read_text(encoding="utf-8"))
     del record["partial"]  # the schema lets `status` stand alone
@@ -487,7 +493,8 @@ def test_a_partial_analyze_file_is_not_listed_as_a_finished_run(tmp_path, monkey
     from dokimi.runs.scan import scan
 
     args, out_dir = _command(tmp_path, monkeypatch, _answers_cost)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     result = scan(out_dir)
     assert result.artifacts == [] and result.skipped["no_leading_schema_version"] == 1

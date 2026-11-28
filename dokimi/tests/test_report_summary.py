@@ -430,7 +430,7 @@ def test_skill_routing_json_of_a_capped_run_keeps_its_document_and_its_exit(tmp_
     arm = {**_ARM, "partial": partial_record("spend cap reached", 1, 2, "spend_cap")}
     code, out, _ = _routing_with_model(tmp_path, d, c, arm)
     doc = json.loads(out)
-    assert code == 1 and schema_errors("cli_output.v1", doc) == []
+    assert code == 3 and schema_errors("cli_output.v1", doc) == []  # a budget stop that kept its result (docs/quickstart.md)
     assert (doc["status"], doc["reason"]) == ("budget_stopped", "spend cap reached")
     assert doc["cost"]["spent_usd"] == 0.25 and doc["artifacts"]["out"] == str(tmp_path / "r.json")
 

@@ -53,9 +53,10 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
                   "--out", str(out), "--model", "m", "--reps", "2")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert "1 of 2 model call" in str(exc.value.code)
-    assert "out of model-arm scoring" in str(exc.value.code)
-    assert "repeat-noise rates" in str(exc.value.code)
+    assert exc.value.code == 1  # failed model calls: a runtime failure
+    assert "1 of 2 model call" in str(exc.value)
+    assert "out of model-arm scoring" in str(exc.value)
+    assert "repeat-noise rates" in str(exc.value)
     model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
     # The good repeat is a scored call; the failed one is unscored. The query has a failed
     # repeat, so it is in no repeat-noise rate.
