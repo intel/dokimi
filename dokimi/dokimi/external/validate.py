@@ -258,6 +258,27 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
+def _valid_name(name: str) -> bool:
+    """Whether ``name`` passes ``name-format``, so a fix may offer it."""
+    return bool(NAME_PATTERN.fullmatch(name)) and len(name) <= NAME_MAX
+
+
+def _name_missing_fix(dir_name: str, at_root: bool) -> str:
+    """The edit that clears ``name-missing``: the directory name only when it is a valid name."""
+    if at_root:
+        return "add a 'name:' line"
+    if _valid_name(dir_name):
+        return f"add 'name: {dir_name}'"
+    return "rename the directory to a lowercase kebab-case name and add it as 'name:'"
+
+
+def _name_mismatch_fix(declared: str, dir_name: str) -> str:
+    """The edits that clear ``name-mismatch``: each side is offered only when it is a valid name."""
+    options = [f"rename the directory to {declared!r}"] if _valid_name(declared) else []
+    options += [f"set name to {dir_name!r}"] if _valid_name(dir_name) else []
+    return " or ".join(options) or "rename the directory and set name to the same lowercase kebab-case name"
+
+
 def _unknown_key_findings(meta: dict, text: str = "") -> list[Finding]:
     findings: list[Finding] = []
     unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
@@ -312,7 +333,7 @@ def _frontmatter_findings(
                     "name-missing",
                     "no name in the frontmatter"
                     + ("" if at_root else f"; the directory name {dir_name!r} is used")
-                    + (f"; add 'name: {dir_name}'" if not at_root else "; add a 'name:' line"),
+                    + f"; {_name_missing_fix(dir_name, at_root)}",
                     line=key_line(text, "name"),  # an empty `name:` key has a line; an absent one has none
                 )
             )
@@ -323,7 +344,7 @@ def _frontmatter_findings(
                     "error",
                     "name-mismatch",
                     f"name {declared!r} is not the directory name {dir_name!r}; "
-                    f"rename the directory to {declared!r} or set name to {dir_name!r}",
+                    + _name_mismatch_fix(declared, dir_name),
                     line=key_line(text, "name"),
                 )
             )

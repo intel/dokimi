@@ -22,7 +22,7 @@ import pytest
 from tests.test_catalog_ignore import _run
 
 from dokimi.external.finding_lines import key_line, link_line, path_needles, text_line, written_path
-from dokimi.external.validate import FINDING_CODES
+from dokimi.external.validate import FINDING_CODES, NAME_MAX, NAME_PATTERN
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "finding_codes"
 OK = "Formats tax tables. Use when the user asks for a tax table."
@@ -342,6 +342,36 @@ def test_several_unknown_keys_carry_no_line(tmp_path, capsys):
     """#942: one finding lists all the unknown keys, so it names no single line; one key has its line."""
     _skill(tmp_path, "a", extra="aaa: 1\nbbb: 2\n")
     assert "line" not in _one(tmp_path, capsys, "frontmatter-unknown-key")
+
+
+_OFFERED = re.compile(r"rename the directory to '([^']*)'|set name to '([^']*)'|add 'name: ([^']*)'")
+
+
+@pytest.mark.parametrize("directory, name", [
+    ("Bad_Name", ""), ("Bad_Name", "Bad_Name"), ("Bad_Name", "bad-name"), ("Bad_Name", "Other_Name"), ("a", "A_b"),
+    ("good-name", "Bad_Name"), ("a" * 70, "a" * 64), ("a--b", "a-b"), ("my-skill", "my_skill"),
+])
+def test_name_advice_offers_only_valid_names_and_never_loops(tmp_path, capsys, directory, name):
+    """#942: following any edit a ``name-*`` finding offers reaches a skill with no ``name-*`` finding, through
+    names that pass ``name-format``, without coming back to a state (directory, name) it has been in."""
+    def walk(state: tuple[str, str], seen: set[tuple[str, str]]) -> None:
+        root = tmp_path / str(len(seen))
+        shutil.rmtree(root, ignore_errors=True)
+        _skill(root, state[0], name=state[1])
+        out, _ = _run(["--root", str(root), "--kind", "skills", "--format", "json"], capsys)
+        messages = [f["message"] for row in json.loads(out)["skills"] for f in row["findings"]
+                    if f["code"].startswith("name-")]
+        for message in messages:
+            assert FIX.search(message), message
+            for renamed, set_to, added in _OFFERED.findall(message):
+                offered = renamed or set_to or added
+                named = set_to or added
+                assert NAME_PATTERN.fullmatch(offered) and len(offered) <= NAME_MAX, message
+                after = (renamed, state[1]) if renamed else (state[0], named)
+                assert after not in seen, (seen, message)
+                walk(after, seen | {after})
+
+    walk((directory, name), {(directory, name)})
 
 
 @pytest.mark.parametrize("separator, in_description", [
