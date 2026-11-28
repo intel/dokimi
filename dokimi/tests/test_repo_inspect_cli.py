@@ -54,3 +54,26 @@ def test_cli_exits_2_when_it_cannot_read_or_write(tmp_path, capsys, case):
     assert exc.code == 2
     prefix = "Error: " if case == "missing source" else "✗ "
     assert capsys.readouterr().err.startswith(prefix)
+
+
+@pytest.mark.outcome("cjm-repo-inspect")
+def test_inspect_names_a_listed_file_it_could_not_look_at(tmp_path, monkeypatch):
+    """#1273: a file the plain-directory walk cannot stat is named in ``not_observed``, not left out silently."""
+    import os
+
+    from dokimi.repos.environment import inspect_repo
+    from dokimi.repos.source import WorkTree
+
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "AGENTS.md").write_text("x\n", encoding="utf-8")
+    real = os.lstat
+
+    def lstat(path, *a, **k):
+        if os.path.basename(path) == "AGENTS.md" and os.path.basename(os.path.dirname(path)) == "sub":
+            raise PermissionError(13, "denied", str(path))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert ("sub/AGENTS.md: Permission denied; the file and anything it leads to are not counted"
+            in payload["not_observed"])

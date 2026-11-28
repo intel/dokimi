@@ -5,10 +5,17 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
 from dokimi.artifacts import validate_artifact
-from dokimi.repos import load_manifest
+from dokimi.repos import SourceError, WorkTree, load_manifest
 from dokimi.repos.harness_profile import load_profile
-from dokimi.repos.reach import run_reach
+from dokimi.repos.reach import ReachError, check_files, run_reach
 from test_repo_reach import _commit_links, _profile, _repo, _write
 
 
@@ -27,3 +34,98 @@ def test_reach_payload_leaves_a_native_alias_of_a_foreign_overlay_unpinned(tmp_p
     validate_artifact("guidance_reach", {**payload, "schema_version": "guidance_reach.v1"})
     assert payload["overlays"]["cross_loaded"] == {}
     assert payload["overlays"]["ambiguous"] == ["AGENTS.codex.md", "CLAUDE.md"]
+
+
+needs_fifo = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a FIFO")
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _dry_run(repo: Path) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(ROOT / "cli.py"), "repo", "reach", "--dry-run",
+                           "--model", "claude-opus-4-5", str(repo)],
+                          capture_output=True, text=True, cwd=ROOT, timeout=30)
+
+
+@needs_fifo
+def test_reach_dry_run_of_a_fifo_only_guidance_does_not_call_it_a_link(tmp_path):
+    """#1273: an AGENTS.md that is a FIFO is no link, so the refusal says it is not a regular file."""
+    repo = tmp_path / "fifo-only"
+    repo.mkdir()
+    os.mkfifo(repo / "AGENTS.md")
+    run = _dry_run(repo)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "links to nothing" not in run.stdout + run.stderr
+    assert "each is not a regular file: AGENTS.md" in run.stdout + run.stderr
+
+
+@needs_fifo
+def test_reach_dry_run_skips_a_nested_fifo_guidance_file(tmp_path):
+    """#1273: sub/AGENTS.md as a FIFO is left out of the plan, as an unfollowable guidance file is."""
+    repo = tmp_path / "fifo-nested"
+    (repo / "sub").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text("hi\n", encoding="utf-8")
+    os.mkfifo(repo / "sub" / "AGENTS.md")
+    run = _dry_run(repo)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert '"AGENTS.md"' in run.stdout
+    assert "sub/AGENTS.md" not in run.stdout
+
+
+@needs_fifo
+def test_a_worktree_lists_regular_files_and_links_but_no_fifo(tmp_path):
+    """#1273: files() of a plain directory keeps a regular file and a link, and names a FIFO in not_regular."""
+    (tmp_path / "a.md").write_text("x\n", encoding="utf-8")
+    (tmp_path / "ln.md").symlink_to("a.md")
+    os.mkfifo(tmp_path / "pipe.md")
+    tree = WorkTree(tmp_path)
+    assert tree.files() == ["a.md", "ln.md"]
+    assert tree.not_regular == ["pipe.md"]
+
+
+@needs_fifo
+@pytest.mark.parametrize("name", ["pipe.md", "ln.md"])
+def test_resolve_names_a_fifo_as_not_a_regular_file(tmp_path, name):
+    """#1273: a FIFO, or a link to one, is refused as `is not a regular file`; a missing target stays `links to nothing`."""
+    os.mkfifo(tmp_path / "pipe.md")
+    (tmp_path / "ln.md").symlink_to("pipe.md")
+    (tmp_path / "gone.md").symlink_to("missing.md")
+    tree = WorkTree(tmp_path)
+    with pytest.raises(SourceError, match="is not a regular file"):
+        tree.resolve(name)
+    with pytest.raises(SourceError, match="links to nothing"):
+        tree.resolve("gone.md")
+
+
+@needs_fifo
+def test_an_unreadable_file_is_skipped_not_named_not_regular(tmp_path, monkeypatch):
+    """#1273: a path that cannot be looked at is named in skipped only; not_regular holds just FIFOs and the like."""
+    (tmp_path / "a.md").write_text("x\n", encoding="utf-8")
+    (tmp_path / "bad.md").write_text("x\n", encoding="utf-8")
+    os.mkfifo(tmp_path / "pipe.md")
+    real = os.lstat
+
+    def lstat(path, *a, **k):
+        if str(path).endswith("bad.md"):
+            raise PermissionError(13, "denied", str(path))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    tree = WorkTree(tmp_path)
+    assert tree.files() == ["a.md"]
+    assert tree.not_regular == ["pipe.md"]
+    assert tree.skipped_paths == ["bad.md"]
+
+
+@needs_fifo
+def test_check_files_names_a_fifo_guidance_file_when_nothing_else_matches(tmp_path):
+    """#1273: with no guidance file left, check_files says `is not a regular file` for a FIFO of a guidance name."""
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "cfg").mkdir()
+    os.mkfifo(tmp_path / "repo" / "CLAUDE.md")
+    tree = WorkTree(tmp_path / "repo")
+    profile = load_profile(_profile(tmp_path / "cfg"))
+    assert tree.files() == []
+    with pytest.raises(ReachError, match="each is not a regular file: CLAUDE.md"):
+        check_files([], profile, tree)
+    with pytest.raises(ReachError, match="no guidance files to probe"):
+        check_files([], profile)

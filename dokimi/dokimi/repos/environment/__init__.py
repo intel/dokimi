@@ -153,6 +153,8 @@ def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str,
         out.append(f"{manifest} hooks and MCP servers (the file is unreadable or not a JSON object)")
     for settings in unreadable_claude_settings(scan):
         out.append(f"{settings} automatic hooks (the file is unreadable or not a JSON object)")
+    for warning in getattr(scan.tree, "skipped", ()):  # a listed path the tree could not look at (#1273)
+        out.append(warning)
     if package_json_unreadable(scan):
         out.append("package.json scripts (the file is unreadable or not a JSON object)")
     if section is not None:

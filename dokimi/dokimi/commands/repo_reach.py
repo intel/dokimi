@@ -148,7 +148,7 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
     except (SourceError, ManifestError, ReachError) as exc:
         _refuse_tree_read(exc)
     try:  # what run_reach plans from, with its guards: a file to probe, no scenario for a link it drops
-        check_files(files, profile)
+        check_files(files, profile, tree)
         probed = followable(tree, files)[0]
     except ReachError as exc:
         print(f"✗ {exc}", file=sys.stderr)
