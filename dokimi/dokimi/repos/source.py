@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 from dokimi import process
-from dokimi.repos.links import _LinkLoop, _walk_links
+from dokimi.repos.links import _LinkLoop, _names_dir, _require_dir, _walk_links
 from dokimi.repos.source_errors import SourceArgumentError, SourceError, _NoSuchPath
 from dokimi.utils import key_bytes
 
@@ -112,6 +112,10 @@ class RepoTree(Protocol):
         ...
 
 
+class NotRegularFileError(SourceArgumentError):
+    """A path that exists but is a FIFO, socket or device, which is never opened (#1272)."""
+
+
 class WorkTree:
     """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
@@ -192,11 +196,23 @@ class WorkTree:
         except (_LinkLoop, _NoSuchPath):
             return False
 
+    def _readable(self, path: str) -> Path:
+        """The file or directory ``path`` names; :class:`NotRegularFileError` if it is a FIFO, socket or device, as
+        opening a FIFO waits for a writer (#1272). A directory is let through so that opening it reports its own error."""
+        target = self._resolve(path)
+        try:
+            mode = os.stat(target).st_mode
+        except OSError:
+            return target  # the open reports it
+        if not stat.S_ISREG(mode) and not stat.S_ISDIR(mode):
+            raise NotRegularFileError(f"{path} is not a regular file (#1272: opening a FIFO waits for a writer)")
+        return target
+
     def read_text(self, path: str) -> str:
-        return self._resolve(path).read_text(encoding="utf-8")
+        return self._readable(path).read_text(encoding="utf-8")
 
     def read_bytes(self, path: str) -> bytes:
-        return self._resolve(path).read_bytes()
+        return self._readable(path).read_bytes()
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         try:
@@ -208,7 +224,10 @@ class WorkTree:
         if target.is_dir():
             raise SourceArgumentError(f"{path} links to a directory: {target.relative_to(self.root).as_posix()}")
         if not target.is_file():
-            raise SourceArgumentError(f"{path} links to nothing: {target.relative_to(self.root).as_posix()}")
+            rel = target.relative_to(self.root).as_posix()
+            if target.exists():  # a FIFO, socket or device: present, but not a file to read (#1272)
+                raise NotRegularFileError(f"{path} is not a regular file: {rel}")
+            raise SourceArgumentError(f"{path} links to nothing: {rel}")
         return target.relative_to(self.root).as_posix()
 
     def read_many(self, paths: list[str], max_bytes: int = READ_MANY_LIMIT,
@@ -301,6 +320,12 @@ class GitTree:
         """The file's bytes as stored; a symlink is followed."""
         return _run_git(self.git_dir, ["show", f"{self.sha}:{self.resolve(path)}"], None, True).stdout_bytes
 
+    def _link_text(self, here: str) -> str:
+        try:
+            return _git(self.git_dir, "show", f"{self.sha}:{here}")
+        except UnicodeDecodeError as exc:  # a link whose text is not UTF-8 cannot be followed or named (#1272)
+            raise SourceArgumentError(f"link text is not UTF-8: {here}") from exc
+
     def _follow(self, path: str, follow_last: bool = True) -> str:
         """The tree path ``path`` names, walked one component at a time: a ``..`` after a link goes up from the
         link's target, as in a checkout. :class:`SourceArgumentError` if it leaves the tree or loops; a ``..``
@@ -311,6 +336,7 @@ class GitTree:
         pending: list[tuple[str, str | None]] = [(part, None) for part in path.split("/")]  # (component, the link it came from)
         walked: list[str] = []
         hops = 0
+        need_dir = False  # a link text ending in "/" names a directory: a file there is ENOTDIR in a checkout (#1272)
         while pending:
             part, via = pending.pop(0)
             if part in ("", "."):
@@ -326,7 +352,8 @@ class GitTree:
             here = "/".join(walked)
             if here not in links or (not pending and not follow_last):
                 continue
-            text = _git(self.git_dir, "show", f"{self.sha}:{here}")
+            text = self._link_text(here)
+            need_dir = _names_dir(need_dir, text, [piece for piece, _ in pending])
             if posixpath.isabs(text):
                 raise SourceArgumentError(f"path escapes the repository: {here} -> {text}")
             hops += 1
@@ -334,6 +361,7 @@ class GitTree:
                 raise SourceArgumentError(f"too many levels of symbolic links: {path}")
             walked.pop()
             pending = [(piece, f"{here} -> {text}") for piece in text.split("/")] + pending
+        _require_dir(need_dir, lambda: "/".join(walked) in self._dir_set(), path, walked)
         return "/".join(walked) or "."
 
     def resolve(self, path: str, dirs: bool = False) -> str:
