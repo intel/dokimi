@@ -33,7 +33,7 @@ def _tree(tmp_path: Path) -> Path:
     return root
 
 
-def _files(client, root: Path) -> list[str]:
+def _files(client) -> list[str]:
     return [d["file"] for d in client.get_library_docs("x", "parallel_for")]
 
 
@@ -50,7 +50,7 @@ def test_a_listable_nested_tree_gives_the_same_files(tmp_path: Path, cls, _prefi
     (root / "sub" / "deep").mkdir()
     (root / "sub" / "deep" / "c.md").write_text("gamma\n", encoding="utf-8")
     (root / "sub" / "skip.bin").write_text("x\n", encoding="utf-8")
-    assert sorted(_files(cls(root), root)) == ["a.md", "sub/b.md", "sub/deep/c.md"]
+    assert sorted(_files(cls(root))) == ["a.md", "sub/b.md", "sub/deep/c.md"]
 
 
 @needs_modes
@@ -67,7 +67,7 @@ def test_a_subdirectory_that_cannot_be_listed_is_refused(tmp_path: Path, caplog,
         assert any("sub" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
     finally:
         (root / "sub").chmod(0o700)
-    assert sorted(_files(client, root)) == ["a.md", "sub/b.md"]
+    assert sorted(_files(client)) == ["a.md", "sub/b.md"]
     assert client.check_connection() is True
 
 
@@ -91,7 +91,7 @@ def test_a_file_that_cannot_be_read_is_still_skipped(tmp_path: Path, cls, _prefi
     if os.access(root / "sub" / "b.md", os.R_OK):
         pytest.skip("this user reads a mode 000 file")
     try:
-        assert _files(cls(root), root) == ["a.md"]
+        assert _files(cls(root)) == ["a.md"]
     finally:
         (root / "sub" / "b.md").chmod(0o600)
 
@@ -117,7 +117,7 @@ def test_questions_generate_stops_before_any_seed_extraction(tmp_path: Path, mon
     root = _tree(tmp_path)
     reached = MagicMock(side_effect=AssertionError("reached the extractor or generator"))
     monkeypatch.setattr(questions_pkg, "QuestionGenerator", reached)
-    monkeypatch.setattr("dokimi.questions.ragas_seed.RagasSeedExtractor", reached)
+    monkeypatch.setattr(questions_pkg, "RagasSeedExtractor", reached)
     personas = tmp_path / "personas.json"
     personas.write_text(json.dumps({"personas": [{"id": "dev", "name": "dev", "skill_level": "expert"}]}), encoding="utf-8")
     args = argparse.Namespace(

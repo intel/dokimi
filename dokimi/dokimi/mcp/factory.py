@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from dokimi.digest_entries import listed_entries
 from dokimi.utils import InputError
 
 from . import MCPClient
@@ -16,6 +15,8 @@ from . import MCPClient
 
 def _require_listable(doc_source: str, path: Path) -> None:
     """#1207: a directory of the tree that cannot be listed is an input error, not a smaller doc set."""
+    from dokimi.digest_entries import listed_entries
+
     try:
         listed_entries(path)
     except OSError as exc:
