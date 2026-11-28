@@ -324,6 +324,21 @@ def test_an_opener_does_not_continue_into_a_blockquote():
     assert link_line("> [q](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 2
 
 
+def test_a_fenced_copy_does_not_take_the_line_of_the_real_one(tmp_path, capsys):
+    """#942: the check skips fenced code, so ``line`` is the link or span it read, not an earlier copy in a fence."""
+    _skill(tmp_path, "a", body="Intro.\n```md\n[g](missing.md)\n```\n\nSee [real](missing.md).\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 10
+    other = tmp_path / "other"
+    _skill(other, "b", body="````\nRun `scripts/missing.py`.\n```\n````\nRun `scripts/missing.py`.\n")
+    assert _one(other, capsys, "path-missing")["line"] == 9
+    assert link_line("```markdown\n> [example]: missing.md\n```\n[real](missing.md)\n", "missing.md") == 4
+
+
+def test_a_tab_after_a_quote_marker_is_dropped_as_the_check_drops_it():
+    """#942: ``>`` then a tab before ``[n]: missing.md`` is the quoted definition the check reads, on line 1."""
+    assert link_line(">\t[n]: missing.md\n\n[later](missing.md)\n", "missing.md") == 1
+
+
 def test_key_line_allows_a_frontmatter_indented_as_a_whole():
     """#942: ``  name: x`` is top level when every key is indented alike; a nested key is not."""
     assert key_line("---\n  name: x\n  description: d\n---\n", "description") == 3
