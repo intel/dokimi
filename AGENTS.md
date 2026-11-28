@@ -49,7 +49,10 @@ also holds a PR to:
   So does a skip at the top of a module, and a `collect_ignore*` or
   `pytest_ignore_collect` a `conftest.py` gains (waived by a commit line).
 - Docs that name a command, flag, path or module must match the tree
-  (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
+  (`tests/test_docs_code_refs.py`): rename in code, rename in docs. Changelog
+  fragments and the docstrings of public modules and command functions too, for
+  commands, the flags written beside them and (fragments) repo paths; a spelling
+  the CLI retired still resolves there. Its baseline only shrinks.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
   network calls.
 - Tests wait on a condition, not on time: a test that waits for a thread, process
