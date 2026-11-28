@@ -1367,6 +1367,10 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
   distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
   counts every paid row, including rows written before a rename.
+  After the already-known share, the summary ranks skills by **new share** (`new_lenient`).
+  Equal shares sort by smaller token count, then by skill key. Text shows the top ten, and the
+  JSON `ranking` includes every skill whose latest successful measurement has a new share and a
+  positive token count.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
   are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names

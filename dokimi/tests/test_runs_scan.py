@@ -50,6 +50,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "repo_environment.v1": ({}, "toy@4ff761e2d943", None, None),
     "plan.v1": ({}, "skill:onetbb", "claude-sonnet-4-6", "2026-10-21T00:00:00Z"),
     "result.v1": ({}, None, None, "2026-10-21T01:00:00Z"),
+    "run.v1": ({}, None, None, "2026-11-23T10:15:00+00:00"),
     "repo_budget.v1": ({}, "toy", None, None),
     "run_context.v1": ({}, "claude-code", None, None),
     "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),

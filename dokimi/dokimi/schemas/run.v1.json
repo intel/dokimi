@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/run.v1.json",
+  "title": "Run directory record v1",
+  "description": "run.json, the record of one run directory (docs/run-directories.md, #94 R2): who started the run, where it stands, and the artifacts in the directory. Written by dokimi.runs.rundir when the directory is made (status running) and again when the run finishes or stops. A stopped run is incomplete or failed, with the reason in stop.",
+  "type": "object",
+  "required": ["schema_version", "name", "argv", "started_at", "finished_at", "status", "stop", "artifacts"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "run.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "name": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The run's human name, which names its directory under the runs root; null when the directory is named by run_id or given as --out-dir."},
+    "argv": {"type": "array", "items": {"type": "string"}, "description": "The command line after the program name."},
+    "started_at": {"type": "string", "minLength": 1, "description": "When the directory was made, ISO 8601 UTC."},
+    "finished_at": {"type": ["string", "null"], "description": "When the run finished or stopped, ISO 8601 UTC; null while it runs."},
+    "status": {"enum": ["running", "complete", "incomplete", "failed"], "description": "complete: every planned cell has a measured status. incomplete: a stop (signal, interrupt, spend cap, run-wide CLI failure) or a planned cell left without a measured status. failed: an error ended the run."},
+    "stop": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["reason", "detail"],
+      "description": "Why the run ended before it finished; null for a run that runs or finished.",
+      "properties": {
+        "reason": {"enum": ["interrupted", "terminated", "spend_cap", "no_price", "run_stopped", "error"]},
+        "detail": {"type": ["string", "null"]}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "The artifacts the run wrote, by kind; paths are relative to the run directory, with / separators.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "pattern": "^(?!/)(?!(?:[^/]*/)*\\.\\.(?:/|(?![\\s\\S])))[^\\\\:\\x00-\\x1f]+(?![\\s\\S])"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "running"}}},
+     "then": {"properties": {"finished_at": {"type": "null"}, "stop": {"type": "null"}}},
+     "else": {"properties": {"finished_at": {"type": "string"}}}},
+    {"if": {"properties": {"status": {"const": "complete"}}},
+     "then": {"properties": {"stop": {"type": "null"}}}}
+  ]
+}

@@ -12,7 +12,7 @@ skills a harness lists, from where), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
-``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
+``result`` (one status per planned cell), ``run`` (the ``run.json`` of a run directory), ``repo_budget`` (what a repository puts
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
@@ -83,6 +83,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_environment": "repo_environment.v1",
     "plan": "plan.v1",
     "result": "result.v1",
+    "run": "run.v1",
     "repo_budget": "repo_budget.v1",
     "run_context": "run_context.v1",
     "effective_instructions": "effective_instructions.v1",

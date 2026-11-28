@@ -200,7 +200,7 @@ def test_failed_cache_write_keeps_the_old_entry_and_leaves_no_tmp(tmp_path, capl
 
     entry = tmp_path / "k.txt"
     entry.write_text("old", encoding="utf-8")
-    with patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+    with patch("dokimi.atomic_write.os.replace", side_effect=OSError("disk full")), \
             caplog.at_level(logging.WARNING):
         write_cache_text(entry, "new")
     assert entry.read_text(encoding="utf-8") == "old"
@@ -213,7 +213,7 @@ def test_cache_write_whose_tmp_cannot_be_removed_either_is_still_a_warning(tmp_p
 
     entry = tmp_path / "k.txt"
     entry.write_text("old", encoding="utf-8")
-    with patch("pathlib.Path.write_text", side_effect=PermissionError("write refused")), \
+    with patch("dokimi.atomic_write.os.replace", side_effect=PermissionError("write refused")), \
             patch("pathlib.Path.unlink", side_effect=PermissionError("unlink refused")), \
             caplog.at_level(logging.WARNING):
         assert write_cache_text(entry, "new") is False
@@ -223,16 +223,44 @@ def test_cache_write_whose_tmp_cannot_be_removed_either_is_still_a_warning(tmp_p
 
 def test_failed_cache_write_does_not_fail_the_fetch(tmp_path, caplog):
     with patch("httpx.get", return_value=_response(PAGE)), \
-            patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+            patch("dokimi.atomic_write.os.replace", side_effect=OSError("disk full")), \
             caplog.at_level(logging.WARNING):
         text = _url_text(URLClient(URL, cache_dir=tmp_path))
     assert len(text) == len(PAGE)
     assert list(tmp_path.iterdir()) == [] and "disk full" in caplog.text
 
 
+def test_text_with_a_lone_surrogate_is_a_warning_and_keeps_the_old_entry(tmp_path, caplog):
+    from dokimi.mcp.utils import write_cache_text
+
+    entry = tmp_path / "k.txt"
+    entry.write_text("old", encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        assert write_cache_text(entry, "bad \ud800 text") is False
+    assert entry.read_text(encoding="utf-8") == "old"
+    assert [p.name for p in tmp_path.iterdir()] == ["k.txt"]
+    assert str(entry) in caplog.text
+
+
+def test_text_that_encodes_is_stored_whatever_its_characters(tmp_path):
+    from dokimi.mcp.utils import write_cache_text
+
+    entry = tmp_path / "k.txt"
+    assert write_cache_text(entry, "café \U0001f600") is True
+    assert entry.read_text(encoding="utf-8") == "café \U0001f600"
+
+
+def test_page_with_a_lone_surrogate_is_returned_and_stores_nothing(tmp_path, caplog):
+    page = "bad \ud800 text " + PAGE
+    with patch("httpx.get", return_value=_response(page)), caplog.at_level(logging.WARNING):
+        text = _url_text(URLClient(URL, cache_dir=tmp_path))
+    assert "bad \ud800 text" in text
+    assert list(tmp_path.iterdir()) == [] and "Could not write cache entry" in caplog.text
+
+
 def test_failed_context7_cache_write_returns_the_answer_and_stores_nothing(tmp_path, caplog):
     with patch("httpx.get", return_value=_response(DOCS)), \
-            patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+            patch("dokimi.atomic_write.os.replace", side_effect=OSError("disk full")), \
             caplog.at_level(logging.WARNING):
         docs = Context7Client(cache_dir=tmp_path).get_library_docs(LIB, QUERY)
     assert docs[0]["content"] == DOCS
@@ -240,7 +268,7 @@ def test_failed_context7_cache_write_returns_the_answer_and_stores_nothing(tmp_p
 
 
 def test_failed_topics_cache_write_returns_the_topics_and_stores_nothing(tmp_path, caplog):
-    with patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+    with patch("dokimi.atomic_write.os.replace", side_effect=OSError("disk full")), \
             caplog.at_level(logging.WARNING):
         topics = _extractor(tmp_path).extract_topics(LIB, "oneTBB")
     assert topics == ["tbb::parallel_for", "task_arena"]

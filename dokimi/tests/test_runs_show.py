@@ -42,6 +42,7 @@ CONTENTS = {
     "repo_hits_judged.v1": {"pairs": 3},
     "repo_readiness.v1": {"files": 2, "claims": 52},
     "result.v1": {"cells": 6},
+    "run.v1": {"artifacts": 2},
     "security_report.v1": {"arms": 2, "cells": 4},
     "subject_scorecard.v2": {"cells": 0},
     "skill_evidence.v1": {"results": 2, "warnings": 0},

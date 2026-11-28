@@ -714,3 +714,16 @@ def test_a_git_timeout_raises_even_unchecked(monkeypatch, tmp_path):
     monkeypatch.setattr(process, "git", lambda *a, **k: process.reply(timed_out=True))
     with pytest.raises(source.SourceError, match="timed out"):
         source._git(tmp_path, "ls-files", "-z", check=False)
+
+
+@pytest.mark.parametrize(("path", "status"), [
+    ("config/gone.yaml", "fail"), ("dokimi/sub/gone.yaml", "fail"),
+    ("other-repo/.github/workflows/ci.yml", "unresolved"), ("path/to/config.yaml", "unresolved"),
+    ("settings.yaml", "unresolved"),
+])
+def test_a_missing_config_path_fails_only_where_this_tree_could_hold_it(tmp_path, path, status):
+    """A deeper path under an absent top directory names a sibling repository's file or a placeholder."""
+    from tests.test_repo_l0_cases import _scan, _verdicts
+
+    got = _verdicts(_scan(tmp_path, f"Edit `{path}`.\n", {"dokimi/x.yaml": ""}))
+    assert got[("path", path)] == status, got

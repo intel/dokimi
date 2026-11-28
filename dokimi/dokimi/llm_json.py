@@ -18,7 +18,7 @@ def _outer_block(text: str, opener: str, closer: str) -> str | None:
     return text[i : j + 1] if i != -1 and j > i else None
 
 
-def extract_json_object(text: str) -> dict:
+def extract_json_object(text: str, *, strict: bool = True) -> dict:
     """Extract a JSON object from LLM output, handling markdown fences and leading text.
 
     Always a ``dict``: a reply that parses to another JSON value (``7``, ``[1, 2]``,
@@ -31,7 +31,7 @@ def extract_json_object(text: str) -> dict:
         raise ValueError("LLM returned empty response")
     # Direct parse
     try:
-        result = json.loads(text)
+        result = json.loads(text, strict=strict)
         if isinstance(result, dict):
             return result
     except (ValueError, RecursionError):  # not JSON here: try the next form
@@ -40,7 +40,7 @@ def extract_json_object(text: str) -> dict:
     fence = _FENCE.search(text)
     if fence:
         try:
-            result = json.loads(fence.group(1).strip())
+            result = json.loads(fence.group(1).strip(), strict=strict)
             if isinstance(result, dict):
                 return result
         except (ValueError, RecursionError):
@@ -49,7 +49,7 @@ def extract_json_object(text: str) -> dict:
     block = _outer_block(text, "{", "}")
     if block is not None:
         try:
-            result = json.loads(block)
+            result = json.loads(block, strict=strict)
         except RecursionError as exc:
             raise ValueError(f"JSON in LLM response is nested too deeply: {text[:200]!r}") from exc
         if isinstance(result, dict):

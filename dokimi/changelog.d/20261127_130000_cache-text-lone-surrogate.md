@@ -1,0 +1,3 @@
+### Fixed
+
+- **A fetched page or answer with a lone surrogate no longer ends in a `UnicodeEncodeError` from the doc cache** — `write_cache_text` caught only `OSError`, so text that does not encode as UTF-8 (a `\ud800` from a JSON escape in a page) made a URL, Context7 or topics fetch raise instead of logging `Could not write cache entry <path>` and returning `False`, as its docstring says. The text is not stored (a stored `?` would replay other text than was fetched), an existing entry stays as it was, no tmp file is left, and the caller returns what it fetched. A write that fails with an `OSError` is still a warning, and text that encodes is stored as before.

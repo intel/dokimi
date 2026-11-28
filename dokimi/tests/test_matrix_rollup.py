@@ -84,6 +84,34 @@ def test_build_matrix_rollup_pairs_plugin_cells(tmp_path: Path):
         str(tmp_path / "plugin-delta-agent-none-to-agent-caveman-")
     )
     assert "_artifact_payload" not in persisted["plugin_deltas"][0]
+    warnings = [
+        "plugin delta for 'agent-none' -> 'agent-caveman': answers question text was not recorded for every pair",
+        "plugin delta for 'agent-none' -> 'agent-caveman': judge settings were not fully recorded",
+    ]
+    markdown = render_matrix_rollup_report(persisted)
+    for warning in warnings:
+        assert any(line.startswith(warning) for line in persisted["warnings"])
+        assert warning in markdown
+
+
+def test_build_matrix_rollup_reports_a_confounded_plugin_pair(tmp_path):
+    baseline = _arms_artifact("agent-none")
+    plugin = _arms_artifact("agent-caveman", "caveman:full")
+    baseline["judge_temperature"] = 0.0
+    plugin["judge_temperature"] = 0.5
+
+    rollup = build_matrix_rollup(
+        library_name="oneTBB",
+        cell_artifacts=[
+            ("agent-none", tmp_path / "agent-none.json", baseline),
+            ("agent-caveman", tmp_path / "agent-caveman.json", plugin),
+        ],
+        out_dir=tmp_path,
+    )
+
+    assert rollup["total_cells"] == 2
+    assert rollup["plugin_deltas"] == []
+    assert "different judge_temperature" in rollup["warnings"][0]
 
 
 def test_matrix_rollup_schema_requires_plugin_delta_artifact():

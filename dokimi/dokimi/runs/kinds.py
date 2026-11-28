@@ -71,6 +71,7 @@ FIELDS: dict[str, KindFields] = {
     "plan": KindFields(subject=("subjects[].id",), model=("models[]",), time=("generated_at",),
                        counts=("cells",)),
     "result": KindFields(time=("generated_at",), counts=("cells",)),
+    "run": KindFields(time=("started_at",), counts=("artifacts",)),
     "repo_budget": KindFields(subject=("tree",), counts=("entries",)),
     "run_context": KindFields(subject=("harness",)),
     "effective_instructions": KindFields(subject=("repo.id",), model=("model",), time=("generated_at",),

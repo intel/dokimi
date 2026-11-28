@@ -65,11 +65,11 @@
       "description": "the snapshot ids the judge reported, sorted; present when the run recorded them"
     },
     "judge_context": {
-      "description": "Protocol for what the judge was shown about each arm's treatment material. treatment_material.v1 when every score saw the stored material; treatment_material.v1+snippet_fallback when only some did (pools with nothing). Absent when every score used the 200-char report snippets — the protocol of runs judged before the stamp existed.",
+      "description": "Protocol for what the judge was shown about each arm's treatment material. treatment_material.v1 when every score saw the stored material; treatment_material.withheld.v1 when the run used --judge-context baseline (no material on any arm; pools only with other withheld runs), including partial artifacts saved before judging; treatment_material.v1+snippet_fallback when only some scores saw the stored material (pools with nothing). Absent when every score used the 200-char report snippets — the protocol of runs judged before the stamp existed.",
       "type": "string"
     },
     "judge_context_sources": {
-      "description": "Judged scores counted by judge_context_source (stored / snippet_fallback).",
+      "description": "Judged scores counted by judge_context_source (stored, snippet_fallback, or withheld when a withheld run supplies no material without a stored digest).",
       "type": "object",
       "additionalProperties": {
         "type": "integer",

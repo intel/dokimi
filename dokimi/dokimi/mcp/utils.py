@@ -3,14 +3,13 @@
 
 """Shared utilities for MCP doc-source clients."""
 
-import contextlib
 import logging
-import os
 import re
-import threading
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import List, Optional
+
+from dokimi.atomic_write import write_text_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -92,18 +91,15 @@ def read_cache_text(path: Path) -> Optional[str]:
 def write_cache_text(path: Path, text: str) -> bool:
     """Store a cache entry; a reader never sees half of it. Returns whether it was stored.
 
-    A failed write is a warning, not an error: the caller already has what it fetched.
+    A failed write is a warning, not an error: the caller already has what it fetched. Text that does not
+    encode as UTF-8 (a lone surrogate) is not stored: an entry would replay other text than was fetched.
 
-    The tmp name is per process and thread, so concurrent writers of one entry do not share it.
+    The file is published by :func:`dokimi.atomic_write.write_text_atomic`: a random tmp name, so concurrent
+    writers of one entry each publish a whole file, and the mode and group of an entry it replaces are kept.
     """
-    # Move to dokimi.atomic_write once https://github.com/intel/dokimi/pull/697 is on main.
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError as exc:
-        with contextlib.suppress(OSError):  # a directory refusing the write may refuse this too
-            tmp.unlink(missing_ok=True)
+        write_text_atomic(path, text)
+    except (OSError, UnicodeEncodeError) as exc:
         logger.warning("Could not write cache entry %s: %s", path, exc)
         return False
     return True
