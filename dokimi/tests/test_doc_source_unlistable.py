@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -60,7 +62,7 @@ def test_a_subdirectory_that_cannot_be_listed_is_refused(tmp_path: Path, caplog,
     client = cls(root)
     _lock(root / "sub")
     try:
-        with pytest.raises(MCPConnectionError, match="cannot list .*sub"):
+        with pytest.raises(MCPConnectionError, match=rf"cannot list {re.escape(str(root / 'sub'))}: "):
             client.get_library_docs("x", "parallel_for")
         with caplog.at_level(logging.WARNING):
             assert client.check_connection() is False
@@ -103,10 +105,59 @@ def test_the_preflight_refuses_a_subdirectory_that_cannot_be_listed(tmp_path: Pa
     require_local_doc_source(f"{prefix}:{root}")
     _lock(root / "sub")
     try:
-        with pytest.raises(InputError, match="cannot list .*sub"):
+        with pytest.raises(InputError, match=rf"cannot list {re.escape(str(root / 'sub'))}: Permission denied$"):
             require_local_doc_source(f"{prefix}:{root}")
     finally:
         (root / "sub").chmod(0o700)
+
+
+@needs_modes
+@pytest.mark.parametrize("cls,prefix", CLIENTS)
+def test_the_preflight_keeps_permission_denied_for_a_root_that_cannot_be_listed(tmp_path: Path, cls, prefix):
+    """#1207 and docs/adding-doc-source.md: an unreadable root keeps the #1086 message, not ``cannot list``."""
+    root = _tree(tmp_path)
+    _lock(root)
+    try:
+        with pytest.raises(InputError, match=rf"cannot read {re.escape(str(root))}: permission denied") as caught:
+            require_local_doc_source(f"{prefix}:{root}")
+    finally:
+        root.chmod(0o700)
+    assert "cannot list" not in str(caught.value)
+
+
+LISTING_ERRORS = [
+    (OSError(errno.EIO, "Input/output error"), "Input/output error"),
+    (OSError("boom"), "boom"),
+]
+
+
+def _failing(err: OSError):
+    def listing(_root):
+        raise err
+
+    return listing
+
+
+@pytest.mark.parametrize("err,_strerror", LISTING_ERRORS)
+@pytest.mark.parametrize("cls,_prefix", CLIENTS)
+def test_a_listing_error_without_a_filename_names_the_root(tmp_path: Path, monkeypatch, cls, _prefix, err, _strerror):
+    """#1207: an ``OSError`` that carries no filename is reported against the source directory."""
+    root = _tree(tmp_path)
+    monkeypatch.setattr("dokimi.mcp.utils.listed_entries", _failing(err))
+    with pytest.raises(MCPConnectionError) as caught:
+        cls(root).get_library_docs("x", "parallel_for")
+    assert str(caught.value) == f"{cls.__name__}: cannot list {root}: {err}"
+
+
+@pytest.mark.parametrize("err,strerror", LISTING_ERRORS)
+@pytest.mark.parametrize("cls,prefix", CLIENTS)
+def test_the_preflight_names_the_root_for_a_listing_error_without_a_filename(tmp_path: Path, monkeypatch, cls, prefix, err, strerror):
+    """#1207 and docs/adding-doc-source.md: the preflight message ends with the strerror, or the error when it has none."""
+    root = _tree(tmp_path)
+    monkeypatch.setattr("dokimi.digest_entries.listed_entries", _failing(err))
+    with pytest.raises(InputError) as caught:
+        require_local_doc_source(f"{prefix}:{root}")
+    assert str(caught.value) == f"doc source {prefix}:{root}: cannot list {root}: {strerror}"
 
 
 @needs_modes
