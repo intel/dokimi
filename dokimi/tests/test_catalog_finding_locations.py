@@ -321,7 +321,15 @@ def test_an_unfinished_link_opener_does_not_reach_across_a_blank_line():
 def test_an_opener_does_not_continue_into_a_blockquote():
     """#942: ``[unfinished](`` then ``> missing.md`` is two blocks; the real link on line 4 is located."""
     assert link_line("[unfinished](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 4
-    assert link_line("> [q](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 2
+    assert link_line("> [q](\n> missing.md)\n\n[real](missing.md)\n", "missing.md") == 2
+
+
+def test_an_unclosed_link_does_not_take_the_line_of_the_real_one(tmp_path, capsys):
+    """#942: ``[q](`` with no ``)`` before the blank line is no link to the check, so ``[real]`` is located."""
+    _skill(tmp_path, "a", body="> [q](\n> missing.md\n\n[real](missing.md)\n")
+    assert _one(tmp_path, capsys, "link-missing")["line"] == 8
+    assert link_line("> [q](\n> missing.md\n\n[real](missing.md)\n", "missing.md") == 4
+    assert link_line("See [q](missing.md\n\n) [real](missing.md)\n", "missing.md") == 3
 
 
 def test_a_fenced_copy_does_not_take_the_line_of_the_real_one(tmp_path, capsys):

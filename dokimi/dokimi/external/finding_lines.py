@@ -81,18 +81,23 @@ def link_line(text: str, raw: str) -> Optional[int]:
     a destination that only starts with ``raw`` (``]: raw.bak``) does not. Only the lines the check reads are
     searched: fenced code is skipped and blockquote markers are dropped (a link does not continue into or out of a
     quote). The destination may be on the line after its opener, never past a blank line (the destination's line is
-    returned); a line that merely contains ``raw`` is the fallback when no link form matches.
+    returned), and an inline link counts only when its ``)`` comes before the paragraph ends, as the check reads it;
+    a line that merely contains ``raw`` is the fallback when no link form matches.
     """
     view = _body_view(text)
     body = "\n".join(line for _, line in view)
     word = re.escape(raw)
+    gap = r"[ \t]*(?:\n[ \t]*)?"  # spaces, and at most one line break: a blank line ends the paragraph
+    # an inline link counts only when its ")" follows (after an optional title) before the paragraph ends
+    closes = rf"""(?={gap}(?:(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)){gap})?\))"""
     form = re.compile(
-        rf"(?:\]\(|^ {{0,3}}\[[^\]]*\]:)[ \t]*(?:\n[ \t]*)?(?:<(?P<a>{word})>|(?P<b>{word})(?=[\s)]|$))",
+        rf"\]\({gap}(?:<(?P<a>{word})>|(?P<b>{word})(?=[\s)]|$)){closes}"
+        rf"|^ {{0,3}}\[[^\]]*\]:{gap}(?:<(?P<c>{word})>|(?P<d>{word})(?=\s|$))",
         re.MULTILINE,
     )  # inside <...> only ">" ends it; the destination may sit on a line after its opener
     found = form.search(body)
     if found:
-        start = found.start("a") if found.group("a") is not None else found.start("b")
+        start = next(found.start(g) for g in "abcd" if found.group(g) is not None)
         return view[body.count("\n", 0, start)][0]
     return text_line(text, raw)
 
