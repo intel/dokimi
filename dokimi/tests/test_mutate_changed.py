@@ -897,6 +897,12 @@ def test_the_comment_result_carries_what_could_not_be_tested() -> None:
     assert result["untested"] == {"failing_tests": 2, "tests_not_run": 1, "uncovered_lines": 3}
 
 
+def test_the_comment_result_counts_the_covered_mutants_the_cap_left_out() -> None:
+    m = mc.Mutant("p.py", 2, "bump-int", (2, 4), (2, 5), "2", "1", status="killed")
+    assert mc.comment_result({"mutants": [vars(m)], "mutants_covered": 16})["capped"] == 15
+    assert mc.comment_result({"mutants": [vars(m)]})["capped"] == 0
+
+
 def test_a_mixed_boolean_with_a_text_in_the_middle_is_still_a_decision() -> None:
     mutants = mc.mutants_for("x.py", 'if ready or "" or allowed:\n    pass\n', {1})
     assert any(m.op == "swap-boolop" for m in mutants)

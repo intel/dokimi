@@ -29,9 +29,9 @@ OLD = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\n
 UNTESTED = {"failing_tests": 0, "tests_not_run": 0, "uncovered_lines": 0}
 
 
-def _result(survivors=(SURVIVOR,), waived=(WAIVED,), bare=(), untested=UNTESTED, **kw):
+def _result(survivors=(SURVIVOR,), waived=(WAIVED,), bare=(), untested=UNTESTED, capped=0, **kw):
     result = {"counts": COUNTS, "survivors": list(survivors), "waived": list(waived), "waivers_without_reason": list(bare),
-              "untested": untested}
+              "untested": untested, "capped": capped}
     return {"pr_number": 12, "head_sha": SHA, "status": "ok", "result": result, **kw}
 
 
@@ -83,6 +83,12 @@ def test_a_run_that_ran_out_of_time_is_not_shown_as_clean(tmp_path):
         body = _bodies(_post(tmp_path, result, comments=comments))[0]
         assert "No surviving mutants" not in body and "1 mutants were not run" in body
         assert "not a clean result" in body
+
+
+def test_a_run_the_mutant_cap_cut_is_not_shown_as_clean_on_every_changed_line(tmp_path):
+    for survivors in ((), (SURVIVOR,)):
+        body = _bodies(_post(tmp_path, _result(survivors=survivors, capped=14), comments=OLD))[0]
+        assert "No surviving mutants" not in body and "The mutant cap left out 14 more mutants" in body
 
 
 def test_a_run_that_mutated_nothing_because_no_line_was_covered_is_not_shown_as_clean(tmp_path):
@@ -154,6 +160,8 @@ def test_an_error_result_says_the_check_could_not_run_in_the_jobs_own_words(tmp_
         {**_result(), "result": {**_result()["result"], "survivors": "a, b"}},
         _result(waived=[{**WAIVED, "reason": None}]),
         _result(bare=[3]),
+        _result(capped=-1),
+        {**_result(), "result": {k: v for k, v in _result()["result"].items() if k != "capped"}},
         _result(pr_number="12"),
         _result(head_sha="b" * 40),
     ],

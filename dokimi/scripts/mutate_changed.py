@@ -676,7 +676,8 @@ def comment_result(report: dict) -> dict:
 
     Source text and reasons are cut to ``CELL`` characters and the tests to their count, so its size has a bound.
     ``untested`` counts what kept mutants from being tried (candidate tests that fail without a mutant, candidate
-    test files not run, changed lines no test executes), so a run that tested nothing is not shown as clean.
+    test files not run, changed lines no test executes), so a run that tested nothing is not shown as clean;
+    ``capped`` counts the covered mutants ``--max-mutants`` left out, so a sample is not shown as every line.
     """
     ms = report["mutants"]
     cut = {"original", "replacement", "reason"}
@@ -692,6 +693,7 @@ def comment_result(report: dict) -> dict:
         "untested": {"failing_tests": len(report.get("failing_unmutated", [])),
                      "tests_not_run": len(report.get("candidate_tests_not_run", [])),
                      "uncovered_lines": sum(len(ls) for ls in report.get("uncovered_lines", {}).values())},
+        "capped": max(0, report.get("mutants_covered", len(ms)) - len(ms)),
     }
 
 
