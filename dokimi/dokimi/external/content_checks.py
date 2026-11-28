@@ -10,7 +10,8 @@
   Each is reported with its line and codepoint. Exempt: a zero-width joiner (U+200C, U+200D) next to an
   emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
   order mark at the start of a file. A line with more than :data:`FILLERS_PER_LINE` blank fillers that are
-  exempt beside Greek or Hangul reports all of them.
+  exempt beside Greek or Hangul reports all of them. A hidden character that the front matter ``name`` or
+  ``description`` writes as a YAML escape (``\\u202E``) is reported too, against the front matter key instead of a line.
 
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
 suffixes of :data:`TEXT_SUFFIXES`) in the skill
@@ -31,6 +32,7 @@ import unicodedata
 from pathlib import Path
 
 from dokimi.skills import Skill
+from dokimi.utils import parse_frontmatter
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 from .lookalikes import readings
@@ -164,17 +166,39 @@ def _is_hangul(cp: int) -> bool:
     return 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F or 0xA960 <= cp <= 0xA97F or 0xAC00 <= cp <= 0xD7FF or 0xFFA0 <= cp <= 0xFFDC
 
 
-def _filler_exempt(text: str, index: int) -> bool:
+def _braille_runs(text: str) -> dict[int, tuple[int, int]]:
+    """Index of each U+2800 -> ``(start, end)`` of the run of U+2800 it is in, found in one pass."""
+    runs: dict[int, tuple[int, int]] = {}
+    i = 0
+    while i < len(text):
+        if text[i] == "\u2800":
+            j = i
+            while j < len(text) and text[j] == "\u2800":
+                j += 1
+            for k in range(i, j):
+                runs[k] = (i, j)
+            i = j
+        else:
+            i += 1
+    return runs
+
+
+def _braille_run(text: str, index: int) -> tuple[int, int]:
+    start = end = index
+    while start > 0 and text[start - 1] == "\u2800":
+        start -= 1
+    while end < len(text) and text[end] == "\u2800":
+        end += 1
+    return start, end
+
+
+def _filler_exempt(text: str, index: int, runs: dict[int, tuple[int, int]] | None = None) -> bool:
     """U+034F, U+115F, U+1160 and U+2800 are text in Greek or other non-ASCII script, Hangul and Braille."""
     cp = ord(text[index])
     near = [ord(text[j]) for j in (index - 1, index + 1) if 0 <= j < len(text) and ord(text[j]) not in BLANK_FILLERS]
     if cp == 0x2800:  # a run of blank patterns is Braille when a pattern borders it
-        for step in (-1, 1):
-            j = index + step
-            while 0 <= j < len(text) and text[j] == "\u2800":
-                j += step
-            if 0 <= j < len(text):
-                near.append(ord(text[j]))
+        start, end = runs[index] if runs is not None else _braille_run(text, index)
+        near += [ord(text[j]) for j in (start - 1, end) if 0 <= j < len(text)]
     if cp in (0x115F, 0x1160):
         return any(_is_hangul(n) for n in near)
     if cp == 0x2800:
@@ -184,14 +208,14 @@ def _filler_exempt(text: str, index: int) -> bool:
     return False
 
 
-def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
+def _is_hidden(text: str, index: int, bidi_exempt: set[int], runs: dict[int, tuple[int, int]] | None = None) -> bool:
     cp = ord(text[index])
     if cp == SOFT_HYPHEN or cp in INVISIBLE_FORMAT:
         return True
     if cp in VARIATION_SELECTORS:
         return _selector_stray(text, index)
     if cp in BLANK_FILLERS:
-        return not _filler_exempt(text, index)
+        return not _filler_exempt(text, index, runs)
     if cp in BIDI_MARKS:
         return index not in bidi_exempt
     if cp in BIDI_CONTROLS or cp in TAG_CHARACTERS:
@@ -205,9 +229,11 @@ def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
     return False
 
 
-def _hidden_hits(where: str, text: str) -> list[Hit]:
+def _hidden_indexes(text: str) -> list[int]:
+    """Every hidden index of ``text``, with the exempt fillers of a line that holds more than FILLERS_PER_LINE."""
     bidi_exempt = _bidi_mark_exempt(text)
-    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
+    runs = _braille_runs(text)
+    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt, runs)]
     kept: dict[int, list[int]] = {}  # line number -> fillers exempt as script text (not Braille: a run of blanks is normal)
     line_no = 0
     for i, ch in enumerate(text):
@@ -215,7 +241,11 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
             line_no += 1
         elif ord(ch) in (0x034F, 0x115F, 0x1160) and _filler_exempt(text, i):
             kept.setdefault(line_no, []).append(i)
-    found = sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+    return sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
+
+
+def _hidden_hits(where: str, text: str) -> list[Hit]:
+    found = _hidden_indexes(text)
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
@@ -230,6 +260,162 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
     if len(found) > REPORT_PER_FILE:
         hits.append(
             ("hidden-unicode", f"{where}: {len(found) - REPORT_PER_FILE} more hidden characters not listed")
+        )
+    return hits
+
+
+def _front_matter(raw: str) -> str | None:
+    """The text between the fences of ``raw``, cut the way :func:`dokimi.utils.parse_frontmatter` cuts it."""
+    lines = raw.lstrip("\ufeff").splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            return "\n".join(lines[1:idx])
+    return None
+
+
+def _scalar_sources(front: str) -> dict[str, tuple[str, str | None]]:
+    """Key -> (text, style) of its value as written in the front matter, for ``name`` and ``description``.
+
+    Merge keys (``<<: *defaults``) are resolved the way the loader does, an explicit key beating a merged one.
+    """
+    import yaml
+
+    try:
+        loader = yaml.SafeLoader(front)
+        try:
+            root = loader.get_single_node()
+            if isinstance(root, yaml.MappingNode):
+                loader.flatten_mapping(root)
+        finally:
+            loader.dispose()
+    except (yaml.YAMLError, ValueError, RecursionError):
+        return {}
+    sources: dict[str, tuple[str, str | None]] = {}
+    if isinstance(root, yaml.MappingNode):
+        for key_node, value_node in root.value:
+            if isinstance(key_node, yaml.ScalarNode) and key_node.value in ("name", "description"):
+                style = value_node.style if isinstance(value_node, yaml.ScalarNode) else None
+                sources[key_node.value] = (front[value_node.start_mark.index : value_node.end_mark.index], style)
+    return sources
+
+
+_ESCAPES = "0abt\tnvfre \"\\/N_LP"  # the characters a backslash may precede, apart from x, u, U and a line break
+_BREAKS = "\r\n\x85  "
+
+
+class _QuotedOrigins:
+    """Walks a double-quoted scalar the way PyYAML's scanner does (escapes, line folding), noting what wrote each character."""
+
+    def __init__(self, src: str) -> None:
+        # the node's span starts at its anchor or tag (``&d "x"``, ``!!str "x"``), so begin after the opening quote
+        self.src, self.i, self.end = src, src.find('"') + 1, len(src) - 1
+        self.out: list[bool] = []
+
+    def line_break(self) -> str:
+        if self.src.startswith("\r\n", self.i):
+            self.i += 2
+            return "\n"
+        ch = self.src[self.i]
+        self.i += 1
+        return ch if ch in "  " else "\n"
+
+    def skip_blanks(self) -> bool:
+        """Skip spaces and tabs; whether a line break follows."""
+        while self.i < self.end and self.src[self.i] in " \t":
+            self.i += 1
+        return self.i < self.end and self.src[self.i] in _BREAKS
+
+    def breaks(self) -> list[str]:
+        found: list[str] = []
+        while self.skip_blanks():
+            found.append(self.line_break())
+        return found
+
+    def escape(self) -> bool:
+        """The escape after a backslash; False when it is not one PyYAML reads."""
+        ch = self.src[self.i] if self.i < self.end else ""
+        if ch and ch in _ESCAPES:
+            self.out.append(True)
+            self.i += 1
+        elif ch and ch in "xuU":
+            width = {"x": 2, "u": 4, "U": 8}[ch]
+            digits = self.src[self.i + 1 : self.i + 1 + width]
+            if len(digits) != width or any(d not in "0123456789abcdefABCDEF" for d in digits):
+                return False
+            self.out.append(True)
+            self.i += 1 + width
+        elif ch and ch in _BREAKS:
+            self.line_break()
+            self.out.extend(False for _ in self.breaks())
+        else:
+            return False
+        return True
+
+    def spaces(self) -> None:
+        start = self.i
+        if not self.skip_blanks():
+            self.out.extend(False for _ in self.src[start : self.i])
+            return
+        first = self.line_break()
+        rest = self.breaks()
+        if first != "\n" or not rest:
+            self.out.append(False)  # the break itself: kept as is when it is U+2028 or U+2029, else folded to a space
+        self.out.extend(False for _ in rest)
+
+    def run(self) -> list[bool] | None:
+        while self.i < self.end:
+            ch = self.src[self.i]
+            if ch == "\\":
+                self.i += 1
+                if not self.escape():
+                    return None
+            elif ch in " \t" or ch in _BREAKS:
+                self.spaces()
+            else:
+                self.out.append(False)
+                self.i += 1
+        return self.out
+
+
+def _double_quoted_origins(src: str) -> list[bool] | None:
+    """For each character of a double-quoted scalar's value, whether an escape wrote it; None if ``src`` is not understood."""
+    return _QuotedOrigins(src).run()
+
+
+def _escaped_hits(key: str, value: str, source: tuple[str, str | None] | None) -> list[Hit]:
+    """#1285: hidden characters of a parsed front matter value that a YAML escape wrote.
+
+    A YAML escape (``\\u202E``, ``\\U000E0069``) is ASCII in the file but one hidden character in the value an agent reads.
+    ``source`` is the value as written in the front matter: a hidden character typed there is already reported with its
+    line by :func:`_hidden_hits`, so only the ones an escape wrote are reported here. Only a double-quoted scalar has
+    escapes; when the source is unknown, every hidden character of the value is reported.
+    """
+    text = "\n" + value  # a value is not the start of a file: a leading U+FEFF is not a byte order mark
+    found = [i - 1 for i in _hidden_indexes(text)]
+    if source is not None and source[1] != '"':
+        found = []
+    elif source is not None:
+        origins = _double_quoted_origins(source[0])
+        if origins is not None and len(origins) == len(value):
+            found = [i for i in found if origins[i]]
+    hits: list[Hit] = []
+    for index in found[:REPORT_PER_FILE]:
+        ch = value[index]
+        hits.append(
+            (
+                "hidden-unicode",
+                f"SKILL.md front matter {key}: U+{ord(ch):04X} {unicodedata.name(ch, 'unnamed')} "
+                "is written as an escape and can hide text from a reader; remove it",
+            )
+        )
+    if len(found) > REPORT_PER_FILE:
+        hits.append(
+            (
+                "hidden-unicode",
+                f"SKILL.md front matter {key}: {len(found) - REPORT_PER_FILE} more hidden characters not listed",
+            )
         )
     return hits
 
@@ -272,7 +458,20 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
 
     ``at_root``: the ``SKILL.md`` sits at the checkout root, so only that file is read (see the module docstring).
     """
-    return skill_md_content_findings(skill.path, at_root=at_root)
+    hits = skill_md_content_findings(skill.path, at_root=at_root)
+    try:
+        raw = skill.path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return hits
+    front = _front_matter(raw)
+    if front is None:
+        return hits
+    meta, _ = parse_frontmatter(raw)
+    sources = _scalar_sources(front)
+    for key in ("name", "description"):  # the declared values: a missing name falls back to the directory's, not the file's
+        if isinstance(meta.get(key), str):
+            hits += _escaped_hits(key, meta[key], sources.get(key))
+    return hits
 
 
 def skill_md_content_findings(skill_md: Path, *, at_root: bool = False) -> list[Hit]:

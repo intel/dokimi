@@ -742,3 +742,216 @@ def test_variation_selector_at_offset_zero_is_reported():
 
     assert len(_hidden_hits("notes.txt", chr(0xFE0F) + "x")) == 1
     assert _hidden_hits("notes.txt", "") == []
+
+
+def _escaped_skill(root: Path, description: str, body: str = "# Body\n") -> None:
+    skill_dir = root / "esc"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_bytes(
+        f"---\nname: esc\ndescription: {description}\n---\n{body}".encode("ascii")
+    )
+
+
+def test_hidden_character_written_as_a_yaml_escape_in_the_description_is_reported(tmp_path):
+    """#1285: tag characters and a bidi override written as YAML escapes are in the parsed description."""
+    _escaped_skill(tmp_path, '"Use when drafting.\\U000E0069\\U000E0067\\u202E"')
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 3
+    assert any("front matter description: U+202E" in m and "escape" in m for m in messages)
+
+
+def test_hidden_character_written_as_a_yaml_escape_in_the_name_is_reported(tmp_path):
+    """#1285: the name is read as well as the description."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(b'---\nname: "esc\\u200B"\ndescription: Use for things.\n---\n# B\n')
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter name: U+200B" in message
+
+
+def test_literal_hidden_character_in_the_description_is_reported_once(tmp_path):
+    """#1285: a character that is in the file keeps its one ``line N`` finding."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: esc\ndescription: Use for\u202e things.\n---\n# B\n", encoding="utf-8"
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "line 3" in message
+
+
+def test_escape_text_in_the_body_is_not_reported(tmp_path):
+    """#1285: the six ASCII characters ``\\u202E`` in the body are not a hidden character."""
+    _escaped_skill(tmp_path, "Use for things.", body="# B\n\nWrite \\u202E as an escape.\n")
+
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_escaped_description_findings_are_capped(tmp_path):
+    """#1285: more than five escaped characters are counted, not all listed."""
+    _escaped_skill(tmp_path, '"x' + "\\u200B" * 7 + '"')
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 6
+    assert "2 more hidden characters" in messages[-1]
+
+
+def test_escaped_joiner_is_reported_although_the_body_holds_an_exempt_one(tmp_path):
+    """#1285: a literal emoji joiner in the body does not hide an escaped stray joiner in the description."""
+    _escaped_skill(tmp_path, '"\\u200DUse for things."')
+    skill = tmp_path / "esc" / "SKILL.md"
+    skill.write_bytes(skill.read_bytes() + "\U0001f469\u200d\U0001f4bb\n".encode("utf-8"))
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+200D" in message
+
+
+def test_escaped_byte_order_mark_at_the_start_of_the_description_is_reported(tmp_path):
+    """#1285: offset zero of a value is not offset zero of a file, so U+FEFF there is hidden."""
+    _escaped_skill(tmp_path, '"\\uFEFFUse for things."')
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+FEFF" in message
+
+
+def test_escaped_joiner_is_reported_beside_an_exempt_literal_joiner_in_the_description(tmp_path):
+    """#1285: an exempt literal joiner in the front matter does not hide an escaped stray one."""
+    _escaped_skill(tmp_path, '"Use for x \\u200Ddrafting."')
+    skill = tmp_path / "esc" / "SKILL.md"
+    text = skill.read_bytes().decode("ascii").replace("x ", "\U0001f469\u200d\U0001f4bb. ")
+    skill.write_bytes(text.encode("utf-8"))
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+200D" in message
+
+
+def test_escaped_character_is_reported_beside_a_literal_one_in_a_yaml_comment(tmp_path):
+    """#1285: a literal U+202E in a comment is not the description's character, so the escaped one is still reported."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\n# note \u202e\ndescription: "Use for things.\\u202E"\n---\n# B\n', encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 2
+    assert any("front matter description: U+202E" in m for m in messages)
+
+
+def test_escaped_character_is_reported_when_the_closing_fence_is_indented(tmp_path):
+    """#1285: the loader accepts ``  ---`` as the closing fence, so a literal U+202E in the body is not in the value."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\ndescription: "Use for things.\\u202E"\n  ---\n# B \u202e\n', encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert any("front matter description: U+202E" in m for m in messages)
+
+
+def test_literal_character_after_a_dashed_key_is_not_reported_as_an_escape(tmp_path):
+    """#1285: ``---extra: x`` is a key, not a fence, so the literal U+202E below it keeps its one line finding."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: esc\n---extra: x\ndescription: Use for\u202e things.\n---\n# B\n", encoding="utf-8"
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 1
+    assert "line 4" in messages[0]
+
+
+def test_directory_name_fallback_is_not_scanned_as_a_front_matter_name(tmp_path):
+    """#1285: without a ``name`` the skill takes the directory's name; that is not an escape in the file."""
+    skill_dir = tmp_path / "esc\u200b"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(b"---\ndescription: Use for things.\n---\n# B\n")
+
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_many_escaped_braille_blanks_are_scanned_in_linear_time(tmp_path):
+    """#1285: 20000 escaped U+2800 in one description are scanned once, not once per neighbour."""
+    import time
+
+    _escaped_skill(tmp_path, '"x' + "\\u2800" * 20000 + '"')
+
+    start = time.perf_counter()
+    _messages(tmp_path, "hidden-unicode")
+    assert time.perf_counter() - start < 5
+
+
+def test_escaped_exempt_fillers_beyond_the_line_limit_are_reported(tmp_path):
+    """#1285: four U+034F beside Greek letters are reported when written as escapes, as they are when literal."""
+    _escaped_skill(tmp_path, '"Use for \\u03b1\\u034F\\u03b1\\u034F\\u03b1\\u034F\\u03b1\\u034F"')
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert len(messages) == 4
+    assert all("front matter description: U+034F" in m for m in messages)
+
+
+def test_literal_fillers_in_a_folded_description_are_not_reported_as_escapes(tmp_path):
+    """#1285: folding joins two lines of exempt fillers into one that is over the limit; none of them is an escape."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: esc\ndescription: >-\n  α͏α͏\n  α͏α͏\n---\n# B\n",
+        encoding="utf-8",
+    )
+
+    messages = _messages(tmp_path, "hidden-unicode")
+    assert not any("escape" in m for m in messages)
+
+
+def test_escaped_character_in_a_double_quoted_scalar_folded_over_lines_is_reported(tmp_path):
+    """#1285: line folding of a double-quoted description does not move the escape's position."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: esc\ndescription: "Use for\n  things \\u202E and\\\n  more."\n---\n# B\n', encoding="utf-8"
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+202E" in message
+
+
+def test_literal_character_in_a_description_inherited_by_a_merge_key_is_reported_once(tmp_path):
+    """#1285: ``<<: *d`` gives the description; its literal U+202E keeps one ``line N`` finding."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        '---\ndefaults: &d\n  description: "Use for\u202e things."\nname: esc\n<<: *d\n---\n# B\n', encoding="utf-8"
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "line 3" in message
+
+
+def test_escaped_character_in_a_description_inherited_by_a_merge_key_is_reported(tmp_path):
+    """#1285: an escape in a merged description is reported; an explicit key would win over the merged one."""
+    skill_dir = tmp_path / "esc"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(
+        b'---\ndefaults: &d\n  description: "Use for\\u202E things."\nname: esc\n<<: *d\n---\n# B\n'
+    )
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "front matter description: U+202E" in message
+
+
+def test_literal_character_in_an_anchored_or_tagged_double_quoted_description_is_reported_once(tmp_path):
+    """#1285: the scalar's source starts at its anchor or tag; that prefix must not hide which characters are escapes."""
+    for prop in ("&d ", "!!str ", "&d !!str "):
+        skill_dir = tmp_path / prop.strip().replace("&", "a").replace("!", "t").replace(" ", "_") / "esc"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f'---\nname: esc\ndescription: {prop}"Use for\u202e things."\n---\n# B\n', encoding="utf-8"
+        )
+
+        [message] = _messages(skill_dir.parent, "hidden-unicode")
+        assert "line 3" in message
