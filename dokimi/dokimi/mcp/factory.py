@@ -37,6 +37,32 @@ def require_local_doc_source(doc_source: str) -> None:
         raise InputError(f"doc source {doc_source}: cannot read {local_path}: permission denied")
 
 
+def _context7_settings() -> dict:
+    """#1291: ``timeout`` of the ``context7:`` block of the runtime config, when it sets it.
+
+    The block's ``endpoint`` is the MCP URL, not the REST base URL of ``Context7Client``, so it is not passed.
+    ``max_retries`` is not passed either: ``Context7Client`` makes one request and never reads it."""
+    import yaml
+
+    from dokimi.config import load_products_config, runtime_config_path
+
+    path = runtime_config_path()
+    try:
+        block = load_products_config(path).context7
+        block = {} if block is None else block
+    except (yaml.YAMLError, ValueError, OSError) as exc:
+        raise InputError(f"{path}: cannot read the runtime config: {exc} (#1291)") from exc
+    if not isinstance(block, dict):
+        raise InputError(f"{path}: 'context7' must be a mapping (#1291)")
+    settings = {}
+    if "timeout" in block:
+        value = block["timeout"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise InputError(f"{path}: context7.timeout must be a whole number of at least 1, got {value!r} (#1291)")
+        settings["timeout"] = value
+    return settings
+
+
 def create_doc_source_client(
     doc_source: str,
     cache_dir: Optional[Path] = None,
@@ -93,6 +119,9 @@ def create_doc_source_client(
     ------
     ValueError
         If *doc_source* is not recognised.
+    InputError
+        If ``context7`` is chosen and the runtime config cannot be read or its
+        ``context7.timeout`` is not a whole number of at least 1.
 
     Examples
     --------
@@ -104,7 +133,7 @@ def create_doc_source_client(
     if doc_source == "context7":
         from .context7 import Context7Client
         _cache = cache_dir or Path(".cache/context7")
-        return Context7Client(cache_dir=_cache)
+        return Context7Client(cache_dir=_cache, **_context7_settings())
 
     if doc_source.startswith("local:"):
         from .local_markdown import LocalMarkdownClient
