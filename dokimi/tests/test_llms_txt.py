@@ -103,6 +103,21 @@ def test_inline_code_comment_delimiter_keeps_following_links():
     assert llms_txt.check(text) == []
 
 
+@pytest.mark.parametrize("prose", [
+    "Write <!-- to open a comment.",
+    "See \\`<!--` here.",
+])
+def test_an_unclosed_comment_opener_in_prose_hides_nothing(prose):
+    text = GOOD.replace("> Payments for SaaS products.", f"> Payments for SaaS products. {prose}")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_an_unclosed_comment_block_still_hides_the_rest_of_the_file():
+    text = GOOD.replace("## Docs", "   <!--\n## Docs")
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
 def test_a_commented_out_link_after_an_escaped_backtick_fails_the_links_check():
     text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', r'\`<!-- [Hidden](url) -->\`')
     assert [(f.check, f.severity, f.message) for f in llms_txt.check(text)] == [

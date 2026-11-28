@@ -158,8 +158,19 @@ class _InlineText:
         self.text = text
         self.scanner = CodeSpanScanner(text, stop=_BLOCK)
         self.span = self.scanner.find(0)
-        self.comment = text.find("<!--")
+        self.last_close = text.rfind("-->")
+        self.comment = self._opener(0)
         self.in_comment = False
+
+    def _opener(self, pos: int) -> int:
+        """The next ``<!--`` that opens a comment: a ``-->`` follows it, or it starts an HTML block."""
+        at = self.text.find("<!--", pos)
+        while 0 <= at and self.last_close < at + 4:
+            line = self.text.rfind("\n", 0, at) + 1
+            if at - line <= 3 and self.text[line:at] == " " * (at - line):
+                break
+            at = self.text.find("<!--", at + 4)
+        return at
 
     def _code(self, pos: int, end: int, parts: list[str], keep_code: bool) -> int:
         span = self.span
@@ -192,7 +203,7 @@ class _InlineText:
                 self.span = self.scanner.find(pos)
             stop = min(self.span.start(), end) if self.span else end
             if 0 <= self.comment < pos:
-                self.comment = self.text.find("<!--", pos)
+                self.comment = self._opener(pos)
             if pos <= self.comment < stop:
                 parts.append(self.text[pos:self.comment])
                 self.in_comment = True
