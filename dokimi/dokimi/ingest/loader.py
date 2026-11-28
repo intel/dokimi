@@ -6,16 +6,20 @@
 from pathlib import Path
 from typing import Iterable
 
+from dokimi.digest_entries import listed_entries
 
 # Directories whose markdown is someone else's (package READMEs, VCS metadata), not the docs under test.
 _SKIPPED_DIRS = frozenset({".git", "node_modules", ".venv", "venv", "__pycache__", "site-packages"})
 
 
 def discover_markdown(root: Path) -> list[Path]:
-    """Return sorted markdown files under ``root``, skipping vendored and VCS directories."""
+    """Return sorted markdown files under ``root``, skipping vendored and VCS directories (those are not listed, so
+    one that cannot be listed does not matter). Any other directory that cannot be listed raises its ``OSError``."""
+    if not root.is_dir():
+        return []
     return sorted(
-        p for p in root.rglob("*.md")
-        if p.is_file() and _SKIPPED_DIRS.isdisjoint(p.relative_to(root).parts[:-1])
+        p for p in listed_entries(root, drop=lambda p: p.name in _SKIPPED_DIRS)
+        if p.name.endswith(".md") and p.is_file()
     )
 
 

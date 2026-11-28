@@ -1205,7 +1205,7 @@ The retention verdicts of `--cache-dir` are memoized on disk and are not counted
 
 A baseline or retest given as a directory is searched for files named `novelty.json`: a run saved
 under another name (for example `analyze --out-json foo.json`) is not read there, and the item
-shows up as unmatched. A file passed directly is read whatever its name. A run with no probed atom
+shows up as unmatched. A file passed directly is read whatever its name. A directory under it that cannot be listed is an input error (exit 2), not a smaller set of runs. A run with no probed atom
 (`atoms.n_probed` 0) is left out as unscored.
 
 Below ten items the floor is a rough guide: `retest.md` and the stdout say so. With two items the

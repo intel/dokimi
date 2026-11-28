@@ -62,6 +62,7 @@ from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
 from .overlays import overlay_names, overlay_of
+from .skill_dirs import only_empty_dirs
 from .source import (GitTree, RepoSource, RepoTree, SourceError, cache_path, clone_once, default_cache_dir,
                      isolated_git_env, resolve_rev)
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
@@ -444,13 +445,6 @@ def _content_dir(manifest: RepoManifest, task: Task) -> Path:
     return task.dir.parents[len(PurePosixPath(tasks).relative_to(eval_dir).parts)]
 
 
-def _only_empty_dirs(path: Path) -> bool:
-    """``path`` is a real directory with nothing but real directories under it."""
-    if path.is_symlink() or not path.is_dir():
-        return False
-    return all(not f and not any(Path(d, n).is_symlink() for n in dn) for d, dn, f in os.walk(path))
-
-
 def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str, str]]:
     """Copy each skill to ``.claude/skills/<name>/``; a skill the repository already has there is refused,
     as replacing it would change what the guidance arm measures."""
@@ -461,7 +455,7 @@ def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str,
             if part.is_symlink():
                 raise PrepError(f"task {task.id}: {part.relative_to(ws)} is a symlink in the repository; "
                                 f"refusing to install {skill.name} through it")
-        if _only_empty_dirs(dest):
+        if only_empty_dirs(dest):
             shutil.rmtree(dest)  # what dropping the guidance of a skill the base ships left: its emptied directory
         if dest.exists() or dest.is_symlink():
             raise PrepError(f"task {task.id}: the workspace already has {skill.target}")

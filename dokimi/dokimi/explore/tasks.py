@@ -29,6 +29,7 @@ from pathlib import Path
 
 import yaml
 
+from dokimi.digest_entries import listed_entries
 from dokimi.metrics.exploration import ReferenceLocations, normalize_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -224,4 +225,8 @@ def discover_explore_tasks(
 def _task_files(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
-    return sorted(p for p in root.rglob("*.yaml") if p.is_file())
+    try:
+        entries = listed_entries(root)
+    except OSError as exc:  # a directory that cannot be listed: its tasks would be missing, not reported
+        raise ValueError(f"cannot list the explore tasks under {root}: {exc}") from exc
+    return sorted(p for p in entries if p.name.endswith(".yaml") and p.is_file())

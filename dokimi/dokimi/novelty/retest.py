@@ -18,6 +18,7 @@ import statistics
 from pathlib import Path
 from typing import TypeGuard
 
+from dokimi.digest_entries import listed_entries
 from dokimi.eval.correlation import pearson
 from dokimi.novelty.measure import BASELINE_ARM
 from dokimi.utils import InputError
@@ -71,10 +72,21 @@ def _named(refs: list[str]) -> str:
     return ", ".join(refs[:NAMED]) + more
 
 
+def _artifact_files(path: Path) -> list[Path]:
+    """The ``FILE_NAME`` entries under ``path``, sorted; a directory that cannot be listed is an ``InputError``."""
+    if not path.is_dir():
+        return []  # mutation-ok[return-none]: the caller reads None as no files, as it reads []
+    try:
+        entries = listed_entries(path)
+    except OSError as exc:  # its runs would be missing from the comparison, not reported
+        raise InputError(f"cannot list {path}: {exc}") from exc
+    return sorted(p for p in entries if p.name == FILE_NAME)
+
+
 def load_runs(path: Path) -> dict[str, dict]:
     """The novelty artifacts under ``path`` (a directory, searched recursively, or one file),
     keyed by the artifact ref. A ref that appears twice is ambiguous and refused."""
-    files = [path] if path.is_file() else sorted(path.rglob(FILE_NAME))
+    files = [path] if path.is_file() else _artifact_files(path)
     if not files:
         raise InputError(f"no {FILE_NAME} under {path}; point at `skill novelty analyze` output")
     runs: dict[str, dict] = {}

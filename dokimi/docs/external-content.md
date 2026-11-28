@@ -723,7 +723,8 @@ Exploration tasks are YAML files that ask where something is, and are scored
 against a source tree. The two roots are separate because the question and the
 code being searched normally live in different checkouts — `--tasks-root` is
 the YAML directory, `--repo-root` the tree a task is scored against when its
-own YAML omits `repo_root:`.
+own YAML omits `repo_root:`. The YAML files are found under `--tasks-root` at any depth; a directory
+there that cannot be listed is an input error (exit 2), not a smaller task set.
 
 ```console
 $ python cli.py eval tasks list --format localization --tasks-root C:/Users/Public/content-repo/explore_tasks

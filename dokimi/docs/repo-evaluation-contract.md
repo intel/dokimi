@@ -488,7 +488,7 @@ The `name` in a skill's `SKILL.md` has to equal its directory name. A skill is r
 any cell runs if it holds a link that copying cannot take (out of the skill,
 dangling, looping, to a directory) or a file that is not regular. Preparation
 also refuses to write through a `.claude` or `.claude/skills` the repository
-ships as a link. A batch records the content of each skill arm it ran
+ships as a link. A directory at the skill's target that holds only empty directories is replaced; one with a directory under it that cannot be listed is refused as a preparation error, not read as empty. A batch records the content of each skill arm it ran
 (`_eval/skills.json`), so resuming it with another path of the same
 directory name, or with edited skill content, is refused.
 

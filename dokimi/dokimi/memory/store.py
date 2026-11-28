@@ -20,6 +20,7 @@ from urllib.parse import unquote
 import yaml
 
 from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner
+from dokimi.digest_entries import listed_entries
 
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
@@ -555,7 +556,11 @@ def read_claude_memory(root: str | Path) -> MemoryStore:
     entries = [_entry(root, p, False) for p in sorted(root.glob("*.md")) if p.name != INDEX_NAME and p.is_file()]
     archive = root / ARCHIVE_DIR
     if archive.is_dir():
-        entries += [_entry(root, p, True) for p in sorted(archive.rglob("*.md")) if p.is_file()]
+        try:
+            archived = listed_entries(archive)
+        except OSError as exc:  # the store would lint smaller than it is
+            raise MemoryStoreError(f"{archive}: cannot list the archive: {exc}") from exc
+        entries += [_entry(root, p, True) for p in sorted(archived) if p.name.endswith(".md") and p.is_file()]
     if index is None and not entries:
         raise MemoryStoreError(f"{root}: no {INDEX_NAME} and no *.md files")
     return MemoryStore(root, index, entries)

@@ -843,7 +843,7 @@ subfolder), or a `test_*` method of a `Test*` class (named `Class::method`). A t
 module-level code of the whole `tests/` folder (constants, helpers, imports, and `conftest.py`), then the
 class header (decorators, bases, keywords) and the rest of the class body for a method, then the test itself. So two tests with the same body but different constants,
 helpers or fixtures are two checks. They are named `test_x#1`, `test_x#2`, in path order. That context is in every check of the folder, read or not, so a
-helper one file defines can decide an assertion in another.
+helper one file defines can decide an assertion in another. A `tests/` folder with a directory that cannot be listed is an input error (exit 2): neither the checks nor the `--out` guard read a smaller folder.
 
 ```bash
 python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \

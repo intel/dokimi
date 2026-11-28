@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 [#728](https://github.com/intel/dokimi/issues/728)). The first reader is Claude Code auto memory,
 `~/.claude/projects/<project>/memory/`: a `MEMORY.md` index whose first 200 lines or 25KB load at
 every session start, and one topic file per memory with YAML frontmatter (`name`, `description`,
-`type`: user, feedback, project or reference). Files under `archive/` are read and counted, but not checked and never expected in the index.
+`type`: user, feedback, project or reference). Files under `archive/` are read and counted, but not checked and never expected in the index. An `archive/` directory that cannot be listed is an input error (exit 2), not a smaller store.
 
 ## memory lint
 
