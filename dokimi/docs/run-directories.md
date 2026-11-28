@@ -33,9 +33,10 @@ results/20261123T101500Z-1a2b3c4d/
   (`--out-dir`, [#591](https://github.com/intel/dokimi/pull/591)) is the run
   directory itself, in place of either.
 - **No clobbering.** A run never writes into another run's directory. The
-  directory must not exist yet; an output directory may also be an empty
-  directory. A name already taken under the root is refused, and so is a
-  `run_id` directory that exists (two commands sharing one `DOKIMI_RUN_ID`).
+  directory must not exist yet, or be empty: an empty output directory, or a
+  run's directory `runs rm` or `runs gc` emptied, so its name can be used again.
+  A name already taken under the root is refused, and so is a `run_id`
+  directory that holds a run (two commands sharing one `DOKIMI_RUN_ID`).
   `run.json` is created exclusively, so of two runs that race for one
   directory only one gets it. A name together with an output directory is
   refused: a name is unique only under the root. So is a directory that cannot

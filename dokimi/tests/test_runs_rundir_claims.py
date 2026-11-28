@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from dokimi.artifacts import RUN_ID_ENV, load_artifact
-from dokimi.runs import rundir
+from dokimi.runs import rm, rundir
 from dokimi.runs.rundir import open_run
 from dokimi.utils import InputError
 
@@ -49,3 +49,17 @@ def test_a_run_json_the_disk_cannot_take_leaves_no_directory_made_for_it(root, t
 
     monkeypatch.delattr(rundir, "open")
     assert load_artifact("run", open_run(root, **args).path / "run.json")["status"] == "running"
+
+
+def test_a_name_whose_run_runs_rm_removed_can_be_used_again(root, monkeypatch):
+    """docs/run-directories.md: a directory "runs rm or runs gc emptied, so its name can be used again";
+    runs rm removes a run's files and keeps its directory."""
+    with open_run(root, name="nightly-7"):
+        pass
+    rm.apply(rm.plan_rm(root, "r-1"))
+    assert os.listdir(root / "nightly-7") == []
+    monkeypatch.setenv(RUN_ID_ENV, "r-2")
+
+    record = load_artifact("run", open_run(root, name="nightly-7").path / "run.json")
+
+    assert (record["run_id"], record["name"], record["status"]) == ("r-2", "nightly-7", "running")

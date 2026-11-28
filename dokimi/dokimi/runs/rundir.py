@@ -43,14 +43,14 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
 
     The directory is ``out_dir`` when given (``--out-dir`` is the run directory, #591), else
     ``<root>/<name>``, else ``<root>/<run_id>`` (:func:`dokimi.artifacts.run_id`). A run never
-    writes into another run's directory: the directory must not exist (``out_dir`` may be an
-    empty directory), and ``run.json`` is created exclusively, so of two runs racing for one
+    writes into another run's directory: the directory must not exist or be an empty directory
+    (one ``runs rm`` emptied), and ``run.json`` is created exclusively, so of two runs racing for one
     directory one gets it.
 
     Raises:
         InputError: ``name`` is not one path segment of a run id's characters; ``name`` and
             ``out_dir`` are both given (a name is unique only under the root); the directory
-            exists (for ``out_dir``: and is not an empty directory) or another run claimed it;
+            exists and is not an empty directory, or another run claimed it;
             the directory cannot be made (a parent is a file, no permission); ``run.json`` cannot be
             written (a full disk). A filesystem error or a stop in that first write leaves nothing
             behind: ``run.json`` and a directory made here are removed, so the same name or output
@@ -65,7 +65,7 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
         raise InputError("a run name names its directory under the runs root; with an output directory "
                          "the directory is that one: give one of them (docs/run-directories.md)")
     path = Path(out_dir) if out_dir is not None else Path(root) / (name or run_id())
-    made = _claim(path, empty_ok=out_dir is not None)
+    made = _claim(path)
     run = RunDir(path, {"name": name, "argv": sys.argv[1:], "started_at": _now(), "finished_at": None,
                         "status": "running", "stop": None})
     try:
@@ -89,8 +89,8 @@ def _release(path: Path, *, made: bool) -> None:
             path.rmdir()
 
 
-def _claim(path: Path, *, empty_ok: bool) -> bool:
-    """Create ``path`` (or take an empty directory there when ``empty_ok``), then create its
+def _claim(path: Path) -> bool:
+    """Create ``path`` (or take an empty directory there), then create its
     ``run.json`` exclusively: the file, not the directory, decides which run owns it. Whether
     the directory was made here."""
     made = False
@@ -104,7 +104,7 @@ def _claim(path: Path, *, empty_ok: bool) -> bool:
             path.mkdir()
             made = True
         except FileExistsError:
-            if not (empty_ok and path.is_dir() and not any(path.iterdir())):
+            if not (path.is_dir() and not any(path.iterdir())):
                 raise InputError(taken) from None
         with open(path / RUN_FILE, "x", encoding="utf-8"):
             pass
