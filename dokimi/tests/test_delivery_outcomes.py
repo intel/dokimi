@@ -85,3 +85,25 @@ def test_runner_failure_before_the_consumer_finishes_is_inconclusive(pack, monke
     row = delivery.run(pack)["observations"][0]
     assert row["outcome"] == "INCONCLUSIVE" and "Error response from daemon" in row["reason"]
     assert not any(argv[-1].startswith("consumer_exit=") for argv in calls)
+
+
+@pytest.mark.parametrize(
+    "answer, exit_code, failure",
+    [(dict(timed_out=True), None, "timeout"), (dict(returncode=137), 137, "runner")],
+)
+def test_failed_consumer_container_keeps_the_answer_and_its_output(pack, monkeypatch, answer, exit_code, failure):
+    pack.mode = "scan"
+    catalog = json.loads(pack.tasks.read_text())
+    catalog["tasks"]["double"]["fixture"] = {"default": {"script": "echo partial; sleep 99"}}
+    pack.tasks.write_text(json.dumps(catalog))
+    monkeypatch.setattr(process, "run", lambda argv, **kw: process.reply("partial\n", "late\n", **answer))
+    row = delivery.run(pack)["observations"][0]
+    assert row["outcome"] == "INCONCLUSIVE" and row["reason"] == "ValueError: late\n"
+    assert row["evidence"] == {
+        "script": "echo partial; sleep 99",
+        "exit": exit_code,
+        "stderr": "late\n",
+        "stdout": "partial\n",
+        "verifier_exit": None,
+        "failure": failure,
+    }

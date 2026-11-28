@@ -15,6 +15,7 @@ import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dokimi import docker_cmd, llm_cli, process
 from dokimi.container_policy import ContainerPolicy
@@ -39,6 +40,12 @@ def snapshot(base: Path, ref: dict) -> bytes:
     if digest(content) != ref["sha256"]:
         raise ValueError(f"digest mismatch: {ref['path']}")
     return content
+
+
+class ContainerFailure(ValueError):
+    def __init__(self, result: process.Completed) -> None:
+        super().__init__(result.stderr or "container timeout, killed process or truncated evidence")
+        self.result = result
 
 
 def container(
@@ -74,7 +81,7 @@ def container(
     try:
         result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)
         if result.timed_out:
-            raise ValueError(result.stderr or "container timeout, killed process or truncated evidence")
+            raise ContainerFailure(result)
     except BaseException:
         # The daemon owns the container after its CLI exits. Keep the original failure if removal also fails.
         with suppress(BaseException):
@@ -88,7 +95,7 @@ def container(
             or (result.returncode in (126, 127) and result.stderr.startswith("docker:"))
         )
     ):
-        raise ValueError(result.stderr or "container timeout, killed process or truncated evidence")
+        raise ContainerFailure(result)
     return result
 
 
@@ -162,6 +169,22 @@ def attempt(
     return _grade(manifest, product, initial, script, hidden, verifier, task["timeout"], row)
 
 
+def _consume(row: dict, image: str, wrapped: str, script: str, *args: Any) -> process.Completed:
+    try:
+        return container(image, wrapped, *args)
+    except ContainerFailure as failure:
+        result = failure.result
+        row["evidence"] = {
+            "script": script,
+            "exit": None if result.timed_out else result.returncode,
+            "stderr": result.stderr,
+            "stdout": result.stdout,
+            "verifier_exit": None,
+            "failure": "timeout" if result.timed_out else "truncated" if result.truncated else "runner",
+        }
+        raise ValueError(str(failure)) from failure
+
+
 def _grade(
     manifest: dict,
     product: bytes,
@@ -185,7 +208,8 @@ def _grade(
         # Bind-mounted inputs must remain readable to the image's configured user.
         path.chmod(0o444)
         start.chmod(0o444)
-        result = container(
+        result = _consume(
+            row,
             image,
             f"workspace_failed() {{ printf '%s\\n' '{setup_marker}' >&2; exit 121; }}\n"
             'workspace=$(mktemp -d) || workspace_failed\n'
@@ -197,6 +221,7 @@ def _grade(
             + "\n} </dev/null >&2 || exit 120\n(\n"
             + script
             + f"\n)\nstatus=$?\nprintf '%s\\n' '{done_marker}' >&2\nexit $status\n",
+            script,
             {"delivery": path, "initial": start},
             hidden,
             budget,
@@ -217,14 +242,17 @@ def _grade(
     }
     if setup_failed:
         raise ValueError(f"could not prepare consumer workspace: {stderr}")
-    grade = container(
-        image,
-        f"consumer_exit={result.returncode}\n" + verifier,
-        {},
-        result.stdout_bytes,
-        budget,
-        platform=manifest["platform"],
-    )
+    try:
+        grade = container(
+            image,
+            f"consumer_exit={result.returncode}\n" + verifier,
+            {},
+            result.stdout_bytes,
+            budget,
+            platform=manifest["platform"],
+        )
+    except ContainerFailure as failure:
+        raise ValueError(str(failure)) from failure
     row["evidence"].update(verifier_exit=grade.returncode, verifier_stderr=grade.stderr)
     if grade.returncode not in (0, 10):
         raise ValueError(f"verifier failed with exit {grade.returncode}: {grade.stderr}")
