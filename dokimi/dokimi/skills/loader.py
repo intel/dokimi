@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
+from dokimi.digest_entries import listed_entries
 from dokimi.utils import describe_yaml_error, parse_frontmatter, parse_frontmatter_strict
 
 # Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
@@ -149,6 +150,21 @@ def _frontmatter_block_problem(skill_file: Path) -> Optional[str]:
     return None
 
 
+def _not_listed_as_resource(path: Path) -> bool:
+    """``__pycache__``, and a dot-named or vendored directory that cannot be listed: not skill content, as
+    ``novelty.bundle`` leaves it out, so it does not make the skill fail to load. Any other directory that
+    cannot be listed raises from :func:`load_skill`."""
+    if path.name == "__pycache__":
+        return True
+    if not (path.name.startswith(".") or path.name in VENDORED_DIR_NAMES) or not path.is_dir():
+        return False
+    try:
+        with os.scandir(path):
+            return False
+    except OSError:
+        return True
+
+
 def load_skill(path) -> Skill:
     """Load a single skill from a ``SKILL.md`` file or its containing directory.
 
@@ -162,6 +178,8 @@ def load_skill(path) -> Skill:
         FileNotFoundError: If no ``SKILL.md`` can be located.
         ValueError: If required frontmatter fields are missing, the frontmatter repeats a key, or
             ``description`` is not a string.
+        OSError: If a directory of the skill cannot be listed (its resources would be a smaller set); a
+            dot-named or vendored one (``.git``, ``venv``, ``node_modules``) is left out instead.
     """
     skill_file = _resolve_skill_file(Path(path))
     meta, body = _read_frontmatter(skill_file)
@@ -190,8 +208,8 @@ def load_skill(path) -> Skill:
     # flat scan would report no resources and silently disable the file picker.
     root = skill_file.parent
     resources = sorted(
-        p for p in root.rglob("*")
-        if p.is_file() and p != skill_file and "__pycache__" not in p.parts
+        p for p in listed_entries(root, drop=_not_listed_as_resource)
+        if p.is_file() and p != skill_file
     )
     return Skill(
         name=name,

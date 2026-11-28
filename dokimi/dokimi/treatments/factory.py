@@ -10,7 +10,7 @@ The spec grammar — kinds, the ``+`` rule, how each arm is named — lives in
 
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .base import Treatment
 from .arms import (
@@ -48,14 +48,25 @@ def create_treatment(
     return built[0] if len(built) == 1 else CombinedTreatment(built)
 
 
+def _load_skill_arm(kind: str, arg: str) -> Any:
+    """``load_skill`` with a listing failure of the folder as a ``ValueError``; a missing SKILL.md stays a
+    ``FileNotFoundError``."""
+    from dokimi.skills import load_skill
+    try:
+        return load_skill(arg)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise ValueError(f"'{kind}:' folder cannot be listed: {exc}") from exc
+
+
 def _build(part: ArmPart, *, top_k: int, rerank_threshold: float,
            cache_dir: Optional[Path]) -> Treatment:
     kind = part.kind.prefix
     if kind == "baseline":
         return BaselineTreatment(name=part.arm_name())
     if kind in ("skill", "skill-agent"):
-        from dokimi.skills import load_skill
-        skill = load_skill(part.arg)
+        skill = _load_skill_arm(kind, part.arg)
         cls = SkillTreatment if kind == "skill" else SkillAgentTreatment
         return cls(skill, name=part.arm_name(skill.name))
     if kind == "skill-catalog":
@@ -63,7 +74,10 @@ def _build(part: ArmPart, *, top_k: int, rerank_threshold: float,
         if not Path(part.arg).is_dir():
             raise ValueError(f"'skill-catalog:' path is not a directory: {part.arg}")
         notes: List[str] = []
-        skills = discover_skills(part.arg, notes=notes)
+        try:
+            skills = discover_skills(part.arg, notes=notes)
+        except OSError as exc:
+            raise ValueError(f"'skill-catalog:' folder cannot be listed: {exc}") from exc
         # A template or mirror left out of the arm must not vanish silently.
         for note in notes:
             print(note, file=sys.stderr)
