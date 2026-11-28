@@ -53,6 +53,26 @@ def test_one_script_made_lf_clears_exactly_its_script_crlf_row(tmp_path, capsys,
     assert len(receipt["retained"]) == sum(len(s["findings"]) for s in before["skills"]) - 1
 
 
+def test_a_finding_the_edit_only_moved_to_another_line_is_retained_and_not_cleared(tmp_path, capsys):
+    """#960 scenario 12: deleting one hidden character's line clears that finding only; the one below it moved and stays."""
+    root = tmp_path
+    body = "# Body\nFirst\u200b one\nplain\nSecond\u200b one\n"
+    skill = _skill(root / "skills", "demo", name="demo", description="Use when testing receipts.", body=body)
+    before, _ = _scan_json(root, capsys)
+    (skill / "SKILL.md").write_text((skill / "SKILL.md").read_text(encoding="utf-8").replace("First\u200b one\n", ""),
+                                    encoding="utf-8")
+    after, _ = _scan_json(root, capsys)
+
+    receipt = repair_receipt(before, after, "skills/demo/SKILL.md")
+
+    hidden = [f["message"] for f in before["skills"][0]["findings"] if f["code"] == "hidden-unicode"]
+    moved = [f["message"] for f in after["skills"][0]["findings"] if f["code"] == "hidden-unicode"]
+    assert len(hidden) == 2 and len(moved) == 1 and moved[0] not in hidden
+    assert [r["code"] for r in receipt["cleared"]] == ["hidden-unicode"]
+    assert receipt["added"] == []
+    assert moved[0] in [r["message"] for r in receipt["retained"]]
+
+
 def test_a_reworded_message_is_one_cleared_row_and_one_added_row():
     """#960 scenario 11: full-row comparison counts a changed wording as one removal and one addition."""
     receipt = repair_receipt({"skills": [_row("s", "x", "old")]}, {"skills": [_row("s", "x", "new")]}, "f")

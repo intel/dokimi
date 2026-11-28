@@ -3,18 +3,21 @@
 
 """The repair receipt of ``catalog repair-receipt``: which findings one edit cleared, added or left (#960).
 
-It compares two ``catalog check --format json`` reports, one taken before the edit and one after. A finding is
-identified by its whole row, the skill it belongs to plus its level, code and message, so a message whose wording
-changed counts as one cleared row and one added row. The counts are rows, not affected files.
+It compares two ``catalog check --format json`` reports, one taken before the edit and one after. A
+finding is identified by its whole row, the skill it belongs to plus its level, code and message with its line numbers
+left out, so a finding that only moved lines is retained and a message whose wording changed counts as one cleared row
+and one added row. The counts are rows, not affected files.
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any
 
 
 _FIELDS = ("level", "code", "message")
+_LINE = re.compile(r"\bline \d+(?:, \d+)*")  # "SKILL.md line 7: ...", "(line 7)": the message formats of catalog check
 _BAD = ("not a `catalog check --format json` report: each skill is an object with a `relpath` (a string or null) whose `findings` is a list of objects "
         "with a string `level`, `code` and `message` (#960, docs/external-content.md, Repair receipt)")
 
@@ -42,7 +45,7 @@ def _rows(report: dict) -> list[dict[str, Any]]:
 
 
 def _key(row: dict) -> tuple:
-    return (row["skill"], *(row[k] for k in _FIELDS))
+    return (row["skill"], row["level"], row["code"], _LINE.sub("line #", row["message"]))
 
 
 def _minus(rows: list[dict], other: list[dict]) -> list[dict]:

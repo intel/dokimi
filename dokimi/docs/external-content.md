@@ -412,11 +412,13 @@ the section is a shortlist, not a judgement.
 prints the findings the edit `cleared`, `added` and `retained`. `EDITED` is the file
 you changed; it is recorded as given. It runs no scan: the two scans are yours, so a
 standalone `catalog check` still needs one. A finding is identified by its whole row,
-the skill's `relpath` plus the finding's `level`, `code` and `message`. A message that
-changed wording is therefore one cleared row and one added row. `counts` are rows, not
-files: one script with two warnings counts two. A row that occurs twice before and once
-after is cleared once and retained once. A file that is not a `catalog check` report is a
-usage error.
+the skill's `relpath` plus the finding's `level`, `code` and `message`, with the line
+numbers in the message left out. A finding that only moved lines is therefore retained,
+shown at its new line, and a message that changed wording is one cleared row and one
+added row. `counts` are rows, not files: one script with two warnings counts two. A row
+that occurs twice before and once after is cleared once and retained once; among such
+identical findings the receipt does not say which copy cleared. A file that is not a
+`catalog check` report is a usage error.
 
 ### Network checks (`--online`, opt in)
 
