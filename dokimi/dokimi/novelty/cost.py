@@ -136,23 +136,20 @@ def role_usd(args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], t
     return {role: round(split.get(role, 0.0), 6) for role in ROLES}
 
 
-def least_sure_role(usd_by_role: dict[str, float], tier: str | None) -> dict[str, str]:
-    """The role the dollar figure is least sure of, and why (#631).
+def least_sure_role(usd_by_role: dict[str, float]) -> dict[str, str]:
+    """The role the dollar figure is least sure of, and why (#631, #1217).
 
-    A tier with no extractor profile of its own (``study``, an untiered run) borrows the
-    standard one, so the extractor is the least sure. Otherwise it is the role with the largest
-    dollars, where an error in the token profile moves the figure most; a tie goes to the first
-    of extractor, answerer, judge. There is no per-role error data behind this rule.
+    The role with the largest dollars at every tier; a tie goes to the first of extractor,
+    answerer, judge. Priced at its own ``--dry-run`` call counts with the refit profile, the 17
+    paid runs of 2026-11-28 had the largest dollar error in the role with the largest estimated
+    dollars in 15. The other two are triage runs where every role's error was under $0.01. At
+    standard, study and untiered the role furthest off was the extractor, mostly through its call
+    count.
     """
-    from dokimi.novelty.tiers import EXTRACTOR_TOKENS
-
-    if tier not in EXTRACTOR_TOKENS:
-        return {"role": "extractor",
-                "reason": "the extractor's token profile is the standard tier's, borrowed, "
-                          "since no run of this tier was measured"}
     role = max(ROLES, key=lambda name: usd_by_role[name])
     return {"role": role,
-            "reason": f"an error in the {role}'s token profile moves the dollar figure most"}
+            "reason": f"the {role} has the most dollars, so an error in its call count or its "
+                      "token profile moves the figure most"}
 
 
 def add_role_usd(args: argparse.Namespace, estimate: dict, n_tokens: int, tier: str | None,
@@ -162,7 +159,7 @@ def add_role_usd(args: argparse.Namespace, estimate: dict, n_tokens: int, tier: 
     if estimate["expected_usd"] is not None:
         split = role_usd(args, n_tokens, estimate["estimate"]["by_role"], tier, context_share)
     estimate["usd_by_role"] = split
-    estimate["least_sure_role"] = None if split is None else least_sure_role(split, tier)
+    estimate["least_sure_role"] = None if split is None else least_sure_role(split)
 
 
 def least_sure_line(estimate: dict) -> str | None:

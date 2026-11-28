@@ -11,11 +11,10 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.llm_pricing import list_cost_usd
-from dokimi.novelty.cost import role_models, role_usd
+from dokimi.novelty.cost import least_sure_role, role_models, role_usd
 from dokimi.novelty.tiers import call_tokens
 
 ROLES = ("extractor", "answerer", "judge")
-BORROWED = "the extractor's token profile is the standard tier's, borrowed, since no run of this tier was measured"
 
 
 def _estimate(tmp_path, capsys, *flags):
@@ -47,24 +46,34 @@ def test_usd_by_role_prices_each_roles_calls_and_sums_to_expected_usd(tmp_path, 
         assert split[role] == pytest.approx(payload["estimate"]["by_role"][role] * cost, abs=1e-6)
 
 
-@pytest.mark.parametrize("tier_flags", [("--tier", "study"), ()])
-def test_a_tier_without_an_extractor_profile_names_the_extractor_as_borrowed(
-        tmp_path, capsys, tier_flags):
+def _reason(role):
+    return (f"the {role} has the most dollars, so an error in its call count or its token "
+            "profile moves the figure most")
+
+
+@pytest.mark.parametrize("tier_flags", TIERS)
+def test_every_tier_names_the_role_with_the_largest_dollars(tmp_path, capsys, tier_flags):
     _, payload, _ = _estimate(tmp_path, capsys, *tier_flags)
-    assert payload["least_sure_role"] == {"role": "extractor", "reason": BORROWED}
+    split, least = payload["usd_by_role"], payload["least_sure_role"]
+    assert split[least["role"]] == max(split.values())
+    assert least["reason"] == _reason(least["role"])
 
 
-def test_triage_and_standard_name_the_role_with_the_largest_dollars(tmp_path, capsys):
-    named = {}
-    for tier in ("triage", "standard"):
-        _, payload, _ = _estimate(tmp_path, capsys, "--tier", tier)
-        split, least = payload["usd_by_role"], payload["least_sure_role"]
-        assert split[least["role"]] == max(split.values())
-        assert least["reason"] == (f"an error in the {least['role']}'s token profile "
-                                   "moves the dollar figure most")
-        named[tier] = least["role"]
-    # one of the two is not the extractor, so rule 2 is told apart from rule 1
-    assert set(named.values()) != {"extractor"}
+def test_some_tier_names_a_role_other_than_the_extractor(tmp_path, capsys):
+    named = set()
+    for tier_flags in TIERS:
+        _, payload, _ = _estimate(tmp_path, capsys, *tier_flags)
+        named.add(payload["least_sure_role"]["role"])
+    assert named != {"extractor"}
+
+
+def test_least_sure_role_is_the_largest_dollars_and_a_tie_goes_to_the_first_role():
+    judge = {"extractor": 0.2, "answerer": 0.1, "judge": 0.7}
+    assert least_sure_role(judge) == {"role": "judge", "reason": _reason("judge")}
+    # a tie goes to the first of ROLES
+    tied = {"extractor": 0.1, "answerer": 0.4, "judge": 0.4}
+    assert least_sure_role(tied)["role"] == "answerer"
+    assert least_sure_role({"extractor": 0.3, "answerer": 0.3, "judge": 0.3})["role"] == "extractor"
 
 
 def test_panel_judges_after_the_first_count_under_judge(tmp_path, capsys):
@@ -96,7 +105,9 @@ def test_role_usd_is_none_for_an_unpriced_role(tmp_path, capsys):
 def test_stderr_names_the_role_its_percent_and_the_reason_before_the_estimate_note(
         tmp_path, capsys):
     _, payload, err = _estimate(tmp_path, capsys, "--tier", "study")
-    percent = 100 * payload["usd_by_role"]["extractor"] / sum(payload["usd_by_role"].values())
-    line = f"Least sure of: extractor ({percent:.0f}% of expected_usd): {BORROWED}\n"
+    split = payload["usd_by_role"]
+    role = payload["least_sure_role"]["role"]
+    percent = 100 * split[role] / sum(split.values())
+    line = f"Least sure of: {role} ({percent:.0f}% of expected_usd): {_reason(role)}\n"
     assert line in err
     assert err.index(line) < err.index("Estimate only, nothing was measured.")

@@ -1470,19 +1470,29 @@ the two totals (stages, every probe, and half the oracle pairs, split by `by_rol
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
 price. `usd_by_role` splits `expected_usd` into `extractor`, `answerer` and `judge` (panel judges
 after the first count under `judge`), and `least_sure_role` names the role the figure is least
-sure of with a reason; both are `null` with `expected_usd`, and `--estimate-only` prints the role and its
-share on stderr. The rule, chosen without per-role error data: a run whose tier has no extractor
-profile of its own (`study`, or no tier) names `extractor`, which borrows the standard profile;
-`triage` and `standard` name the role with the largest dollars. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
-On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
-within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
--33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the
-artifact was (-4% at 1,153 tokens, -33% at 6,723). The largest artifact measured has 6,723
+sure of with a reason; both are `null` with `expected_usd`, and `--dry-run` prints the role and its
+share on stderr. One rule at every tier: the role with the largest dollars, a tie going to the
+first of extractor, answerer, judge. Priced at its own `--dry-run` call counts, 15 of 17 paid runs
+of 2026-11-28 had their largest dollar error in that role; in the other two, triage runs, every
+role was off by under $0.01. At standard, study and untiered the role furthest off was always the
+extractor, mostly through its call count, not its tokens.
+The token profile is fitted on 10 of those 17 runs: seven skills of 640 to 5,954 tokens, every
+tier and one untiered run. Priced from their own calls, the other 7 land within 11% per run and
+16% per role. Study and untiered runs were measured and share the standard extractor profile,
+since the extractor does the same work per call at all three. The atom and call constants
+(`TOKENS_PER_ATOM`, `ESCALATION_SHARE`) were fitted on 13 of the 25 October runs; the other 12 are
+held out. On those 12 calls landed within 13% and atoms within 11%; dollars within 51%, the worst
+being the 198-token standard run, below the smallest artifact of the token profile's fit (640),
+whose projection counts 47 extractor calls against 34 measured (priced from the 34 it is +22%).
+The dollar projections ran high on 6 runs (up to +51%) and low on 6 (down to -14%), so
+`expected_usd` is not a ceiling; the triage projection ran lower the larger the artifact was
+(-2% at 1,153 tokens, -14% at 6,723). The largest artifact measured has 6,723
 tokens: above that the dollar figure extrapolates, and the payload says so
 (`usd_extrapolated: true`, with a note on stderr). The answerer's artifact term is priced per
 arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
-per answerer call than a two-arm one; a `--placebo-text` of another length is not read. Only
-three of the 12 are standard runs, so the standard profile rests on little data.
+per answerer call than a two-arm one; a `--placebo-text` of another length is not read. On the
+November runs the largest dollar errors at standard and study came from the atom count
+({{issue:atom-count}}).
 The measured runs, the tier table above among them, predate the spread cap: their extraction
 stopped at the cap. A capped run now asks every extraction batch, and the projection counts
 one extraction call per batch of 25 spans, as the run asks them, while the probes stay at the
