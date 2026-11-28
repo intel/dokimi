@@ -270,6 +270,9 @@ def keep_owner_group_mode(path: Path, old: os.stat_result) -> None:
         _keep_owner_and_group(fd, old)
     finally:
         os.close(fd)
+    # As in _publish: an access ACL inherited from the directory's default would stay effective through the chmod's mask.
+    with contextlib.suppress(AttributeError, OSError):
+        os.removexattr(path, "system.posix_acl_access")
     os.chmod(path, stat.S_IMODE(old.st_mode))
 
 

@@ -10,6 +10,7 @@ import contextlib
 import io
 import os
 import re
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -505,6 +506,32 @@ def test_a_rerun_publishes_with_the_users_group_when_the_group_cannot_be_kept(tm
     monkeypatch.setattr(os, "fchown", denied)
     info = _rerun_receipts(tmp_path, "report.md", 0o640, other[0])
     assert (info.st_gid, oct(info.st_mode & 0o7777)) == (os.getegid(), "0o640")
+
+
+def _acl(*entries):
+    """A ``system.posix_acl_*`` value: version 2, then (tag, perm, id) per entry."""
+    return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", tag, perm, uid) for tag, perm, uid in entries)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="needs POSIX ACLs")
+def test_a_rerun_receipt_gets_no_acl_entry_of_the_directory_default(tmp_path):
+    from dokimi.commands.catalog_eval import _replace_receipts, _workdir
+
+    out, none = tmp_path / "out", 0xFFFFFFFF
+    out.mkdir()
+    (out / "report.md").write_text("old", encoding="utf-8")
+    os.chmod(out / "report.md", 0o640)
+    try:  # user::rwx user:12345:r-x group::r-x mask::--- other::r-x
+        os.setxattr(out, "system.posix_acl_default", _acl((1, 7, none), (2, 5, 12345), (4, 5, none), (0x10, 0, none), (0x20, 5, none)))
+    except OSError:
+        pytest.skip("the file system takes no ACL")
+    with _workdir(out) as work:
+        (Path(work) / "new").mkdir()
+        (Path(work) / "new" / "report.md").write_text("new", encoding="utf-8")
+        _replace_receipts(out, Path(work) / "new", Path(work) / "old")
+    assert (out / "report.md").read_text(encoding="utf-8") == "new"
+    assert "system.posix_acl_access" not in os.listxattr(out / "report.md")
+    assert oct((out / "report.md").stat().st_mode & 0o7777) == "0o640"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
