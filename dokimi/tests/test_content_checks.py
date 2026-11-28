@@ -902,3 +902,18 @@ def test_escape_after_an_escaped_line_break_and_a_blank_line_is_reported(tmp_pat
     """#1341: the blank line after an escaped line break is kept as a newline, so the decoded value matches."""
     [message] = _front_messages(tmp_path, f'description: "Use when testing{_BS}', "", f'  x{_BS}u202ey"')
     assert "U+202E" in message
+
+
+def test_escape_beside_an_escaped_space_before_a_line_break_is_reported(tmp_path):
+    """#1341: an escaped space before a fold is kept, so the decoded value matches and its escape is not lost."""
+    [message] = _front_messages(tmp_path, f'description: "Use when x{_BS}u202ey{_BS} ', '  next"')
+    assert "U+202E" in message
+
+
+def test_front_matter_of_a_bundled_file_is_not_decoded(tmp_path):
+    """#1341: only SKILL.md front matter is decoded; a bundled file's escape is plain text there."""
+    skill_dir = tmp_path / "s1"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(f"---\nname: s1\n{_DESC}\n---\n# Body\n", encoding="utf-8")
+    (skill_dir / "reference.md").write_text(f'---\nnote: "a{_BS}u200bb"\n---\n# Ref\n', encoding="utf-8")
+    assert _messages(tmp_path, "hidden-unicode") == []
