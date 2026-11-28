@@ -89,6 +89,237 @@ def test_a_section_with_only_a_category_heading_has_no_entries(tmp_path):
     assert any("no entries under '## [0.2.0]'" in p for p in found)
 
 
+def _section(body: str) -> str:
+    return f"# Changelog\n\n## [0.2.0] — 2026-11-01\n\n{body}\n\n## [0.1.0] — 2026-10-15\n\n- **First** — x.\n"
+
+
+@pytest.mark.parametrize("body", [
+    "### Fixed\n\n<!--\n- **Draft entry**\n-->",
+    "### Fixed\n\n<!--\n- **Draft entry**",               # comment never closed
+    "### Fixed\n\n<!-- a -->\n<!-- b\n- x\n-->",
+    "### Fixed\n\n```markdown\n- **Example**\n```",         # a bullet in an example is no entry
+    "### Fixed\n\n~~~\n- **Example**\n~~~",
+])
+def test_commented_or_fenced_bullets_are_not_entries(tmp_path, body):
+    """#1290: a bullet inside a comment or a fence is not an entry."""
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=_section(body)))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+
+
+def test_a_bullet_after_a_comment_or_fence_is_an_entry(tmp_path):
+    body = "<!--\n- x\n-->\n```\n- y\n```\n- **Real** — z."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=_section(body)))
+    assert found == []
+
+
+def test_a_heading_inside_a_fence_does_not_end_the_section():
+    """#1290: --notes copies the whole section, fenced example included."""
+    body = ("- **Example** — copy.\n\n```markdown\n## Example heading\n<a id='x'></a>\n```\n\n"
+            "- **Follow-up** — mine.")
+    assert cr.release_notes(_section(body), "0.2.0") == body
+    longer = "````\n```\n## [0.1.0]\n````\n- tail"   # a shorter fence does not close a longer one
+    assert cr.release_notes(_section(longer), "0.2.0") == longer
+    tilde = "~~~\n## h\n~~~\n- tail"
+    assert cr.release_notes(_section(tilde), "0.2.0") == tilde
+
+
+def test_a_version_heading_inside_a_fence_is_not_a_section():
+    """#1290: a fenced example of a version heading is not a release section."""
+    text = "# Changelog\n\n```\n## [0.3.0]\n- x\n```\n"
+    assert cr.release_notes(text, "0.3.0") is None
+    assert cr.release_notes("", "0.3.0") is None
+
+
+def test_a_version_heading_inside_a_comment_is_not_a_section(tmp_path):
+    """#1290: a commented-out section is not a release section."""
+    text = "# Changelog\n\n<!--\n## [0.2.0]\n- Hidden entry\n-->\n"
+    assert cr.release_notes(text, "0.2.0") is None
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+
+
+def test_a_fence_marker_inside_a_comment_opens_no_fence():
+    """#1290: backticks in a comment do not hide the heading in the real fence."""
+    body = "- Real entry\n\n<!--\n```\n-->\n\n```\n## Example heading\n```\n\n- Later entry"
+    assert cr.release_notes(_section(body), "0.2.0") == body
+    inline = "<!-- a --> ```\n- x\n<!-- b -->\n- y"   # text after a comment on a fence-like line
+    assert cr.release_notes(_section(inline), "0.2.0") == inline
+
+
+def test_inline_code_does_not_open_a_comment():
+    """#1290: a `<!--` in an inline code span does not hide the next section boundary."""
+    text = "## [0.2.0]\n\n- Document `<!--` syntax.\n\n## [0.1.0]\n\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- Document `<!--` syntax."
+    assert cr._has_entry("- `<!--`")
+
+
+def test_a_code_span_with_backticks_does_not_open_a_comment():
+    """#1290: a longer delimiter lets a span hold backticks and a `<!--`."""
+    text = "## [0.2.0]\n\n- Write ``a ` <!-- b`` here.\n\n## [0.1.0]\n\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- Write ``a ` <!-- b`` here."
+    assert not cr._has_entry("A lone ` then <!-- open\n- hidden\n-->")   # no closer: literal tick
+
+
+def test_a_multiline_code_span_does_not_open_a_comment():
+    """#1290: a span may run over lines; a `<!--` inside it opens nothing."""
+    text = ("## [0.2.0]\n\n- Document `first\nsecond <!-- third` marker.\n\n"
+            "## [0.1.0]\n\n- Old entry.\n")
+    assert cr.release_notes(text, "0.2.0") == "- Document `first\nsecond <!-- third` marker."
+
+
+def test_backticks_in_a_comment_do_not_hide_its_end():
+    """#1290: backticks inside a comment are literal, so they cannot shield `-->`."""
+    assert cr._has_entry("<!-- ` --> `\n\n- Real entry.")
+
+
+def test_an_escaped_comment_opener_opens_nothing():
+    """#1290: ``\\<!--`` renders as text, so the bullet after it is visible."""
+    assert cr._has_entry("Write \\<!-- literally.\n\n- Real entry.")
+
+
+def test_a_comment_opened_on_the_heading_hides_the_section_body(tmp_path):
+    """#1290: the release check keeps the comment state of the heading line."""
+    text = "## [0.2.0] <!-- draft\n- Hidden entry\n-->\n\n## [0.1.0]\n- Old entry\n"
+    assert not cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+
+
+def test_a_code_span_does_not_cross_a_heading_or_comment_block(tmp_path):
+    """#1290: a tick on the heading cannot pair with one inside the next comment."""
+    text = "## [0.2.0] `\n<!-- `\n- Hidden entry\n-->\n"
+    assert not cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries under '## [0.2.0]'" in p for p in found)
+    assert cr._has_entry("A `tick\n## Heading `\n- Real entry")
+
+
+def test_a_code_span_does_not_cross_a_list_item(tmp_path):
+    """#1290: a list item interrupts a paragraph, so two lone ticks pair with nothing."""
+    text = "## [0.2.0]\n\nExample `literal\n- Real entry with ` marker\n"
+    assert cr._section_has_entry(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_indented_code_example_is_not_a_fence(tmp_path):
+    """#1290: four spaces make code, not a fence, and notes keep the first line's indent."""
+    text = "## [0.2.0]\n\n    ```\n\n- Real entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "    ```\n\n- Real entry."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_ordered_item_ends_the_paragraph_a_code_span_lives_in(tmp_path):
+    """#1290: ``1.`` interrupts a paragraph, so its comment is not closed by an earlier backtick."""
+    text = "## [0.2.0]\n\nExample `literal\n1. <!-- draft `\n   - Hidden entry\n   -->\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries" in problem for problem in found)
+
+
+def test_a_fence_opened_on_a_list_item_line_is_tracked():
+    """#1290: ``- ```md`` opens a fence, so its closer is not read as a new opener."""
+    text = "## [0.2.0]\n\n- ```markdown\n  example\n  ```\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- ```markdown\n  example\n  ```\n\n- Real entry."
+
+
+def test_a_comment_marker_in_indented_code_is_literal(tmp_path):
+    """#1290: an indented code line opens no comment, so the entry after it counts."""
+    text = "## [0.2.0]\n\n    <!-- literal example\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "    <!-- literal example\n\n- Real entry."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_indented_nested_bullet_still_counts(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_a_fence_on_a_multi_digit_item_closes_at_its_content_indent(tmp_path):
+    text = "## [0.2.0]\n\n10. ```markdown\n    example\n    ```\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == text.split("\n## [0.1.0]")[0][len("## [0.2.0]\n\n"):].rstrip()
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_fence_in_a_list_item_ends_with_the_item(tmp_path):
+    text = "## [0.2.0]\n\n- ~~~markdown\n  example\n\n- Real entry.\n\n## [0.1.0]\n- Old entry.\n"
+    assert cr.release_notes(text, "0.2.0") == "- ~~~markdown\n  example\n\n- Real entry."
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_list_fence_closer_is_at_most_three_spaces_past_the_item(tmp_path):
+    text = ("## [0.2.0]\n\n- ~~~markdown\n      ~~~\n  <!-- literal example\n  ~~~\n\n"
+            "- Real entry.\n\n## [0.1.0]\n- Old entry.\n")
+    assert "Old entry" not in cr.release_notes(text, "0.2.0")
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_only_item_one_interrupts_a_paragraph(tmp_path):
+    text = "## [0.2.0]\n\nExample `literal\n2. <!-- literal`\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_triple_backtick_span_is_not_a_fence(tmp_path):
+    """#1290: ```example``` closes on its line, so it opens no fence."""
+    text = "## [0.2.0]\n\n```example```\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+    assert cr.release_notes("## [0.2.0]\n```js x\n## h\n```\n- y\n", "0.2.0") == "```js x\n## h\n```\n- y"
+
+
+def test_a_mixed_delimiter_line_does_not_close_a_fence():
+    assert not cr._has_entry("~~~\n~``\n- Hidden entry\n~~~")
+
+
+def test_an_ordered_item_two_cannot_open_a_fence_inside_a_paragraph():
+    assert not cr._has_entry("Example\n2. ~~~\n   <!-- draft\n- Hidden entry\n-->")
+
+
+def test_a_nested_bullet_after_a_list_item_fence_counts():
+    text = "## [0.2.0]\n\n- ```markdown\n  example\n  ```\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_a_nested_bullet_after_a_lazy_continuation_counts():
+    text = "## [0.2.0]\n\n1. Top.\nContinuation.\n\n    - Nested entry.\n"
+    assert cr._section_has_entry(text, "0.2.0")
+
+
+def test_an_ordered_item_two_after_a_heading_opens_a_fence(tmp_path):
+    text = "## [0.2.0]\n2. ~~~\n   <!-- example\n   ~~~\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_fence_on_a_continuation_line_keeps_the_item(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n   ~~~\n   example\n   ~~~\n\n    - Nested entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_an_ordered_item_two_after_a_comment_line_opens_a_fence(tmp_path):
+    text = "## [0.2.0]\n<!-- example -->\n2. ~~~\n   <!-- literal\n   ~~~\n\n- Real entry.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert found == []
+
+
+def test_a_thematic_break_ends_the_list_item(tmp_path):
+    text = "## [0.2.0]\n\n1. Top.\n---\n\n    - Code example only.\n"
+    found, _ = cr.problems("v0.2.0", _project(tmp_path, changelog=text))
+    assert any("no entries" in problem for problem in found)
+
+
+def test_an_unclosed_fence_runs_to_the_end():
+    """#1290: an unclosed fence hides the rest of the file, as Markdown renders it."""
+    text = "## [0.3.0]\n\n- a\n```\n## [0.2.0]\n- b\n"
+    assert cr.release_notes(text, "0.3.0") == "- a\n```\n## [0.2.0]\n- b"
+
+
 def test_version_needs_a_changelog_section(tmp_path):
     found, _ = cr.problems("v0.3.0", _project(tmp_path, version="0.3.0"))
     assert any("scriv collect --version 0.3.0" in p for p in found)
