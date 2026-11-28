@@ -162,7 +162,7 @@ def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path, str] | None:
         stop_if_partial(payload, out,
                         lambda: print_routing_summary(payload, len(competitors), self_derived))
     except SystemExit as stop:
-        raise RoutingStopped(stop.code, payload, out, gold.name) from None
+        raise RoutingStopped(stop, payload, out, gold.name) from None
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
@@ -172,8 +172,9 @@ def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path, str] | None:
 class RoutingStopped(SystemExit):
     """A routing run the cap or a model error cut short: it exits as before, and carries the saved result for --json."""
 
-    def __init__(self, message: object, payload: dict, out: Path, skill: str) -> None:
-        super().__init__(message)
+    def __init__(self, stop: SystemExit, payload: dict, out: Path, skill: str) -> None:
+        super().__init__(*stop.args)  # the message, already printed by stop_if_partial
+        self.code = stop.code
         self.result = (payload, out, skill)
 
 

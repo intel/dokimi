@@ -100,13 +100,15 @@ What a stopped run leaves behind depends on the step:
   refused after it came back keeps the verdict it names; one that names none is kept as
   `error` too. If the cap stops it while the
   paraphrase or reversal wordings are built, nothing is written.
-- Each exits with a message that names the partial file. A partial file is never read as a
+- Each exits 3 (1 when a permanent provider error stopped it) with a message that names the partial file. A partial file is never read as a
   finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces
   an earlier partial file, but never a finished one: if `<stem>.partial.json` holds anything
   other than a partial result, the new one goes to `<stem>.partial2.json` (and so on).
-- `analyze` keeps nothing. If the measurement is cut short, it stops before its classify and
-  attribution stages, writes no artifact, and reports how many probe answers were not run.
-  Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
+- `analyze` keeps what it paid for in `<out stem>.partial.json` beside its `novelty.json`
+  (never over a finished one): the atoms, the probes built and the probe answers so far, with
+  the stage that was running. If the measurement is cut short, it stops before its classify and
+  attribution stages and writes no `novelty.json` or view. It exits 3 with a message that names
+  the partial file. Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
 - `shorten` writes no candidate table and no `--out` file. Its retention verdicts are stored in
   `--cache-dir` as each is adjudicated, and the exit message says how many: rerun with a higher
   `--max-usd` (with no `--max-usd` when the stop is a model with no known price) and the same

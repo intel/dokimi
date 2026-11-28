@@ -73,6 +73,7 @@ def test_a_single_run_stopped_by_the_cap_writes_what_it_scored(tmp_path, monkeyp
     args, out = _single(tmp_path, [*QUERIES, "annotate the hot loop"], "--max-usd", "1")
     with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert str(out) in str(stop.value)
     assert len(calls) == 2
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -89,8 +90,9 @@ def test_a_single_run_stopped_by_the_cap_writes_what_it_scored(tmp_path, monkeyp
 def test_a_stopped_repeat_run_keeps_the_noise_of_the_queries_it_finished(tmp_path, monkeypatch):
     _provider(monkeypatch, UsageRecord(cost_usd=0.4))
     args, out = _single(tmp_path, QUERIES, "--reps", "2", "--max-usd", "1")
-    with pytest.raises(SystemExit, match="spend cap reached"):
+    with pytest.raises(SystemExit, match="spend cap reached") as stop:
         args.func(args)
+    assert stop.value.code == 3
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (3, 6)
     assert len(payload["model"]["per_query"]) == 3          # the half-asked query is kept
@@ -101,8 +103,9 @@ def test_a_stopped_repeat_run_keeps_the_noise_of_the_queries_it_finished(tmp_pat
 def test_a_call_with_no_price_also_leaves_the_partial_result(tmp_path, monkeypatch):
     _provider(monkeypatch, None)
     args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
-    with pytest.raises(SystemExit, match="no price is known"):
+    with pytest.raises(SystemExit, match="no price is known") as stop:
         args.func(args)
+    assert stop.value.code == 3
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["partial"]["reason"] == "no_price" and payload["partial"]["calls_done"] == 1
     # The reply came back and was paid for, so it is scored, not lost; no further call is made.
@@ -141,6 +144,7 @@ def test_an_all_vs_all_run_stopped_by_the_cap_scores_the_queries_it_finished(
                   "--max-usd", "1")
     with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert str(out) in str(stop.value)
     assert len(calls) == 2
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -173,8 +177,9 @@ def test_an_all_vs_all_run_stopped_early_leaves_the_skills_it_never_reached_unsc
                   "--out", str(out), "--model", "m",
                   "--max-usd", "0.5")
     # The first call is allowed (nothing spent), then 0.6 >= 0.5 refuses the rest.
-    with pytest.raises(SystemExit, match="spend cap reached"):
+    with pytest.raises(SystemExit, match="spend cap reached") as stop:
         args.func(args)
+    assert stop.value.code == 3
     model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
     assert sum(model["n_scored"].values()) == 1
     unreached = [skill for skill, n in model["n_scored"].items() if n == 0]
@@ -187,8 +192,9 @@ def test_an_all_vs_all_run_stopped_early_leaves_the_skills_it_never_reached_unsc
 def test_a_stopped_run_is_marked_partial_and_a_finished_one_is_not(tmp_path, monkeypatch):
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     args, out = _single(tmp_path, QUERIES, "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "partial"
     sub = tmp_path / "all"
     sub.mkdir()
@@ -197,8 +203,9 @@ def test_a_stopped_run_is_marked_partial_and_a_finished_one_is_not(tmp_path, mon
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(all_out), "--model", "m",
                   "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert json.loads(all_out.read_text(encoding="utf-8"))["status"] == "partial"
     finished = tmp_path / "fin"
     finished.mkdir()
@@ -213,8 +220,9 @@ def test_the_model_line_of_a_partial_run_says_how_many_calls_it_rests_on(
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     queries = [f"profile binary number {i}" for i in range(20)]
     args, _out = _single(tmp_path, queries, "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     lines = capsys.readouterr().out.splitlines()
     model = next(line for line in lines if line.startswith("model "))
     assert "partial: 1 of 20 calls" in model
@@ -231,25 +239,29 @@ def test_a_partial_run_does_not_overwrite_a_finished_result(tmp_path, monkeypatc
     again = _again(tmp_path, out, "second", "--max-usd", "0.5")
     with pytest.raises(SystemExit) as stop:
         again.func(again)
+    assert stop.value.code == 3
     side = out.with_suffix(".partial.json")
     assert out.read_text(encoding="utf-8") == finished       # the finished result stays
     assert json.loads(side.read_text(encoding="utf-8"))["status"] == "partial"
     assert str(side) in str(stop.value)
     # A second stopped run replaces the partial file, not the finished one.
     again2 = _again(tmp_path, out, "third", "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         again2.func(again2)
+    assert stop.value.code == 3
     assert out.read_text(encoding="utf-8") == finished
 
 
 def test_a_partial_run_writes_over_an_earlier_partial_one(tmp_path, monkeypatch):
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     args, out = _single(tmp_path, QUERIES, "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     again = _again(tmp_path, out, "second", "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         again.func(again)
+    assert stop.value.code == 3
     assert not out.with_suffix(".partial.json").exists()
 
 
@@ -265,6 +277,7 @@ def test_a_partial_run_skips_a_sidecar_that_holds_a_finished_result(tmp_path, mo
     again = _again(tmp_path, out, "third", "--max-usd", "0.5")
     with pytest.raises(SystemExit) as stop:
         again.func(again)
+    assert stop.value.code == 3
     third = out.with_name("routing.partial2.json")
     assert out.read_text(encoding="utf-8") == finished        # the finished result stays
     assert side.read_text(encoding="utf-8") == finished_side  # and so does the finished sidecar
@@ -277,8 +290,9 @@ def test_a_single_run_capped_before_any_query_finished_has_an_empty_noise_block(
     # asked for and measures nothing.
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     args, out = _single(tmp_path, QUERIES, "--reps", "3", "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     noise = json.loads(out.read_text(encoding="utf-8"))["model"]["noise"]
     assert (noise["n_repeats"], noise["n_queries_compared"], noise["mean_agreement"]) == (3, 0, None)
 
@@ -301,8 +315,9 @@ def test_a_partial_run_skips_a_sidecar_it_cannot_read(tmp_path, monkeypatch):
     side.write_text("not json", encoding="utf-8")            # a sidecar this cannot read is no partial result
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     again = _again(tmp_path, out, "third", "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         again.func(again)
+    assert stop.value.code == 3
     assert side.read_text(encoding="utf-8") == "not json"    # it is left as it is
     third = out.with_name("routing.partial2.json")
     assert json.loads(third.read_text(encoding="utf-8"))["status"] == "partial"
@@ -710,8 +725,9 @@ def test_an_all_vs_all_repeat_run_stopped_mid_query_pins_its_counts(tmp_path, mo
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(out), "--model", "m",
                   "--reps", "2", "--max-usd", "1")
-    with pytest.raises(SystemExit, match="spend cap reached"):
+    with pytest.raises(SystemExit, match="spend cap reached") as stop:
         args.func(args)
+    assert stop.value.code == 3
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (3, 10)
     model = payload["result"]["model"]
@@ -754,8 +770,9 @@ def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monke
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(out), "--model", "m",
                   "--reps", "3", "--max-usd", "5")
-    with pytest.raises(SystemExit, match="no price is known"):
+    with pytest.raises(SystemExit, match="no price is known") as stop:
         args.func(args)
+    assert stop.value.code == 3
     # The first unpriced reply stops the run: no repeat of that query and no later skill is asked.
     assert len(calls) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -770,8 +787,9 @@ def _cut_and_unpriced():
 def test_an_unpriced_reply_cut_at_the_ceiling_abstains_and_stops_the_run(tmp_path, monkeypatch):
     calls = _provider(monkeypatch, _cut_and_unpriced())
     args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
-    with pytest.raises(SystemExit, match="no price is known"):
+    with pytest.raises(SystemExit, match="no price is known") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert len(calls) == 1
     model = json.loads(out.read_text(encoding="utf-8"))["model"]
     # The cut '{"pick": 1}' is a decline, as a priced cut reply is, not a pick of card 1.
@@ -787,8 +805,9 @@ def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, mo
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(out), "--model", "m",
                   "--max-usd", "5")
-    with pytest.raises(SystemExit, match="no price is known"):
+    with pytest.raises(SystemExit, match="no price is known") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert len(calls) == 1
     model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
     assert model["n_abstained"] == 1
@@ -798,8 +817,9 @@ def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, mo
 def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, monkeypatch):
     calls = _provider(monkeypatch, None)
     args, out = _single(tmp_path, QUERIES[:2], "--reps", "3", "--max-usd", "5")
-    with pytest.raises(SystemExit, match="no price is known"):
+    with pytest.raises(SystemExit, match="no price is known") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert len(calls) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 6)
@@ -809,8 +829,9 @@ def test_a_partial_single_run_rates_its_selections_over_the_calls_it_made(tmp_pa
     # Three queries, the cap stops after two calls: the rate is over the two asked, not all three.
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     args, out = _single(tmp_path, QUERIES, "--max-usd", "1")
-    with pytest.raises(SystemExit, match="spend cap reached"):
+    with pytest.raises(SystemExit, match="spend cap reached") as stop:
         args.func(args)
+    assert stop.value.code == 3
     model = json.loads(out.read_text(encoding="utf-8"))["model"]
     hits = sum(1 for row in model["per_query"] if row.get("correct"))
     assert model["n_calls"] == 2
@@ -837,3 +858,44 @@ def test_a_file_nested_too_deep_to_parse_is_not_a_partial_result_and_save_result
     assert saved != deep
     assert deep.read_text(encoding="utf-8") == "[" * 20000
     assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+class AuthenticationError(Exception):
+    """Named as litellm's, which ``is_retryable`` reads by class name: every later call would meet it."""
+
+
+def test_a_stop_on_a_permanent_provider_error_keeps_its_partial_result_and_exits_1(tmp_path, monkeypatch):
+    # docs/quickstart.md: exit 3 is a budget stop; a provider error every call would meet is a runtime failure (1).
+    from dokimi import llm
+
+    def refuse(prompt, model, **_kwargs):
+        raise AuthenticationError("bad key")
+
+    monkeypatch.setattr(llm, "llm_call_with_usage", refuse)
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
+    with pytest.raises(SystemExit, match="permanent error: bad key") as stop:
+        args.func(args)
+    assert stop.value.code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["partial"]["reason"] == "permanent_error"
+
+
+def test_skill_routing_json_stopped_by_the_cap_prints_one_document_and_exits_3(
+        tmp_path, monkeypatch, capsys):
+    from dokimi import cli
+
+    _provider(monkeypatch, UsageRecord(cost_usd=0.6))
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(QUERIES), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    monkeypatch.setattr("sys.argv", [
+        "dokimi", "skill", "routing", _skill(tmp_path, "a", "profile a binary with perf"),
+        "--competitors", _skill(tmp_path, "b", "tune a database"), "--queries", str(queries),
+        "--model", "m", "--out", str(out), "--max-usd", "1", "--json"])
+    with pytest.raises(SystemExit) as stop:
+        cli.main()
+    assert stop.value.code == 3
+    assert str(stop.value).startswith("spend cap reached: ")  # str() stays the message, nothing else
+    shown = capsys.readouterr()
+    document = json.loads(shown.out)  # one document: a second one would not parse
+    assert document["status"] == "budget_stopped"
+    assert shown.err.count("The partial result, 2 of 3 model calls") == 1

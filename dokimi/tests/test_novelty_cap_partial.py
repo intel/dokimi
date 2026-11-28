@@ -78,6 +78,7 @@ def test_the_atoms_command_saves_a_partial_file_and_exits_without_atoms_json(tmp
     partial = tmp_path / "atoms.partial.json"
     with pytest.raises(SystemExit) as exit_info:
         args.func(args)
+    assert exit_info.value.code == 3
     assert f"the partial result is in {partial}" in str(exit_info.value)
     assert not out.exists()
     record = json.loads(partial.read_text(encoding="utf-8"))
@@ -106,8 +107,9 @@ def test_the_atoms_command_warns_about_an_empty_reply_the_cap_did_not_cause(tmp_
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: client)
     args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
                   "--out", str(tmp_path / "atoms.json"), "--max-usd", "0.5")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         args.func(args)
+    assert stop.value.code == 3
     err = capsys.readouterr().err
     assert "WARNING atom extraction could not read" in err
     assert "got an empty reply" in err
@@ -177,6 +179,7 @@ def test_the_probe_command_saves_the_partial_measurement_and_exits(tmp_path, mon
                                 "--out", str(out), "--max-usd", "1")
     with pytest.raises(SystemExit) as exit_info:
         args.func(args)
+    assert exit_info.value.code == 3
     assert f"the partial result is in {tmp_path / 'probes.partial.json'}" in str(exit_info.value)
     assert not out.exists()
     record = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))
@@ -411,8 +414,9 @@ def test_save_probe_measure_keeps_an_ungraded_answer_in_the_partial_file(tmp_pat
     result = measure.MeasureResult(runs=[object()], arms=("full",), with_arm="full", not_run=0,
                                    ungraded=1, stop=("spend_cap", "cap"), probes=[])
     out = tmp_path / "probes.json"
-    with pytest.raises(SystemExit, match="1 of them not graded"):
+    with pytest.raises(SystemExit, match="1 of them not graded") as stop:
         save_probe_measure({"runs": []}, out, result)
+    assert stop.value.code == 3
     assert (tmp_path / "probes.partial.json").exists()
     assert not out.exists()
 
@@ -464,9 +468,10 @@ def test_an_unpriced_probe_stop_names_the_missing_price_not_max_usd(tmp_path):
                                      judge=LLMClient(model="j", role="judge"),
                                      arms=("no_artifact", "full"), concurrency=1)
     out = tmp_path / "probes.json"
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         save_probe_run({"runs": []}, out, done=len(result.runs), not_run=result.not_run,
                        stop=result.stop, ungraded=result.ungraded)
+    assert stop.value.code == 3
     partial = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))["partial"]
     assert partial["reason"] == "no_price"
     assert partial["message"].startswith(
@@ -596,8 +601,9 @@ def test_an_answer_whose_grade_the_cap_refused_makes_the_probe_file_partial(tmp_
     from dokimi.commands.novelty_budget import save_probe_run
 
     out = tmp_path / "probes.json"
-    with pytest.raises(SystemExit, match="1 of them not graded"):
+    with pytest.raises(SystemExit, match="1 of them not graded") as stop:
         save_probe_run({"runs": []}, out, done=1, not_run=0, ungraded=1)
+    assert stop.value.code == 3
     partial = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))["partial"]
     assert partial["calls_done"] == 1 and partial["calls_planned"] == 1
     assert not out.exists()
@@ -674,8 +680,9 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
                # the second judge shares the run's cap, so it is refused once the cap stops the run
                "judge2": {"model": "j2", "stopped": "spend cap reached", "cost": 0.0}}
     out = tmp_path / "probes.json"
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as stop:
         save_probe_run(payload, out, done=1, not_run=5, stop=("spend_cap", "cap"))
+    assert stop.value.code == 3
     saved = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))
     assert saved["runs"] == [{"verdict": "correct"}] and saved["probes"] == {"n": 3}
     # a literal list, not PARTIAL_SUMMARIES: a block dropped from that tuple must fail here

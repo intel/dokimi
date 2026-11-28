@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -523,10 +524,10 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
     noise and cost lines print before the exit; the partial result is already saved in ``out``.
     """
     print_all_vs_all_model(model_arm, cost)
-    raise SystemExit(f"{failed} of {sent} model call(s) failed "
-                     f"({model_arm['first_error']}); the partial result leaves the failed calls "
-                     "out of model-arm scoring, and a query with a failed repeat out of the "
-                     f"repeat-noise rates, is in {out}")
+    stop_partial(f"{failed} of {sent} model call(s) failed "
+                 f"({model_arm['first_error']}); the partial result leaves the failed calls "
+                 "out of model-arm scoring, and a query with a failed repeat out of the "
+                 f"repeat-noise rates, is in {out}", "failed_calls")
 
 
 def partial_block(model_arm: dict) -> dict:
@@ -657,7 +658,8 @@ def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
 
 
 def stop_if_partial(payload: dict, out: Path, show: Callable[[], None]) -> None:
-    """Exit non-zero when ``--max-usd`` stopped the run; the result is already saved in ``out``.
+    """Exit when ``--max-usd`` (or a model error) stopped the run, with :func:`partial_exit_code`; the result
+    is already saved in ``out``.
 
     ``show`` prints the summary and cost lines first, so the calls paid for are on the console.
     The partial block says how many of the planned model calls were made.
@@ -666,8 +668,29 @@ def stop_if_partial(payload: dict, out: Path, show: Callable[[], None]) -> None:
     if partial is None:
         return
     show()
-    raise SystemExit(f"{partial['message']}. The partial result, {partial['calls_done']} of "
-                     f"{partial['calls_planned']} model calls, is in {out}")
+    stop_partial(f"{partial['message']}. The partial result, {partial['calls_done']} of "
+                 f"{partial['calls_planned']} model calls, is in {out}", partial["reason"])
+
+
+class PartialStop(SystemExit):
+    """A stop that kept its partial result: ``code`` is the exit code (:func:`partial_exit_code`), ``str()`` the
+    message, which :func:`stop_partial` has already printed (an int ``code`` is not printed by the interpreter)."""
+
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def partial_exit_code(reason: str) -> int:
+    """The exit code of a stop that kept its partial result (docs/quickstart.md, exit codes): 3 for a budget
+    stop (``spend_cap``, ``no_price``), 1 for a runtime failure (``permanent_error``) or any other reason."""
+    return EXIT_INCONCLUSIVE if reason in ("spend_cap", "no_price") else EXIT_FAILURE
+
+
+def stop_partial(message: str, reason: str) -> NoReturn:
+    """Print ``message`` on stderr and exit with the code of ``reason``."""
+    print(message, file=sys.stderr)
+    raise PartialStop(message, partial_exit_code(reason))
 
 
 def warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:

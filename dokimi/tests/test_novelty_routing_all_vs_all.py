@@ -415,8 +415,9 @@ def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, 
                                         "db": ["add an index"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(tmp_path / "o.json"), "--model", "m")
-    with pytest.raises(SystemExit, match="2 of 2 model call.s. failed"):
+    with pytest.raises(SystemExit, match="2 of 2 model call.s. failed") as stop:
         args.func(args)
+    assert stop.value.code == 1
     captured = capsys.readouterr()
     assert "OK Saved" not in captured.out
     assert "2 model call(s) failed" in captured.err and "boom" in captured.err
@@ -443,8 +444,9 @@ def test_all_vs_all_stops_at_the_max_usd_cap_the_docs_point_to(tmp_path, monkeyp
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(tmp_path / "o.json"), "--model", "m",
                   "--max-usd", "1")
-    with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00"):
+    with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00") as stop:
         args.func(args)
+    assert stop.value.code == 3
     assert len(calls) == 2  # the third request was refused before it reached the provider
 
 
@@ -534,8 +536,9 @@ def test_a_partial_model_failure_exits_non_zero_and_leaves_failed_queries_out(
     out = tmp_path / "o.json"
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(out), "--model", "m")
-    with pytest.raises(SystemExit, match="2 of 3 model call"):
+    with pytest.raises(SystemExit, match="2 of 3 model call") as stop:
         args.func(args)
+    assert stop.value.code == 1
     assert "OK Saved" not in capsys.readouterr().out
     model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
     assert model["n_failed"] == 2
@@ -807,8 +810,9 @@ def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
     queries = _write_queries(tmp_path, {"db": ["add an index", "the of and"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(tmp_path / "o.json"), "--model", "m")
-    with pytest.raises(SystemExit, match="^1 of 1 model call"):
+    with pytest.raises(SystemExit, match="^1 of 1 model call") as stop:
         args.func(args)
+    assert stop.value.code == 1
     assert "makes 1 model calls" in capsys.readouterr().err
 
 
@@ -934,8 +938,9 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
                                         "db": ["add an index"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
                   "--out", str(tmp_path / "o.json"), "--model", "m")
-    with pytest.raises(SystemExit, match="1 of 2 model call.s. failed"):
+    with pytest.raises(SystemExit, match="1 of 2 model call.s. failed") as stop:
         args.func(args)
+    assert stop.value.code == 1
     out = capsys.readouterr().out
     assert "OK Saved" not in out
     assert any(line.startswith("cost") for line in out.splitlines()), out
