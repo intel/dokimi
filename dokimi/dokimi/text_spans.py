@@ -54,9 +54,12 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
-_QUOTE_MARKS = re.compile(r"[\\'\"\n#$()`}]")
+_CASE_WORDS = r"|(?<![\w$.-])(?:case|esac)(?![\w.-])"  # a mark too: the ``)`` of a case pattern closes no substitution
+_QUOTE_MARKS = re.compile(r"[\\'\"\n#$()`}]" + _CASE_WORDS)
 _SCOPES = {"(": "(", "{": "{"}  # the character after a `$` that opens a scope
 _CLOSERS = {")": "(", "}": "{["}  # `[` is a ``${`` inside double quotes, where a single quote is plain text
+_COMMAND = ("(", "`", "C")  # the top of a stack where the shell reads commands: ``C`` is a ``case`` inside a ``$(``, whose patterns end in a ``)``
+_COMMAND_KEYWORDS = ("then", "do", "else", "elif", "if", "while", "until")
 
 #: The delimiter of a heredoc after ``<<``: group 1 is the quote of a word that is one quoted piece (group 2 is then its text), else empty and group 2 is the word as written, unquoted and quoted pieces side by side (``EOF"-END"``, ``'A''B'``).
 #: A word with a backslash, a ``(`` after it, or a double-quoted piece with a backslash opens nothing (``<<EOF\-END``, ``<<$(printf EOF)``, ``<<"a\$b"``); a quote that never closes is no part of the word (``<<AB'``).
@@ -70,6 +73,25 @@ def dequote_word(word: str) -> str:
     if "'" not in word and '"' not in word:
         return word
     return _QUOTED_PIECE.sub(lambda m: m.group(m.lastindex or 1), word)
+
+
+def _at_command(text: str, at: int) -> bool:
+    """Whether a word at ``at`` starts a command: at the start, after ``;&|(){`` a newline or a backtick, or after a keyword such as ``then``."""
+    while at and text[at - 1] in " \t":
+        at -= 1
+    if not at or text[at - 1] in ";&|(){\n`":
+        return True
+    return any(text.endswith(k, 0, at) and not (at > len(k) and (text[at - len(k) - 1].isalnum() or text[at - len(k) - 1] in "_-.$")) for k in _COMMAND_KEYWORDS)
+
+
+def _case_scope(text: str, m: re.Match[str], quote: str) -> str:
+    """The quote stack after ``case`` or ``esac`` at the start of a command inside a ``$(``: ``C`` stands for the ``case``, where a ``)`` ends a pattern and pops nothing, until its ``esac``."""
+    top = quote[-1:]
+    if top not in ("(", "C") or not _at_command(text, m.start()):
+        return quote
+    if m.group() == "case":
+        return quote + "C"
+    return quote[:-1] if top == "C" else quote
 
 
 def _starts_word(text: str, at: int) -> bool:
@@ -103,7 +125,7 @@ def _backtick(quote: str) -> str:
 def _scope_after_dollar(text: str, at: int, quote: str) -> tuple[str, int]:
     """The quote stack after a ``$`` that ends at ``at``: a ``$(`` or ``${`` opens a scope, ``[`` for a ``${`` in double quotes; none in single quotes; a ``$'...'`` is read whole."""
     top = quote[-1:]
-    if text.startswith("'", at) and top in ("", "(", "`"):  # in ``$'...'`` a backslash escapes the next character, an apostrophe too
+    if text.startswith("'", at) and top in ("", *_COMMAND):  # in ``$'...'`` a backslash escapes the next character, an apostrophe too
         end = at + 1
         while end < len(text) and text[end] != "'":
             end += 2 if text[end] == "\\" else 1
@@ -133,18 +155,18 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     if top == "#":
         return quote, at
     if mark == "#":  # `a#b`, `$#` and `\;#` start no comment: only a blank or an unescaped `;&|()` before it does
-        return (quote + "#" if top in ("", "(", "`") and _starts_word(text, m.start()) else quote), at
+        return (quote + "#" if top in ("", *_COMMAND) and _starts_word(text, m.start()) else quote), at
     if mark == "\\":
         return quote, at + (top != "'")
     if mark == "$":
         return _scope_after_dollar(text, at, quote)
-    if mark in "()}":
-        return _bracket(quote, mark), at
+    if mark in ("(", ")", "}", "case", "esac"):
+        return (_case_scope(text, m, quote) if len(mark) > 1 else _bracket(quote, mark)), at
     if mark == "`":
         return _backtick(quote), at
     if mark == "'" and top == "[":
         return quote, at
-    if top in ("", "(", "`", "{", "[", "A"):
+    if top in ("", *_COMMAND, "{", "[", "A"):
         return quote + mark, at
     return (quote[:-1] if top == mark else quote), at
 
@@ -156,7 +178,9 @@ def _quote_after(text: str, at: int, end: int, quote: str, step: Callable[[re.Ma
     return quote, max(at, end)
 
 
-_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}<]")
+quote_after, quote_inert = _quote_after, _inert  # for a reader of its own lines: the stack at a ``<<`` and whether it hides the ``<<``
+
+_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}<]" + _CASE_WORDS)
 
 
 class _ArithmeticReader:
@@ -183,7 +207,7 @@ class _ArithmeticReader:
         text, at = self.text, self.pos
         if mark == "$":
             return 2 if self.quote[-1:] not in ("'", "#") and text.startswith("((", at) else 0
-        return 1 if mark == "(" and self.quote[-1:] in ("", "(", "`") and text.startswith("(", at) and self._closes(at) else 0
+        return 1 if mark == "(" and self.quote[-1:] in ("", *_COMMAND) and text.startswith("(", at) and self._closes(at) else 0
 
     def _closes(self, at: int) -> bool:
         """Whether the ``((`` ending at ``at + 1`` is closed by a ``))``, on this line or a later one: the parenthesis that closes its inner ``(`` is followed at once by the one that closes its outer.
@@ -206,7 +230,7 @@ class _ArithmeticReader:
         A span open inside a ``$(`` or backtick of its own at ``upto`` is read no further: a ``<<`` there is a heredoc, whose body ``skip`` jumps over before the substitution's closer is read.
         """
         self._read_to(upto + 1)
-        if self.depth and self.quote[-1:] not in ("(", "`"):
+        if self.depth and self.quote[-1:] not in _COMMAND:
             self._read_to(len(self.text), until_closed=True)
         if not self.depth:
             self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
@@ -216,7 +240,7 @@ class _ArithmeticReader:
         while (m := _ARITHMETIC_MARKS.search(text, self.pos, limit)) is not None:
             mark, self.pos = m.group(), m.end()
             if mark == "<":
-                if self.depth and self.quote[-1:] in ("(", "`") and (o := self.heredoc.opener.match(text, m.start())):
+                if self.depth and self.quote[-1:] in _COMMAND and (o := self.heredoc.opener.match(text, m.start())):
                     self.pos = o.end()  # the delimiter is literal text: ``<<"${"`` opens no expansion
             elif self.depth:
                 if mark in "()" and not self.quote:
@@ -240,13 +264,13 @@ class _ArithmeticReader:
     def _inner(self, m: re.Match[str]) -> None:
         """Read the mark ``m`` inside the open span, and keep where a substitution begins and ends there; a heredoc opened on a line of a substitution has its body skipped, as its quotes are not read."""
         before = self.quote
-        was = before[-1:] in ("(", "`")
+        was = before[-1:] in _COMMAND
         self.quote, self.pos = self._inner_step(m, self.quote)
         if m.group() == "\n":
-            if before.removesuffix("#")[-1:] in ("(", "`") and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote, self._inner_step)):  # a comment after the opener ends here
+            if before.removesuffix("#")[-1:] in _COMMAND and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote, self._inner_step)):  # a comment after the opener ends here
                 self.pos = max(self.pos, self.heredoc.bodies_end(self.text, m.start(), words))
             self.line, self.line_quote = self.pos, self.quote
-        now = self.quote[-1:] in ("(", "`")
+        now = self.quote[-1:] in _COMMAND
         if now and not was:
             self.entered = self.pos
             if len(self.quote) > len(before):  # a new substitution, not the return to the one a quote or comment was opened in: its line holds no opener before it
@@ -267,7 +291,7 @@ class _ArithmeticReader:
             return (quote + "A" if mark == "(" else quote[:-1]), m.end()
         if mark == "$" and top not in ("'", "#") and self.text.startswith("((", m.end()):
             return quote + "AA", m.end() + 2
-        if mark == "(" and top in ("(", "`") and self.text.startswith("(", m.end()) and self._closes(m.end()):
+        if mark == "(" and top in _COMMAND and self.text.startswith("(", m.end()) and self._closes(m.end()):
             return quote + "AA", m.end() + 1
         return _quote_step(self.text, m, quote)
 
