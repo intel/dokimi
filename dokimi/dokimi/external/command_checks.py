@@ -7,7 +7,8 @@ Nothing is run and nothing is sent: these are regular expressions over the text.
 each a ``warn`` in :mod:`dokimi.external.validate`:
 
 - ``pipe-to-shell``: ``curl`` or ``wget`` piped into a shell or an interpreter (``| sh``,
-  ``| sudo bash``, ``| python3``), which runs a download without a look at it.
+  ``| sudo bash``, ``| python3``), which runs a download without a look at it. ``curl | sh`` or
+  ``curl -fsSL | sh`` with no operand names no download, so it is not a command.
 - ``permission-bypass-flag``: ``--dangerously-skip-permissions``, ``--yolo`` or
   ``bypassPermissions``, which switch off a coding agent's permission prompts.
 - ``install-unpinned``: a ``pip``, ``npm``, ``pnpm`` or ``npx`` install that names a package with no
@@ -18,7 +19,9 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
 code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), and the whole of any other text file
-(a script, say). So "pip install to get started" in a sentence is not an install. A skill at the
+(a script, say). So "pip install to get started" in a sentence is not an install. A JSON file is read as its
+strings, each ending where a sentence does, so a sentence after an install is not a list of packages. ``npx tsc``
+is not counted in a file that installs ``typescript``, which provides ``tsc``. A skill at the
 root of a scanned checkout reads its own ``SKILL.md`` only, since its bundled files are the rest of that
 checkout.
 
@@ -29,7 +32,9 @@ look-alike letter does not hide a command.
 from __future__ import annotations
 
 import bisect
+import json
 import os
+import posixpath
 import re
 import shlex
 from pathlib import Path
@@ -61,8 +66,15 @@ _PIPE_TO = (
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
 )
+def _only_flags(takes_file: str) -> str:
+    """A run of flags up to the pipe; a word with ``takes_file`` followed by more characters is no mere flag."""
+    return (r"(?:(?:[ \t]|\\\r?\n)+-(?!(?!-)\w*[" + takes_file + r"][\w-])[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|)")
+
+
+# ``curl -fsSL | sh`` (only flags) names no download; curl's ``-K`` and wget's ``-i`` followed by more characters
+# (``-K-``, ``-Kconfig``, ``-iurls``) take a file or stdin, so that word is no mere flag. curl's ``-i`` is not one.
 PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    r"\b(?:curl\b(?!" + _only_flags("K") + r")|wget\b(?!" + _only_flags("i") + r"))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
@@ -80,7 +92,6 @@ PERMISSION_BYPASS = re.compile(
 # requirement marker (``'flask; python_version >= "3.10"'``) does not end the install
 WORDS = r"((?:'[^'\n]*'|\"[^\"\n]*\"|[^\n;&|`#\\]|\\\r?\n|\\[^\n]){0,1000})"
 PIP = re.compile(r"(?<![\w.-])(?:python3?(?:\.\d+)?[ \t]+-m[ \t]+pip|uv[ \t]+pip|pip3?(?:\.\d+)?)[ \t]+install\b" + WORDS)
-NPM = re.compile(r"(?<![\w.-])npm[ \t]+(?:install|i|add)\b" + WORDS)
 NPX = re.compile(r"(?<![\w.-])npx\b" + WORDS)
 PIP_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?(.*)")
 PIP_VERSION = re.compile(r"\s*(?:===|==|>=|<=|~=|!=|<|>|@)")
@@ -97,7 +108,7 @@ PIP_VALUE_OPTIONS = frozenset({
     "--install-option"})
 NPM_VALUE_OPTIONS = frozenset({
     "--prefix", "--registry", "--cache", "--userconfig", "--workspace", "-w", "--tag", "--loglevel",
-    "--omit", "--include", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
+    "--omit", "--include", "--only", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
@@ -116,10 +127,18 @@ def _pnpm_options(value_options: frozenset[str]) -> str:
     )
 
 
+# ``npm`` with options before the subcommand (``npm --no-audit install``)
+NPM = re.compile(
+    r"(?<![\w.-])npm" + _pnpm_options(NPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 PNPM = re.compile(r"(?<![\w.-])pnpm" + _pnpm_options(PNPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 # ``pnpm dlx`` and ``pnpx`` run a package as ``npx`` does; ``--package`` before ``dlx`` is a selection (group 1)
 PNPM_DLX = re.compile(
     r"(?<![\w.-])(?:pnpm(" + _pnpm_options(PNPM_VALUE_OPTIONS | {"--package", "-p"}) + r")[ \t]+dlx|pnpx)\b" + WORDS)
+# options that install somewhere other than the directory the next ``npx`` runs in
+LOCATION_OPTIONS = frozenset({"--prefix", "--dir", "-C", "--workspace", "-w", "--workspaces", "--filter", "-F"})
+# A program ``npx`` runs that an install in the same file provides: ``tsc`` is the ``typescript`` package's, so
+# ``pkg@1.2.3`` applied to ``tsc`` would name another package.
+BIN_PROVIDERS = {"tsc": "typescript", "tsserver": "typescript"}
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 # ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
 # ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
@@ -237,7 +256,9 @@ def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) 
     return names
 
 
-def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
+def _unpinned_npx(
+    rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS, installed: frozenset[str] | set[str] = frozenset()
+) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
     it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
@@ -260,11 +281,142 @@ def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) 
             break
         i += 1
     names = []
+    # a program an installed package provides is not a package of its own; a selection names the package itself
+    skip = None if selected or executable is None else BIN_PROVIDERS.get(executable)
     for spec in selected or ([executable] if executable else []):
+        if skip is not None and skip in installed:
+            continue
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
         if match is not None and not spec.lower().endswith(NON_PACKAGE_SUFFIXES) and not _npm_pinned(match.group(2)):
             names.append(match.group(1))
     return names
+
+
+def _installed_npm(rest: str, value_options: frozenset[str]) -> set[str]:
+    """The package names an ``npm``/``pnpm`` install names, pinned or not."""
+    names = set()
+    for word in _words(rest, value_options):
+        match = NPM_NAME.fullmatch(word.rstrip("\"')")) if word and not word.startswith("-") else None
+        if match and not (match.group(2) or "").startswith("npm:"):  # an alias installs another package
+            names.add(match.group(1))
+    return names
+
+
+NON_INSTALLING = frozenset({"--package-lock-only", "--lockfile-only", "--dry-run"})
+DEV_ONLY = frozenset({"--save-dev", "-D", "--dev"})  # with ``--omit=dev`` the package is recorded but not put on disk
+
+
+def _installs(call: str) -> bool:
+    """Whether an ``npm``/``pnpm`` install puts a runnable executable on disk: ``--package-lock-only``,
+    ``--lockfile-only`` and ``--dry-run`` write nothing, ``--no-bin-links`` / ``--bin-links=false`` leave no ``.bin``
+    link for ``npx`` to find, and a ``--save-dev`` install with ``--omit=dev`` / ``--production`` skips the package.
+    ``=false`` turns a flag off."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    flags = {name: value for name, _, value in (w.partition("=") for w in words)}
+    on = lambda name: name in flags and flags[name] != "false"  # noqa: E731
+    def values(name: str) -> set[str]:  # ``--name=a,b`` and ``--name a,b`` alike
+        found = [w[len(name) + 1:] for w in words if w.startswith(name + "=")]
+        found += [words[i + 1] for i, w in enumerate(words[:-1]) if w == name]
+        return {v for item in found for v in item.split(",")}
+    omits_dev = ("dev" in values("--omit") or on("--production") or bool(values("--only") & {"prod", "production"}))
+    omits_dev = omits_dev and "dev" not in values("--include")  # npm keeps a type both included and omitted
+    return not (any(on(name) for name in NON_INSTALLING) or "--no-bin-links" in flags
+                or flags.get("--bin-links") == "false" or (omits_dev and any(on(name) for name in DEV_ONLY)))
+
+
+def _installs_here(call: str, pnpm: bool = False) -> bool:
+    """Whether an ``npm``/``pnpm`` install puts its packages where a later ``npx`` finds them: one aimed at another
+    directory or workspace (``--prefix tools``, ``--dir``, ``-C``, ``--workspace``, ``--filter``) does not.
+    pnpm's ``-w`` is a flag for the workspace root, not a target."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    targets = LOCATION_OPTIONS - ({"-w"} if pnpm else set())
+    here = (".", "./")  # the current directory is where ``npx`` runs
+    for i, w in enumerate(words):
+        name, eq, value = w.partition("=")
+        if name in targets and name.startswith("--") and eq:
+            if value not in here:
+                return False
+        elif w in targets and (i + 1 >= len(words) or words[i + 1] not in here):
+            return False
+    return True
+
+
+def _install_dir(call: str) -> str | None:
+    """The directory a ``--prefix``/``--dir``/``-C`` install targets, or None when it names none."""
+    try:
+        words = shlex.split(call)
+    except ValueError:  # an unbalanced quote: the words as written
+        words = call.split()
+    try:
+        raw = shlex.split(call, posix=False)  # the words with their quotes, to tell ``'$X'`` from ``$X``
+    except ValueError:
+        raw = words
+    for i, w in enumerate(words):
+        name, eq, value = w.partition("=")
+        if name in ("--prefix", "--dir") and eq:
+            return _literal(value, raw[i].partition("=")[2] if len(raw) == len(words) else value)
+        if w in ("--prefix", "--dir", "-C") and i + 1 < len(words):
+            return _literal(words[i + 1], raw[i + 1] if len(raw) == len(words) else words[i + 1])
+    return None
+
+
+def _literal(value: str, written: str) -> str | None:
+    """``value`` as a directory: one that was written quoted or escaped (``'$X'``, ``\\$X``) and starts with ``$`` or
+    ``~`` is a literal relative name, kept apart from a variable root by a leading ``./``."""
+    value = value.removeprefix("./").rstrip("/")
+    if value.startswith(("~", "$")) and not written.startswith(("~", "$", '"$')):
+        value = "./" + value
+    return value or None
+
+
+def _join(here: str, target: str) -> str:
+    """``target`` below ``here``; a literal relative name starting with ``$`` or ``~`` keeps its ``./``."""
+    moved = posixpath.normpath(posixpath.join(here, target))
+    return "./" + moved if moved.startswith(("~", "$")) and not here.startswith(("~", "$")) else moved
+
+
+CD = re.compile(r"""[()]|'[^']*'|"[^"]*"|(?:\A|(?<=[\n;&|({])|(?<=\bthen)|(?<=\bdo)|(?<=\belse))[ \t]*cd[ \t]+((?:"[^"]*"|'[^']*'|\\.|[^\s;&|'"()\\])+)""")
+
+
+def _cwd(code: str, start: int, end: int, here: str | None = ".") -> str | None:
+    """The directory in force at ``end`` after the ``cd`` commands of ``code[start:end]``, from ``here`` at ``start``;
+    None while a ``cd`` has gone where this cannot follow (``-``, or ``..`` out of a ``$VAR`` directory): a later
+    ``)`` or a ``cd`` to an absolute, ``~`` or ``$VAR`` target makes it known again. ``cd $VAR`` is followed as that
+    name, so an install and an ``npx`` after the same ``cd $VAR`` meet. A quoted or escaped target is one word. Only a
+    ``cd`` that starts a command counts: ``message="cd tools"`` is data. A subshell's ``cd`` ends at its ``)``."""
+    saved: list[str | None] = []
+    for m in CD.finditer(code, start, end):
+        if m.group(0) == "(":
+            saved.append(here)
+        elif m.group(0) == ")":
+            here = saved.pop() if saved else here
+        elif m.group(1) is None:
+            continue  # a quoted string
+        else:
+            try:
+                target = shlex.split(m.group(1))[0]
+            except (ValueError, IndexError):  # an unbalanced quote: the word as written
+                target = m.group(1)
+            if target.startswith(("~", "$")) and m.group(1).startswith(("~", "$", '"$')):
+                here = target  # an unquoted variable or ``~`` replaces ``here``
+            elif target.startswith("/"):
+                here = posixpath.normpath(target)
+            elif target == "-" or here is None or (here.startswith(("~", "$")) and target.startswith("..")):
+                here = None
+            else:
+                here = _join(here, target)  # a literal directory named ``$X`` is not a symbolic root
+    return here
+
+
+def _entered(code: str, start: int, end: int, directory: str) -> bool:
+    """Whether ``code[start:end]`` holds a ``cd`` into ``directory``, so a later ``npx`` runs where it was installed."""
+    return _cwd(code, start, end) == posixpath.normpath(directory)
 
 
 def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
@@ -440,19 +592,52 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
+def _root(path: str) -> str | None:
+    return path.split("/")[0] if path.startswith(("~", "$")) else None
+
+
+def _within(here: str, where: str | None) -> bool:
+    """Whether ``here`` is ``where`` or below it: ``npx`` finds ``node_modules/.bin`` of an ancestor directory."""
+    if where is None or posixpath.isabs(here) != posixpath.isabs(where):
+        return False
+    if _root(here) != _root(where):  # ``$VAR`` and ``~`` name places a literal relative path is not under
+        return False
+    rel = posixpath.relpath(here, where)
+    return rel != ".." and not rel.startswith("../")  # a name like ``..src`` is a child
+
+
+def _provided(code: str, npx: re.Match, installs: list) -> set[str]:
+    """The packages installed where this ``npx`` runs: in the same directory (any position in the file), or in
+    one an earlier ``--prefix``/``--dir``/``-C`` install named; a directory below it finds it too."""
+    here = _cwd(code, 0, npx.start())
+    return {n for end, where, names, current in installs if here is not None and _within(here, where)
+            and (current or end <= npx.start()) for n in names}
+
+
 def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
     offset moves."""
     code = _without_printed(code)
+    installers = [(NPM, NPM_VALUE_OPTIONS, False), (PNPM, PNPM_VALUE_OPTIONS, True)]
+    installs = []  # (offset, directory the packages land in or None, names, whether it is the current directory's)
+    for pattern, options, pnpm in installers:
+        for m in pattern.finditer(code):
+            if not _installs(m.group(0)):
+                continue
+            base, here = _cwd(code, 0, m.start()), _installs_here(m.group(0), pnpm)
+            target = None if here else _install_dir(m.group(0))
+            where = base if here else (_join(base, target) if base and target else None)
+            installs.append((m.end(), where, _installed_npm(m.group(1), options), here))
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
     found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=_provided(code, m, installs))])
+              for m in NPX.finditer(code)]
     return found
 
 
@@ -464,14 +649,53 @@ def _ends_inside_url(reading: str, end: int) -> bool:
     return "://" in reading[start:stop]
 
 
-def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+def _cut_sentences(item: str) -> str:
+    """``item`` with a newline for each ``,``, ``.``, ``!`` or ``?`` that ends a word and is outside quotes: a comma
+    in a quoted requirement (``'a>=2, <3'``) does not end the command. A quote opens after whitespace or ``=``
+    only, so the apostrophe of ``isn't`` opens none."""
+    out: list[str] = []
+    quote = ""
+    for i, c in enumerate(item):
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"" and (i == 0 or item[i - 1] in " \t\n="):
+            quote = c
+        elif (c in ",.!?" and i > 0 and not item[i - 1].isspace() and item[i + 1:i + 2] in ("", " ", "\t", "\n", "\r")
+              and not (c == "." and item[i - 1] in "./")):  # the dot of a path (``..``, ``../..``) ends nothing
+            c = "\n"
+        out.append(c)
+    return "".join(out)
+
+
+def _json_text(text: str) -> str:
+    """The strings of a JSON file, one per line, each cut where a sentence ends (``, `` or ``. ``): the commands
+    in them end there, so a sentence after ``pip install pkg,`` is not read as packages (#969). Text that is not
+    JSON is returned as it is."""
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):  # a file nested deeper than the parser's limit is read as text
+        return text
+    lines: list[str] = []
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            lines += [_cut_sentences(item), BLOCK_END]  # a quote one string opens never closes in the next
+        elif isinstance(item, dict):
+            stack += [*item.values(), *item.keys()]
+        elif isinstance(item, list):
+            stack += item
+    return "\n".join(reversed(lines))
+
+
+def _unpinned_in_readings(text: str, markdown: bool, is_json: bool = False) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
     same place is counted once, with the packages of the most folded reading that finds it, even when that reading
     reads fewer arguments: it has ended the command at a fullwidth separator (a fullwidth ``＝＝`` that pins a package
     may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
     best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
-    for reading in readings(_code_text(text, markdown)):
+    for reading in readings(_code_text(_json_text(text) if is_json else text, markdown)):
         for offset, command, end, labels in _unpinned_at(reading):
             key = (offset, command)
             if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
@@ -560,7 +784,7 @@ def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES), rel.lower().endswith(".json"))
 
     unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:
