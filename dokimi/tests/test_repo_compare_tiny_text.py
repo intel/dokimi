@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.repos.compare import compare, format_compare
-from dokimi.repos.compare_interval import format_value
+from dokimi.repos.compare_interval import format_delta, format_value
 from dokimi.repos.ledger import format_ledger
 
 from test_repo_compare import _cell, _row
@@ -42,6 +42,23 @@ def test_ledger_text_prints_tiny_means_and_delta_at_two_significant_digits(tmp_p
     text = format_ledger({"ledger": "l.json", "alpha": 0.05, "family": 1, "today": "2026-11-27", "rules": [entry],
                           "warnings": []})
     assert "mean score 1e-12 -> 4.4e-12, delta +3.4e-12 [+2e-12, +4.8e-12], p " in text
+
+
+def test_the_changed_line_prints_a_task_delta_two_decimals_read_as_zero_with_its_size_and_sign(tmp_path):
+    b = tmp_path / "b"
+    for task, base, delta in [("t0", 0.5, 1e-4), ("t1", 0.5, -1e-4), ("t2", 0.5, 2.5e-4), ("t3", 0.5, 0.25)]:
+        _cell(b, task, "guidance:none", 1, score=base, score_max=None)
+        _cell(b, task, "guidance:raw", 1, score=base + delta, score_max=None)
+    line = next(ln for ln in format_compare(compare([b], "guidance:none")).splitlines() if "score changed:" in ln)
+    assert line.split("changed: ")[1] == "t1 -0.0001, t0 +0.0001, t2 +0.00025, t3 +0.25"
+    assert "+0.00 " not in line + " " and "-0.00 " not in line + " "
+
+
+@pytest.mark.parametrize("value,expected", [
+    (0.004, "+0.004"), (-0.004, "-0.004"), (0.005, "+0.01"), (0.25, "+0.25"), (1.0, "+1.00"), (-0.5, "-0.50"),
+])
+def test_format_delta_keeps_two_decimals_unless_they_read_zero(value, expected):
+    assert format_delta(value) == expected
 
 
 @pytest.mark.parametrize("value,signed,expected", [

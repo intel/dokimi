@@ -32,3 +32,10 @@ def format_value(value: float | None, signed: bool = False) -> str:
     if value and float(text) == 0:
         return f"{value:+.2g}" if signed else f"{value:.2g}"
     return text
+
+
+def format_delta(value: float) -> str:
+    """A per-task delta at 2 decimals; one that 2 decimals would print as ``+0.00`` or ``-0.00`` is written by
+    :func:`format_value` (2 significant digits when 3 decimals read 0), so the text keeps its size and sign."""
+    text = f"{value:+.2f}"
+    return format_value(value, signed=True) if float(text) == 0 else text
