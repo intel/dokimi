@@ -80,7 +80,7 @@ def _artifact_files(path: Path) -> list[Path]:
         entries = listed_entries(path)
     except OSError as exc:  # its runs would be missing from the comparison, not reported
         raise InputError(f"cannot list {path}: {exc}") from exc
-    return sorted(p for p in entries if p.name == FILE_NAME)
+    return sorted(p for p in entries if p.match(FILE_NAME))
 
 
 def load_runs(path: Path) -> dict[str, dict]:

@@ -19,7 +19,7 @@ def discover_markdown(root: Path) -> list[Path]:
         return []
     return sorted(
         p for p in listed_entries(root, drop=lambda p: p.name in _SKIPPED_DIRS)
-        if p.name.endswith(".md") and p.is_file()
+        if p.match("*.md") and p.is_file()
     )
 
 

@@ -560,7 +560,7 @@ def read_claude_memory(root: str | Path) -> MemoryStore:
             archived = listed_entries(archive)
         except OSError as exc:  # the store would lint smaller than it is
             raise MemoryStoreError(f"{archive}: cannot list the archive: {exc}") from exc
-        entries += [_entry(root, p, True) for p in sorted(archived) if p.name.endswith(".md") and p.is_file()]
+        entries += [_entry(root, p, True) for p in sorted(archived) if p.match("*.md") and p.is_file()]
     if index is None and not entries:
         raise MemoryStoreError(f"{root}: no {INDEX_NAME} and no *.md files")
     return MemoryStore(root, index, entries)

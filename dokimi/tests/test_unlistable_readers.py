@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 
 import pytest
 
@@ -145,6 +145,23 @@ def test_novelty_retest_keeps_its_message_for_a_listable_tree_with_no_artifact(t
     for runs in (tmp_path / "runs", tmp_path / "missing"):
         with pytest.raises(InputError, match="no novelty.json under"):
             load_runs(runs)
+
+
+def test_readers_keep_the_platform_filename_matching_rglob_had(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """On Windows ``rglob("*.md")`` ignores case; the readers match with ``Path.match``, which does the same there."""
+    windows_match = PureWindowsPath.match
+    monkeypatch.setattr(PurePath, "match", lambda self, pattern: windows_match(PureWindowsPath(str(self)), pattern))
+    doc = _write(tmp_path / "docs", "README.MD")
+    assert discover_markdown(tmp_path / "docs") == [doc]
+    task = _write(tmp_path / "tasks", "task.YAML")
+    assert _task_files(tmp_path / "tasks") == [task]
+    _write(tmp_path / "mem", "archive/topic.MD")
+    assert [e.path for e in read_claude_memory(tmp_path / "mem").entries] == ["archive/topic.MD"]
+    root = tmp_path / "cov"
+    _task(root, "t1", {"test_a.PY": "def test_a():\n    pass\n"})
+    assert [p.name for p in check_files(root)] == ["test_a.PY"]
+    _write(tmp_path / "runs", "NOVELTY.JSON", json.dumps({"artifact": {"ref": "skill:/s/a"}}))
+    assert list(load_runs(tmp_path / "runs")) == ["skill:/s/a"]
 
 
 def test_a_workspace_skills_directory_with_content_under_a_directory_it_cannot_list_is_refused(tmp_path: Path):

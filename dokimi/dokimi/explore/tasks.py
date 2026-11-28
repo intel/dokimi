@@ -229,4 +229,4 @@ def _task_files(root: Path) -> list[Path]:
         entries = listed_entries(root)
     except OSError as exc:  # a directory that cannot be listed: its tasks would be missing, not reported
         raise ValueError(f"cannot list the explore tasks under {root}: {exc}") from exc
-    return sorted(p for p in entries if p.name.endswith(".yaml") and p.is_file())
+    return sorted(p for p in entries if p.match("*.yaml") and p.is_file())

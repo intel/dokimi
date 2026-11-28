@@ -128,7 +128,7 @@ def _python_files(tests: Path) -> list[Path]:
     ``OSError`` (``rglob`` would skip it and the files behind it), so the checks and the ``--out`` guard agree."""
     if not tests.is_dir():
         return []
-    return [p for p in listed_entries(tests) if p.name.endswith(".py")]
+    return [p for p in listed_entries(tests) if p.match("*.py")]
 
 
 def check_files(root: Path) -> list[Path]:
