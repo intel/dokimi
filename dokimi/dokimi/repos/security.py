@@ -41,7 +41,16 @@ from typing import Any, Iterable, Optional, Sequence
 
 from .event_format import followed_path
 from .held_guidance import HeldGuidance
-from .security_patterns import BLANKS, DOWNLOAD, PIP_INSTALL, PIP_STUCK, PIP_URL_OPTS, RM_RECURSIVE, SECRET_WORD_START
+from .security_patterns import (
+    BLANKS,
+    DOWNLOAD,
+    PIP_INSTALL,
+    PIP_STUCK,
+    PIP_TARGET,
+    PIP_WORDS,
+    RM_RECURSIVE,
+    SECRET_WORD_START,
+)
 
 SEVERITIES = ("critical", "high", "medium")
 
@@ -159,10 +168,8 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
-         _rx(r"(?:^|[\n;&|]|" + PIP_STUCK + r")(?:(?!" + PIP_INSTALL + r")(?!" + PIP_STUCK + r")[^\n;&|])*" + PIP_INSTALL
-             + r"(?:" + BLANKS + r"(?:(?:" + PIP_URL_OPTS + r")(?:" + BLANKS
-             + r"|=)[^\s;&|]+|(?!(?:" + PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
-             + BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
+         _rx(r"(?:^|[\n;&|])(?:(?:(?!" + PIP_INSTALL + r")[^\n;&|])*+" + PIP_INSTALL + PIP_WORDS + PIP_STUCK + r")*+"
+             r"(?:(?!" + PIP_INSTALL + r")[^\n;&|])*+" + PIP_INSTALL + PIP_WORDS + BLANKS + PIP_TARGET)),
     # flags in any number of tokens, one of them recursive; then a target among the words: /, /*, ~, ~/,
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (security_patterns.CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory", _rx(RM_RECURSIVE), drop_redirects=True),

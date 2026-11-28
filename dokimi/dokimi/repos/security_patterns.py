@@ -17,9 +17,15 @@ CLEANUP_PARTS = r"\.?cache|lists|pkgs|tmp|site-packages|dist-packages|__pycache_
 #: A pip option whose value is a URL that is no package (an index or a links page).
 PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
 #: ``pip install`` followed by a blank. unpinned-install starts at the first one after the start of its segment (a newline, `;`, `&`, `|`)
-#: or after an option word `-i=` that no word can follow (:data:`PIP_STUCK`): a later one reads the same words from there (#1269).
+#: or after the option word `-i=` that stops the words of an earlier one (:data:`PIP_STUCK`): a later one reads the same words from there (#1269).
 PIP_INSTALL = r"\bpip3?" + BLANKS + r"install\b(?=" + BLANKS + r")"
-PIP_STUCK = r"(?<!\S)(?:" + PIP_URL_OPTS + r")=(?!\S)"
+#: A package word that is a URL, has git+ in it, or is the system guard's override.
+PIP_TARGET = r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)"
+#: The words after ``install``, up to a target, read once and not given back: an index or links option takes its URL value as one word.
+PIP_WORDS = (r"(?:" + BLANKS + r"(?!" + PIP_TARGET + r")(?:(?:" + PIP_URL_OPTS + r")(?:" + BLANKS + r"|=)[^\s;&|]+"
+             r"|(?!(?:" + PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*+")
+#: The option word `-i=` that no word can follow, where :data:`PIP_WORDS` ends. A `-i=` taken as the value of `-i` is no such word, so a line of `-i -i=` is read once (#1269).
+PIP_STUCK = BLANKS + r"(?:" + PIP_URL_OPTS + r")=(?!\S)"
 #: pipe-to-shell starts at the first download of a segment (up to `|`, `;` or `&`): a later one reaches the same `|` (#1269).
 DOWNLOAD = r"\b(?:curl|wget)\b"
 
