@@ -120,3 +120,9 @@ A block that ends normally finishes the run unless it called
 status, else `incomplete`. A block that raises records the stop and lets the
 exception go on. A run ends once: a second `finish`, or a `write_plan` or
 `record_cell` after the end, is refused.
+
+A block that waits on a thread pool cancels the work still queued as it
+unwinds (`pool.shutdown(wait=False, cancel_futures=True)`, then the exception
+goes on): a `ThreadPoolExecutor`'s own exit waits for every queued item, so
+after a signal the record, and the exit, would come only once the whole queue
+has run.
