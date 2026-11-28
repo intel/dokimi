@@ -132,6 +132,7 @@ from .compare_judged import (check_reported, judge_names, judge_warnings, judged
                              read_judged)
 from .compare_leak import format_leak, leak_check
 from .compare_interval import format_interval, format_value, includes_zero
+from .compare_interval import format_delta
 from .compare_reach import holm_family, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -651,7 +652,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                 moved = [t for t in r["tasks"] if round(t["delta"], 6)]  # below 5e-7 is float noise, not a change
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(
-                        f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
+                        f"{t['task']} {format_delta(t['delta'])}" for t in sorted(moved, key=lambda t: t["delta"])))
                 if r["headroom"]:
                     lines.append(f"  {r['measure']} {_headroom_note(r)}")
         lines += _reading_notes(rows, family)
