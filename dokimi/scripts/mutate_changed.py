@@ -13,9 +13,12 @@ breaking. Steps:
 3. Covering tests: one coverage run of those files with per-test contexts
    (``--cov-context=test``), one file at a time for at most half of ``--budget``,
    maps each changed line to the tests that execute it.
-4. Mutants: a small AST mutator on the changed lines only (flip a comparison,
-   swap ``and``/``or``, negate an ``if``/``while`` condition, return ``None``,
-   flip a boolean constant, bump an integer, swap ``+``/``-``, drop ``not``),
+4. Mutants: a small AST mutator on the changed lines only (flip a comparison or
+   move it one step over its edge, swap ``and``/``or`` or drop one clause, negate
+   an ``if``/``while`` condition, cut a conditional expression to either branch,
+   drop a comprehension filter, return ``None``, flip a boolean constant, bump an
+   integer, swap ``+``/``-``, drop ``not``, drop an element of a literal
+   collection of constants, replace a statement kept for its effect by ``pass``),
    spliced into the source text so the rest of the file is untouched.
    At most ``--max-mutants``, spread round-robin over the changed lines.
 5. Each mutant runs the tests covering its line, ``-x``, in a copy of the
@@ -26,16 +29,22 @@ breaking. Steps:
    A survivor whose module has a candidate test file that did not run (out of time,
    or failing to collect) is ``inconclusive``: that file may be the one that catches
    the change, so it is not reported as a gap.
+6. A survivor whose line ends in a ``# mutation-ok[<operator>]: <reason>`` comment naming its
+   operator, or has one alone on the line above, is ``waived`` and listed with its reason
+   (``waivers``): a mutant that cannot change behaviour. A ``mutation-ok`` with no operator, an
+   unknown one or no reason waives nothing and is listed as such.
 
 A line no candidate test executes, or one that continues a multi-line expression
 or signature, is listed as not mutated: the changed-lines coverage gate in ``ci.yml`` owns the first. The run stops starting
 mutants after ``--budget`` seconds and reports the rest as not run.
 
     python scripts/mutate_changed.py --base origin/main [--max-mutants 40]
-        [--json out.json] [--markdown out.md] [--fail-on-survivor]
+        [--json out.json] [--markdown out.md] [--comment-json out.json] [--fail-on-survivor]
 
+``--json`` holds every mutant, then ``survivors`` and ``waived`` with the tests that ran each;
+``--comment-json`` is the compact form the pull-request comment is posted from (``comment_result``).
 Tests that fail without a mutant are left out and listed. Exits 0, or 1 with
-``--fail-on-survivor`` when a mutant survives; git failing to diff ``--base``
+``--fail-on-survivor`` when a mutant survives unwaived; git failing to diff ``--base``
 exits with its message.
 """
 
@@ -70,6 +79,12 @@ _CMP_SWAP: dict[type, type] = {
     ast.Gt: ast.LtE, ast.LtE: ast.Gt, ast.In: ast.NotIn, ast.NotIn: ast.In,
     ast.Is: ast.IsNot, ast.IsNot: ast.Is,
 }
+# The same comparison one step over its edge: the test that pins `<=` needs a case exactly at the bound.
+_CMP_EDGE: dict[type[ast.cmpop], type[ast.cmpop]] = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt}
+# Calls whose removal no test should notice: a log line is not behaviour.
+_LOG_ROOTS = frozenset({"log", "logger", "logging", "warnings", "_log", "_logger", "LOG", "LOGGER"})
+_LOG_METHODS = frozenset({"debug", "info", "warning", "warn", "error", "exception", "critical", "fatal", "log"})
+ELEMENT_DROPS = 3  # elements dropped from one literal collection: first, middle, last
 
 
 @dataclass
@@ -84,6 +99,7 @@ class Mutant:
     status: str = "not run"
     tests: list[str] = field(default_factory=list)
     seconds: float = 0.0
+    waiver: str | None = None  # the reason of the mutation-ok comment that waived it
 
 
 def changed_lines(base: str) -> dict[str, set[int]]:
@@ -129,27 +145,63 @@ def _span(node: ast.AST) -> tuple[tuple[int, int], tuple[int, int]]:
 def _edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
     """(operator name, node whose source span is replaced, replacement text)."""
     yield from _logic_edits(node, src)
-    yield from _value_edits(node)
+    yield from _value_edits(node, src)
+    yield from _statement_edits(node)
+
+
+def _compare_edits(node: ast.Compare) -> Iterator[tuple[str, ast.AST, str]]:
+    new = ast.Compare(left=node.left, ops=[_CMP_SWAP[type(node.ops[0])]()], comparators=node.comparators)
+    yield "flip-compare", node, ast.unparse(new)
+    if type(node.ops[0]) in _CMP_EDGE:
+        edge = ast.Compare(left=node.left, ops=[_CMP_EDGE[type(node.ops[0])]()], comparators=node.comparators)
+        yield "shift-boundary", node, ast.unparse(edge)
+
+
+def _boolop_edits(node: ast.BoolOp, src: str) -> Iterator[tuple[str, ast.AST, str]]:
+    new_op = ast.Or() if isinstance(node.op, ast.And) else ast.And()
+    yield "swap-boolop", node, ast.unparse(ast.BoolOp(op=new_op, values=node.values))
+    for dropped in range(len(node.values)):
+        rest = [v for i, v in enumerate(node.values) if i != dropped]
+        kept = ast.get_source_segment(src, rest[0]) if len(rest) == 1 else ast.unparse(ast.BoolOp(op=node.op, values=rest))
+        if kept is not None:
+            yield "drop-clause", node, f"({kept})"
+
+
+def _condition_edits(node: ast.If | ast.While | ast.IfExp, src: str) -> Iterator[tuple[str, ast.AST, str]]:
+    seg = ast.get_source_segment(src, node.test)
+    if seg is not None:
+        yield "negate-condition", node.test, f"not ({seg})"
+    if isinstance(node, ast.IfExp):  # either branch alone: no test tells the two apart
+        for branch in (node.body, node.orelse):
+            taken = ast.get_source_segment(src, branch)
+            if taken is not None:
+                yield "take-branch", node, f"({taken})"
 
 
 def _logic_edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
     if isinstance(node, ast.Compare) and len(node.ops) == 1 and type(node.ops[0]) in _CMP_SWAP:
-        new = ast.Compare(left=node.left, ops=[_CMP_SWAP[type(node.ops[0])]()], comparators=node.comparators)
-        yield "flip-compare", node, ast.unparse(new)
-    elif isinstance(node, ast.BoolOp):
-        new_op = ast.Or() if isinstance(node.op, ast.And) else ast.And()
-        yield "swap-boolop", node, ast.unparse(ast.BoolOp(op=new_op, values=node.values))
+        yield from _compare_edits(node)
+    elif isinstance(node, ast.BoolOp) and not _text_default(node):
+        yield from _boolop_edits(node, src)
     elif isinstance(node, (ast.If, ast.While, ast.IfExp)):
-        seg = ast.get_source_segment(src, node.test)
-        if seg is not None:
-            yield "negate-condition", node.test, f"not ({seg})"
+        yield from _condition_edits(node, src)
     elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         seg = ast.get_source_segment(src, node.operand)
         if seg is not None:
             yield "drop-not", node, f"({seg})"
+    if getattr(node, "_is_filter", False):  # the `if` of a comprehension, marked by mutants_for
+        yield "drop-filter", node, "True"
 
 
-def _value_edits(node: ast.AST) -> Iterator[tuple[str, ast.AST, str]]:
+def _text_default(node: ast.BoolOp) -> bool:
+    """``value or "text"``: a trailing fallback text, not a decision; its mutants survive on every line that prints a default."""
+    last = node.values[-1]
+    return isinstance(node.op, ast.Or) and isinstance(last, ast.Constant) and isinstance(last.value, str)
+
+
+def _value_edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)) and isinstance(getattr(node, "ctx", ast.Load()), ast.Load):
+        yield from _element_drops(node, src)
     if isinstance(node, ast.Return) and node.value is not None:
         if not (isinstance(node.value, ast.Constant) and node.value.value is None):
             yield "return-none", node.value, "None"
@@ -163,11 +215,57 @@ def _value_edits(node: ast.AST) -> Iterator[tuple[str, ast.AST, str]]:
             yield "swap-addsub", node, ast.unparse(new_bin)
 
 
+def _element_drops(node: ast.Tuple | ast.List | ast.Set, src: str) -> Iterator[tuple[str, ast.AST, str]]:
+    """A literal collection of constants without one of its elements: a membership set no test walks in full."""
+    elts = node.elts
+    if len(elts) < 2 or not all(isinstance(e, ast.Constant) for e in elts):
+        return
+    whole = ast.get_source_segment(src, node)
+    parts = [ast.get_source_segment(src, e) for e in elts]
+    if whole is None or any(part is None for part in parts):
+        return
+    opener, closer = ("(", ")") if isinstance(node, ast.Tuple) else ("[", "]") if isinstance(node, ast.List) else ("{", "}")
+    for dropped in sorted({0, len(elts) // 2, len(elts) - 1})[:ELEMENT_DROPS]:
+        rest = [part for i, part in enumerate(parts) if i != dropped]
+        inner = ", ".join(rest) + ("," if isinstance(node, ast.Tuple) and len(rest) == 1 else "")  # type: ignore[arg-type]
+        yield "drop-element", node, f"{opener}{inner}{closer}"
+
+
+def _is_log_call(call: ast.Call) -> bool:
+    """A log call, or a bare ``print``: a line of output is pinned by the test that reads the output, or by none."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id == "print"
+    if not isinstance(func, ast.Attribute) or func.attr not in _LOG_METHODS:  # `warnings.append` collects results
+        return False
+    while isinstance(func, ast.Attribute):
+        func = func.value
+    return isinstance(func, ast.Name) and func.id in _LOG_ROOTS
+
+
+def _statement_edits(node: ast.AST) -> Iterator[tuple[str, ast.AST, str]]:
+    """A statement that does something replaced by ``pass``: a call for its effect, an update, a raise, a continue.
+
+    Not an assignment to a plain name (its removal is a NameError, which any test of the line notices), not a
+    log call or a ``print``, not a ``break`` (its removal can loop until the mutant times out).
+    """
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and not _is_log_call(node.value):
+        yield "delete-statement", node, "pass"
+    elif isinstance(node, (ast.AugAssign, ast.Raise, ast.Continue)):
+        yield "delete-statement", node, "pass"
+    elif isinstance(node, ast.Assign) and all(isinstance(t, (ast.Attribute, ast.Subscript)) for t in node.targets):
+        yield "delete-statement", node, "pass"
+
+
 def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
     """Every mutant whose node starts on a changed line, in source order."""
     tree = ast.parse(src)
     skip = _docstring_lines(tree)
     out: list[Mutant] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.comprehension):  # a comprehension has no line of its own; its filters do
+            for condition in node.ifs:
+                condition._is_filter = True  # type: ignore[attr-defined]
     for node in ast.walk(tree):
         line = getattr(node, "lineno", None)
         if line is None or line not in lines or line in skip:
@@ -178,7 +276,7 @@ def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
                 continue
             start, end = _span(target)
             out.append(Mutant(path, line, op, start, end, replacement, original))
-    out.sort(key=lambda m: (m.line, m.start, m.op))
+    out.sort(key=lambda m: (m.line, m.start, m.op, m.replacement))
     return out
 
 
@@ -235,6 +333,56 @@ def pick(mutants: list[Mutant], cap: int) -> list[Mutant]:
             if not q:
                 queues.remove(q)
     return chosen
+
+
+OPERATORS = frozenset({
+    "flip-compare", "shift-boundary", "swap-boolop", "drop-clause", "negate-condition", "take-branch", "drop-not",
+    "drop-filter", "return-none", "flip-bool", "bump-int", "swap-addsub", "drop-element", "delete-statement",
+})
+WAIVER = re.compile(r"\bmutation-ok(?:\[([^\]]*)\])?:(.*)")
+CELL = 80  # characters of source text kept per table cell and per field of the comment result
+_LAYOUT = {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER, tokenize.COMMENT}
+
+
+def waivers(src: str) -> dict[int, dict[str, str]]:
+    """Line -> {operator: reason} of each ``# mutation-ok[<operator>,...]: <reason>`` comment.
+
+    The comment is at the end of that line, or alone on the line above. A waiver with no operator
+    is kept under ``""`` and an empty reason as ``""``: they waive nothing, and the report lists them.
+    """
+    code: set[int] = set()
+    comments: list[tuple[int, str]] = []
+    for tok in tokenize.generate_tokens(StringIO(src).readline):
+        if tok.type == tokenize.COMMENT:
+            comments.append((tok.start[0], tok.string))
+        elif tok.type not in _LAYOUT:
+            code.update(range(tok.start[0], tok.end[0] + 1))
+    out: dict[int, dict[str, str]] = {}
+    for line, text in comments:
+        if m := WAIVER.search(text):
+            ops = [op.strip() for op in (m.group(1) or "").split(",")]
+            target = out.setdefault(line if line in code else line + 1, {})
+            for op in ops:
+                target.setdefault(op, m.group(2).strip())
+    return out
+
+
+def waive(mutants: list[Mutant], sources: dict[str, str], report: dict) -> None:
+    """Mark each survivor whose operator has a reasoned waiver on its line ``waived``.
+
+    A line whose waiver names no operator, an unknown one, or no reason is listed in ``report``: it waives nothing.
+    """
+    marks = {path: waivers(src) for path, src in sources.items()}
+    bare = report.setdefault("waivers_without_reason", [])
+    for m in mutants:
+        marks_here = marks.get(m.path, {}).get(m.line)
+        if marks_here is None:
+            continue
+        if any(op not in OPERATORS or not reason for op, reason in marks_here.items()):
+            if f"{m.path}:{m.line}" not in bare:
+                bare.append(f"{m.path}:{m.line}")
+        if marks_here.get(m.op) and m.status == "survived":
+            m.status, m.waiver = "waived", marks_here[m.op]
 
 
 def candidate_tests(paths: list[str], tests_dir: Path) -> list[str]:
@@ -459,32 +607,62 @@ def run(args: argparse.Namespace) -> int:
             m.status = _mutant_status(rc, log)
             if m.status == "survived" and unrun.get(m.path):
                 m.status = "inconclusive"
+        waive(chosen, {p: (REPO / p).read_text(encoding="utf-8") for p in {m.path for m in chosen}}, report)
         report["mutants"] = [asdict(m) for m in chosen]
     report["uncovered_lines"] = {p: sorted(s) for p, s in report["uncovered_lines"].items()}
     survived = sum(m.status == "survived" for m in chosen)
     return _finish(report, args, t0, 1 if survived and args.fail_on_survivor else 0)
 
 
+STATUSES = ("killed", "timeout", "error", "survived", "waived", "inconclusive", "not run")
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")[:CELL]
+
+
+def _code(text: str) -> str:
+    """``text`` as a code span whose fence is longer than any backtick run inside it."""
+    t = _cell(text)
+    fence = "`" * (max((len(r) for r in re.findall("`+", t)), default=0) + 1)
+    return f"{fence} {t} {fence}"
+
+
+def _tables(ms: list[dict], bare: list[str]) -> list[str]:
+    """The survivor and waived tables of the summary, each after its line on what to do."""
+    out = []
+    if survivors := [m for m in ms if m["status"] == "survived"]:
+        out.append("A survivor is a change to that line that the tests covering it do not notice: add an assertion "
+                   "that fails on it or, if the change cannot alter behaviour, put "
+                   "`# mutation-ok[<operator>]: <reason>` at the end of the line or alone on the line above.\n")
+        out.append("| Line | Operator | Was | Became | Tests run |\n|---|---|---|---|---:|")
+        out += [f"| `{m['path']}:{m['line']}` | {m['op']} | `{_cell(m['original'])}` | `{_cell(m['replacement'])}` "
+                f"| {len(m['tests'])} |" for m in survivors]
+        out.append("")
+    if waived := [m for m in ms if m["status"] == "waived"]:
+        out.append("Waived by `mutation-ok`:\n\n| Line | Operator | Was | Became | Reason |\n|---|---|---|---|---|")
+        out += [f"| `{m['path']}:{m['line']}` | {m['op']} | `{_cell(m['original'])}` | `{_cell(m['replacement'])}` "
+                f"| {_code(m['waiver'])} |" for m in waived]
+        out.append("")
+    if bare:
+        out.append("A `mutation-ok` with no operator, an unknown operator or no reason waives nothing: "
+                   + ", ".join(f"`{b}`" for b in bare) + "\n")
+    return out
+
+
 def markdown(report: dict) -> str:
     ms = report["mutants"]
-    count = {s: sum(m["status"] == s for m in ms) for s in ("killed", "timeout", "error", "survived", "inconclusive", "not run")}
+    count = {s: sum(m["status"] == s for m in ms) for s in STATUSES}
     out = ["## Mutation of changed lines\n"]
     if note := report.get("note"):
         out.append(f"{note}.\n")
     out.append(
         f"{len(ms)} mutants of {report.get('mutants_covered', 0)} on covered changed lines (cap {report['max_mutants']}): "
         f"{count['killed']} killed, {count['timeout']} timed out, {count['error']} errors, "
-        f"**{count['survived']} survived**, {count['inconclusive']} inconclusive, {count['not run']} not run (time budget). {report['seconds']} s.\n"
+        f"**{count['survived']} survived**, {count['waived']} waived, {count['inconclusive']} inconclusive, "
+        f"{count['not run']} not run (time budget). {report['seconds']} s.\n"
     )
-    survivors = [m for m in ms if m["status"] == "survived"]
-    if survivors:
-        out.append("A survivor is a change to that line that the tests covering it do not notice; "
-                   "add an assertion that fails on it, or say in the PR why it is equivalent.\n")
-        out.append("| Line | Operator | Was | Became | Tests run |\n|---|---|---|---|---:|")
-        for m in survivors:
-            was, became = (s.replace("|", "\\|").replace("\n", " ")[:80] for s in (m["original"], m["replacement"]))
-            out.append(f"| `{m['path']}:{m['line']}` | {m['op']} | `{was}` | `{became}` | {len(m['tests'])} |")
-        out.append("")
+    out += _tables(ms, report.get("waivers_without_reason", []))
     if count["inconclusive"]:
         out.append(f"{count['inconclusive']} inconclusive: the tests covering the line pass, but a candidate test file "
                    "for its module did not run (listed below), so it may be the one that catches the change. Not a gap.\n")
@@ -501,10 +679,45 @@ def markdown(report: dict) -> str:
     return "\n".join(out)
 
 
+def _entry(m: dict, **extra: object) -> dict:
+    return {"path": m["path"], "line": m["line"], "op": m["op"], "original": m["original"],
+            "replacement": m["replacement"], **extra}
+
+
+def comment_result(report: dict) -> dict:
+    """What the pull-request comment is posted from: the count per status, then each survivor and waived mutant.
+
+    Source text and reasons are cut to ``CELL`` characters and the tests to their count, so its size has a bound.
+    ``untested`` counts what kept mutants from being tried (candidate tests that fail without a mutant, candidate
+    test files not run, changed lines no test executes), so a run that tested nothing is not shown as clean;
+    ``capped`` counts the covered mutants ``--max-mutants`` left out, so a sample is not shown as every line.
+    """
+    ms = report["mutants"]
+    cut = {"original", "replacement", "reason"}
+
+    def short(e: dict) -> dict:
+        return {k: v[:CELL] if k in cut else v for k, v in e.items()}
+
+    return {
+        "counts": {s: sum(m["status"] == s for m in ms) for s in STATUSES},
+        "survivors": [short(_entry(m, tests_run=len(m["tests"]))) for m in ms if m["status"] == "survived"],
+        "waived": [short(_entry(m, reason=m["waiver"])) for m in ms if m["status"] == "waived"],
+        "waivers_without_reason": report.get("waivers_without_reason", [])[:40],
+        "untested": {"failing_tests": len(report.get("failing_unmutated", [])),
+                     "tests_not_run": len(report.get("candidate_tests_not_run", [])),
+                     "uncovered_lines": sum(len(ls) for ls in report.get("uncovered_lines", {}).values())},
+        "capped": max(0, report.get("mutants_covered", len(ms)) - len(ms)),
+    }
+
+
 def _finish(report: dict, args: argparse.Namespace, t0: float, code: int) -> int:
     report.setdefault("mutants", [])
     report["uncovered_lines"] = {p: sorted(s) for p, s in report.get("uncovered_lines", {}).items()}
     report["seconds"] = round(time.monotonic() - t0, 1)
+    report["survivors"] = [_entry(m, tests=m["tests"]) for m in report["mutants"] if m["status"] == "survived"]
+    report["waived"] = [_entry(m, tests=m["tests"], reason=m["waiver"]) for m in report["mutants"] if m["status"] == "waived"]
+    if args.comment_json:
+        Path(args.comment_json).write_text(json.dumps(comment_result(report), indent=2), encoding="utf-8")
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2), encoding="utf-8")
     text = markdown(report)
@@ -528,7 +741,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--budget", type=float, default=1200.0, help="seconds after which no new mutant starts")
     ap.add_argument("--json")
     ap.add_argument("--markdown")
-    ap.add_argument("--fail-on-survivor", action="store_true")
+    ap.add_argument("--comment-json", help="compact result the pull-request comment is posted from")
+    ap.add_argument("--fail-on-survivor", action="store_true", help="exit 1 when a mutant survives unwaived")
     return run(ap.parse_args(argv))
 
 

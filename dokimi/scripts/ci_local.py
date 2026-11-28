@@ -208,6 +208,7 @@ class Context:
             "runner.temp": str(tmp),
             "github.workspace": str(REPO),
             "steps.changes.outputs.code": "true",
+            "vars.MUTATION_GATE": "",  # unset, as it ships: the mutation step warns locally and in CI alike
             "contains(github.event.pull_request.labels.*.name, 'schema-break-ok')": "false",
             "contains(github.event.pull_request.labels.*.name, 'skip-changelog')": "false",
         }

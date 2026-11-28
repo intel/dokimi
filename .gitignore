@@ -11,6 +11,7 @@ coverage.json
 /dokimi/diff-cover.md
 /dokimi/mutation-diff.json
 /dokimi/mutation-diff.md
+/dokimi/mutation-diff-comment.json
 /dokimi/compat.txt
 /dokimi/outcomes-result.json
 /dokimi/journeys-result.json

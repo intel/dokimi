@@ -3,6 +3,8 @@
 
 """cli-interface-comment.yml: a write-token workflow_run job that must stay safe.
 
+Its mutation-survivors comment (results of ci's mutation-diff job) is tested in test_mutation_comment_workflow.py.
+
 Static checks pin the trust boundary; behavioural checks run the embedded script under
 node with a fake GitHub client, feeding it good and hostile artifacts.
 """
@@ -34,14 +36,18 @@ def _trigger(wf: dict) -> dict:
     return wf.get("on") or wf[True]  # PyYAML reads the bare key `on` as True
 
 
-# Whole, not by its parts: "||" for "&&" would post for a failed PR run, or for any successful push run
-POST_IF = "github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'"
+# Whole, not by its parts: "||" for the first "&&" would post for any push run, and a failed cli-interface
+# run is not posted; a failed ci run is, as its mutation job's result stands whichever job failed.
+POST_IF = (
+    "github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success'"
+    " || (github.event.workflow_run.name == 'ci' && github.event.workflow_run.conclusion == 'failure'))"
+)
 
 
 def test_runs_only_after_cli_interface_and_never_checks_out_code():
     wf = _wf()
     assert set(_trigger(wf)) == {"workflow_run"}
-    assert _trigger(wf)["workflow_run"]["workflows"] == ["cli-interface"]
+    assert _trigger(wf)["workflow_run"]["workflows"] == ["cli-interface", "ci"]
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "actions/checkout" not in text
     assert "pull_request_target" not in text
@@ -86,7 +92,7 @@ const github = { rest, paginate: async (fn, a) =>
   fn === 'list' ? c.artifacts : fn === 'by-commit' ? [] :
   fn === 'pulls' ? (calls.push(['pulls.list', a]), c.assoc) : c.comments };
 const context = { repo: { owner: 'intel', repo: 'dokimi' },
-  payload: { workflow_run: { id: 7, head_sha: c.run_sha, html_url: 'https://x/run/7',
+  payload: { workflow_run: { id: 7, name: c.workflow, head_sha: c.run_sha, html_url: 'https://x/run/7',
     head_branch: 'topic', head_repository: { owner: { login: 'forker' } } } } };
 const core = { warning: (m) => calls.push(['warning', m]), info: () => {} };
 const script = JSON.parse(fs.readFileSync(scriptFile, 'utf8'));
@@ -111,6 +117,9 @@ def _run(
     fail_create_label: bool = False,
     assoc=None,
     pad: int = 0,
+    workflow: str = "cli-interface",
+    artifact: str = "cli-interface-result",
+    env: dict[str, str] | None = None,
 ):
     node = shutil.which("node")
     if not (node and shutil.which("unzip")):
@@ -127,6 +136,7 @@ def _run(
     (tmp_path / "harness.js").write_text(_HARNESS, encoding="utf-8")
     case = {
         "zip": str(zpath),
+        "workflow": workflow,
         "run_sha": run_sha,
         "comments": list(comments),
         "fail_labels": fail_labels,
@@ -136,7 +146,7 @@ def _run(
         "artifacts": [
             {
                 "id": 3,
-                "name": "cli-interface-result",
+                "name": artifact,
                 "expired": False,
                 "size_in_bytes": size if size is not None else len(buf.getvalue()),
                 "workflow_run": {"id": artifact_run},
@@ -154,7 +164,7 @@ def _run(
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "TMPDIR": str(tmp_path), "TMP": str(tmp_path), "TEMP": str(tmp_path)},
+        env={**os.environ, "TMPDIR": str(tmp_path), "TMP": str(tmp_path), "TEMP": str(tmp_path), **(env or {})},
     )
     return json.loads(out.stdout)
 
@@ -312,9 +322,10 @@ def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):
 def test_concurrency_is_per_pr_branch_not_per_commit():
     group = _wf()["concurrency"]["group"]
     assert re.findall(r"\$\{\{ (.+?) \}\}", group) == [  # each part whole: a run id or a commit in one races two posts
-        "github.workflow", "github.event.workflow_run.head_repository.full_name", "github.event.workflow_run.head_branch"]
+        "github.workflow", "github.event.workflow_run.head_repository.full_name", "github.event.workflow_run.head_branch",
+        "github.event.workflow_run.name"]  # cli-interface and ci finishing together must not cancel each other's post
     assert group == ("${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}"
-                     "-${{ github.event.workflow_run.head_branch }}")
+                     "-${{ github.event.workflow_run.head_branch }}-${{ github.event.workflow_run.name }}")
 
 
 OLD_COMMENT = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold diff"}]

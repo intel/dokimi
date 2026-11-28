@@ -402,7 +402,7 @@ jobs:
           version: '11.3.1'
 
   # Mutates only the package lines a PR changes and runs the tests covering each (scripts/mutate_changed.py).
-  # Warn-only: survivors go to the step summary and as annotations; runtime and survivor counts are in the PR that added it.
+  # Survivors go to the step summary, annotations and a sticky PR comment (cli-interface-comment.yml); MUTATION_GATE=true fails on one.
   mutation-diff:
     name: Mutation of changed lines
     if: github.event_name == 'pull_request'
@@ -421,18 +421,40 @@ jobs:
           cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
         run: pip install --no-deps --require-hashes -r requirements.lock.txt
-      # No new mutant after 900 s, each at most 120 s: the step ends well inside its 22 minutes.
+      # No new mutant after 900 s (80 mutants took at most 810 s on ten merged PRs); MUTATION_GATE=true fails on an unwaived
+      # survivor and ships unset, warn and comment only, as 7 of those ten PRs leave one (vchamarthi/dokimi#89).
       - name: Mutate changed lines
         timeout-minutes: 22
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          MUTATION_GATE: ${{ vars.MUTATION_GATE }}
         run: |
-          python scripts/mutate_changed.py --base "origin/$BASE_REF" --max-mutants 40 --budget 900 \
-            --mutant-timeout 120 --json mutation-diff.json --markdown mutation-diff.md
+          gate=()
+          if [ "$MUTATION_GATE" = true ]; then gate=(--fail-on-survivor); fi
+          python scripts/mutate_changed.py --base "origin/$BASE_REF" --max-mutants 80 --budget 900 \
+            --mutant-timeout 120 --json mutation-diff.json --markdown mutation-diff.md \
+            --comment-json mutation-diff-comment.json "${gate[@]}"
       - name: Mutation summary
         if: ${{ !cancelled() }}
         run: |
           if [ -f mutation-diff.md ]; then cat mutation-diff.md; else echo "No report: see the Mutate changed lines log."; fi >> "$GITHUB_STEP_SUMMARY"
+      # For cli-interface-comment.yml (workflow_run, write token): this job's token is read-only, so it never posts.
+      # Plain data only: the poster treats it as untrusted and re-validates every field.
+      - name: Package the result for the PR comment
+        if: ${{ !cancelled() }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/mutation-diff-result"
+          python -c 'import json, os, pathlib; p = pathlib.Path("mutation-diff-comment.json"); json.dump({"pr_number": int(os.environ["PR_NUMBER"]), "head_sha": os.environ["HEAD_SHA"], "status": "ok" if p.is_file() else "error", "result": json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None}, open(os.environ["RUNNER_TEMP"] + "/mutation-diff-result/result.json", "w", encoding="utf-8"))'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: mutation-diff-result
+          path: ${{ runner.temp }}/mutation-diff-result/result.json
+          retention-days: 1
+          if-no-files-found: error
 
   # Pins the request a docker-claude arm sends (#354); the golden and what it covers are in
   # tests/fixtures/fidelity/README.md. A diff here means the npm build or the arm changed.

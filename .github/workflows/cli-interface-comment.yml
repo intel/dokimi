@@ -3,32 +3,28 @@
 
 name: cli-interface-comment
 
-# Applies the `cli-interface-change` label and the sticky comment for the result that
-# the cli-interface workflow uploads. That workflow runs on pull_request, so on a fork
-# PR its token is read-only; this one runs in the base repository's context after it
-# finishes, with a write token.
-#
-# Security: this job never checks out or runs PR code. The artifact is data produced by
-# PR-controlled code, so it is untrusted: its size is capped, it is parsed as JSON only,
-# the PR number must be an integer, the PR's current head must be the commit the run was
-# for, and the text is only ever passed to the REST API as a body (no shell, no eval).
+# Posts the sticky PR comments for the results cli-interface (and its label) and ci's mutation-diff job upload: on a
+# fork PR their pull_request token is read-only, so this runs in the base repository after them, with a write token.
 on:
-  workflow_run:  # zizmor: ignore[dangerous-triggers] -- intended: no checkout, untrusted artifact is validated (see above)
-    workflows: [cli-interface]
+  workflow_run:  # zizmor: ignore[dangerous-triggers] -- intended: no checkout, untrusted artifact is validated (see below)
+    workflows: [cli-interface, ci]
     types: [completed]
 
 permissions: {}
 
 concurrency:
-  # One group per PR branch (pull_requests[] is empty for forks), so pushes to one PR
-  # post one at a time and cannot both find no sticky comment and each create one.
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  # One group per PR branch and followed workflow (pull_requests[] is empty for forks): pushes post one at a time,
+  # and cli-interface and ci finishing together cannot cancel each other's pending post.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ github.event.workflow_run.name }}
   cancel-in-progress: false
 
+# Security: never checks out or runs PR code. The artifact is PR-controlled data: size-capped, parsed as JSON only, its PR
+# number and head checked against the API, its text escaped and only passed to the REST API as a body (no shell, no eval).
 jobs:
   post:
     name: Label and comment
-    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    # A ci run fails when any of its jobs does (the mutation gate among them), and its mutation result is still posted.
+    if: github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success' || (github.event.workflow_run.name == 'ci' && github.event.workflow_run.conclusion == 'failure'))
     runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     permissions:
       actions: read  # list and download the run's artifact
@@ -37,6 +33,8 @@ jobs:
     steps:
       - name: Validate the result and post it
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          MUTATION_GATE: ${{ vars.MUTATION_GATE }}
         with:
           script: |
             const fs = require('fs');
@@ -46,11 +44,27 @@ jobs:
             const { owner, repo } = context.repo;
             const run = context.payload.workflow_run;
             const label = 'cli-interface-change';
-            const marker = '<!-- cli-interface-diff -->';
             const MAX_ZIP_BYTES = 256 * 1024;
             const MAX_JSON_BYTES = 200 * 1024;
             const MAX_DIFF_CHARS = 60000;
+            const WAIVED_ROOM = 10000;  // kept back from the survivors table for the waived one
+            const MAX_TABLE_CHARS = 55000;  // both mutation tables; the rest of that body stays under 10,000
             const bot = 'github-actions[bot]';
+            const STATUSES = ['killed', 'timeout', 'error', 'survived', 'waived', 'inconclusive', 'not run'];
+
+            // Per followed workflow: the artifact it uploads, its sticky comment's marker, how a result
+            // is checked (a reason to ignore it, or null) and posted.
+            const kinds = {
+              'cli-interface': { artifact: 'cli-interface-result', marker: '<!-- cli-interface-diff -->',
+                what: 'The CLI interface result', kept: ` The \`${label}\` label is as it was.`,
+                check: checkCli, post: postCli },
+              ci: { artifact: 'mutation-diff-result', marker: '<!-- mutation-survivors -->',
+                what: 'The mutation result', kept: '', check: checkMutation, post: postMutation },
+            };
+            if (!Object.hasOwn(kinds, run.name)) { core.warning(`No comment for workflow ${run.name}.`); return; }
+            const kind = kinds[run.name];
+            const { marker } = kind;
+            const runLink = `[${run.name} run](${run.html_url})`;
 
             // The sticky comment of a PR: its existing one (only the bot's own counts) and a
             // writer that updates it or creates it.
@@ -68,7 +82,7 @@ jobs:
             // A result over the size caps cannot be read, so the PR number is not known from it:
             // find the open PRs of this repository from the run's head branch at the run's commit,
             // and say there that the result was too large, so an older comment does not keep showing a
-            // diff that no longer exists. The label is left as it is, as for `changed: error`.
+            // result that no longer holds. The label is left as it is, as for `changed: error`.
             // Looked up by branch: the commit lookup on this repository is empty for a fork's commit.
             const tooLarge = async (why) => {
               core.warning(why);
@@ -78,22 +92,188 @@ jobs:
                 if (p.state !== 'open' || p.base?.repo?.full_name !== `${owner}/${repo}` ||
                     p.head?.sha !== run.head_sha) continue;
                 const { put } = await sticky(p.number);
-                await put(`${marker}\nThe CLI interface result for this commit is too large to show ` +
-                  `(${why}); see the [cli-interface run](${run.html_url}). The \`${label}\` label is as it was.`);
+                await put(`${marker}\n${kind.what} for this commit is too large to show ` +
+                  `(${why}); see the ${runLink}.${kind.kept}`);
               }
             };
 
+            // Text derived from the PR: no forged marker (every HTML-comment opener is broken in one
+            // pass, so a nested marker cannot reassemble) and no mentions.
+            const neutral = (s) => s.replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b');
+
+            function checkCli(res) {
+              if (!['0', '1', 'error'].includes(res.changed)) return 'changed is not one of 0, 1, error';
+              if (typeof res.diff !== 'string') return 'diff is missing';
+              return null;
+            }
+
+            async function postCli(res, issue_number, existing, put) {
+              // Shown verbatim in a code fence (longer than any backtick run inside) so links,
+              // images, HTML and #N references do not render. A diff over the cap is truncated, not
+              // dropped, so its label and comment still follow the result. The cap is applied after
+              // the mention and backtick rewrites, which add characters, so the body stays
+              // under GitHub's 65,536 limit; runs of 8+ backticks are split so the fence
+              // stays at most 8 long.
+              // The producer's `diff --markdown` output carries its own heading, intro and
+              // ```diff fence. Fenced again, those would show as literal code: take the diff
+              // lines out of it and write the heading and the one fence here, as that job does.
+              // CRLF line ends and blank lines after the closing fence are the same wrapper.
+              const wrapped = res.diff.replace(/\r\n/g, '\n')
+                .match(/^## CLI interface change detected\n\n[^\n]*\n\n```diff\n([\s\S]*)\n```\n*$/);
+              let text = neutral(wrapped ? wrapped[1] : res.diff)
+                .replace(/`{8,}/g, (m) => m.match(/`{1,7}/g).join('\u200b'));
+              if (text.length > MAX_DIFF_CHARS) {
+                text = text.slice(0, MAX_DIFF_CHARS).replace(/[\ud800-\udbff]$/, '') +
+                  '\n... (truncated)';
+              }
+              const ticks = Math.max(2, ...(text.match(/`+/g) || []).map((t) => t.length)) + 1;
+              const fence = '`'.repeat(ticks);
+              const diff = `${fence}diff\n${text.replace(/\n$/, '')}\n${fence}`;
+              if (res.changed === 'error') {
+                // surface unknown: leave the label as it is; the text is this job's own, not the artifact's
+                await put(`${marker}\n## CLI interface check could not run\n\nThe CLI surface could not be dumped ` +
+                  `or diffed from the base or the head; see the ${runLink}.`);
+              } else if (res.changed === '1') {
+                try {
+                  await github.rest.issues.createLabel({ owner, repo, name: label, color: 'B60205',
+                    description: "Changes dokimi's user-facing CLI surface" });
+                } catch (e) { /* already exists */ }
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [label] });
+                await put(`${marker}\n## CLI interface change detected\n\nThis PR changes dokimi's user-facing ` +
+                  `CLI surface (commands and/or options):\n\n${diff}\n_Updated on every push; the \`${label}\` ` +
+                  'label is on while the diff is non-empty._');
+              } else {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label });
+                } catch (e) { /* was not applied */ }
+                if (existing) {
+                  await put(`${marker}\nThe CLI surface now matches the base branch: no user-facing CLI change.`);
+                }
+              }
+            }
+
+            const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+            const isCount = (v) => Number.isSafeInteger(v) && v >= 0;
+            const ENTRY = { path: 'string', op: 'string', original: 'string', replacement: 'string' };
+
+            function checkMutation(res) {
+              if (!['ok', 'error'].includes(res.status)) return 'status is not one of ok, error';
+              if (res.status === 'error') return null;
+              const r = res.result;
+              if (!isObject(r) || !isObject(r.counts)) return 'result or its counts is not an object';
+              if (!STATUSES.every((s) => isCount(r.counts[s]))) return 'a count is not a non-negative integer';
+              for (const [key, extra, ok] of [['survivors', 'tests_run', isCount],
+                                             ['waived', 'reason', (v) => typeof v === 'string']]) {
+                if (!Array.isArray(r[key])) return `${key} is not a list`;
+                for (const e of r[key]) {
+                  if (!isObject(e) || !Number.isSafeInteger(e.line) || e.line <= 0 || !ok(e[extra]) ||
+                      !Object.entries(ENTRY).every(([k, t]) => typeof e[k] === t)) return `${key} has a malformed entry`;
+                }
+              }
+              const u = r.untested;
+              if (!isObject(u) || !['failing_tests', 'tests_not_run', 'uncovered_lines'].every((k) => isCount(u[k]))) {
+                return 'untested is not an object of counts';
+              }
+              if (!isCount(r.capped)) return 'capped is not a non-negative integer';
+              const bare = r.waivers_without_reason;
+              if (!Array.isArray(bare) || !bare.every((b) => typeof b === 'string')) return 'waivers_without_reason is not a list of strings';
+              return null;
+            }
+
+            // One table cell: one line, cut, then escaped and shown as a code span (longer than any
+            // backtick run inside), so links, images, HTML and #N references do not render.
+            const cell = (v, n = 80) => {
+              const t = neutral(String(v).replace(/\r\n|\r|\n/g, ' ').slice(0, n).replace(/[\ud800-\udbff]$/, ''))
+                .replace(/\|/g, '\\|');
+              const ticks = '`'.repeat(Math.max(0, ...(t.match(/`+/g) || []).map((x) => x.length)) + 1);
+              return `${ticks} ${t} ${ticks}`;
+            };
+
+            // Rows are added while the body stays under the cap: the rest are counted, not shown.
+            const table = (head, rows, room) => {
+              const out = [];
+              let size = head.length;
+              const spare = `\n\n${rows.length} more in the ${runLink} summary.`.length;  // room for the note
+              for (const row of rows) {
+                if (size + row.length + 1 + spare > room) break;
+                out.push(row);
+                size += row.length + 1;
+              }
+              const more = rows.length - out.length;
+              const note = more ? `\n\n${more} more in the ${runLink} summary.` : '';
+              return { text: [head, ...out].join('\n') + note, size: size + note.length };
+            };
+
+            async function postMutation(res, issue_number, existing, put) {
+              const sha = run.head_sha.slice(0, 7);
+              if (res.status === 'error') {
+                // no result was written: the text is this job's own, not the artifact's
+                await put(`${marker}\n## Mutation of changed lines could not run\n\nNo result was written for ` +
+                  `${sha}; see the ${runLink}.`);
+                return;
+              }
+              const r = res.result;
+              const c = r.counts;
+              // A check that could not run its tests, or that the cap cut, is not a clean result, and is said even
+              // with no comment yet.
+              const total = STATUSES.reduce((n, s) => n + c[s], 0);
+              const incomplete = r.untested.failing_tests > 0 || r.untested.tests_not_run > 0 ||
+                c['not run'] > 0 || (total === 0 && r.untested.uncovered_lines > 0);
+              if (!r.survivors.length && !existing && !incomplete && r.capped === 0) return;
+              const parts = [`${marker}\n## Mutation of changed lines\n`,
+                `${total} mutants of the lines this PR changes, at ${sha}: ${c.killed} killed, ` +
+                `**${r.survivors.length} survived**, ${r.waived.length} waived, ${c.inconclusive} inconclusive, ` +
+                `${c.timeout} timed out, ${c.error} errors, ${c['not run']} not run.\n`];
+              if (r.capped) parts.push(`The mutant cap left out ${r.capped} more mutants of covered changed lines.\n`);
+              let room = MAX_TABLE_CHARS;
+              if (r.survivors.length) {
+                parts.push('A survivor is a change to that line that the tests covering it do not notice: add an ' +
+                  'assertion that fails on it or, if the change cannot alter behaviour, put ' +
+                  '`# mutation-ok[<operator>]: <reason>` at the end of the line or alone on the line above.\n');
+                const t = table('| Line | Operator | Was | Became | Tests run |\n|---|---|---|---|---:|',
+                  r.survivors.map((e) => `| ${cell(e.path, 200)}:${e.line} | ${cell(e.op, 40)} | ${cell(e.original)} ` +
+                    `| ${cell(e.replacement)} | ${e.tests_run} |`), room - (r.waived.length ? WAIVED_ROOM : 0));
+                parts.push(t.text + '\n');
+                room -= t.size;
+              } else if (!incomplete) {
+                parts.push(r.capped ? 'None of the mutants tried survived; the rest were not tried.\n'
+                  : 'No surviving mutants on the changed lines.\n');
+              }
+              if (incomplete) {
+                parts.push(`The check was incomplete: ${r.untested.failing_tests} candidate tests fail without a mutant ` +
+                  `and were left out, ${r.untested.tests_not_run} candidate test files were not run, and ` +
+                  `${r.untested.uncovered_lines} changed lines were not mutated, ` +
+                  `${c['not run']} mutants were not run before the time budget ended; ` +
+                  `${r.survivors.length ? 'the survivors above are not the whole picture' : 'this is not a clean result'}.\n`);
+              }
+              if (r.waived.length) {
+                parts.push('Waived by `mutation-ok`:\n');
+                parts.push(table('| Line | Operator | Was | Became | Reason |\n|---|---|---|---|---|',
+                  r.waived.map((e) => `| ${cell(e.path, 200)}:${e.line} | ${cell(e.op, 40)} | ${cell(e.original)} ` +
+                    `| ${cell(e.replacement)} | ${cell(e.reason)} |`), room).text + '\n');
+              }
+              const bare = r.waivers_without_reason.slice(0, 20);
+              if (bare.length) {
+                parts.push('A `mutation-ok` with no operator, an unknown operator or no reason waives nothing: ' +
+                  `${bare.map((b) => cell(b, 120)).join(', ')}\n`);
+              }
+              const gate = process.env.MUTATION_GATE === 'true'
+                ? 'The job fails while a survivor is unwaived.' : 'Warn-only: a survivor does not fail the job yet.';
+              parts.push(`_${gate} Updated on every push; the full report is in the ${runLink} summary._`);
+              await put(parts.join('\n'));
+            }
+
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
               { owner, repo, run_id: run.id });
-            const art = artifacts.find((a) => a.name === 'cli-interface-result' && !a.expired &&
+            const art = artifacts.find((a) => a.name === kind.artifact && !a.expired &&
               a.workflow_run && a.workflow_run.id === run.id);
-            if (!art) { core.warning('No cli-interface-result artifact on the run.'); return; }
+            if (!art) { core.warning(`No ${kind.artifact} artifact on the run.`); return; }
             if (!(art.size_in_bytes <= MAX_ZIP_BYTES)) {
               return tooLarge(`artifact is ${art.size_in_bytes} bytes, over the ${MAX_ZIP_BYTES} cap`);
             }
             const dl = await github.rest.actions.downloadArtifact({ owner, repo,
               artifact_id: art.id, archive_format: 'zip' });
-            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-interface-'));
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-comment-'));
             const zip = path.join(dir, 'a.zip');
             fs.writeFileSync(zip, Buffer.from(dl.data));
             if (fs.statSync(zip).size > MAX_ZIP_BYTES) {
@@ -112,62 +292,17 @@ jobs:
               core.warning('result.json is not valid JSON.'); return;
             }
             const bad = (why) => core.warning(`Ignoring the artifact: ${why}`);
-            if (res === null || typeof res !== 'object' || Array.isArray(res)) return bad('not an object');
+            if (!isObject(res)) return bad('not an object');
             const issue_number = res.pr_number;
             if (!Number.isSafeInteger(issue_number) || issue_number <= 0) return bad('pr_number is not a positive integer');
             if (res.head_sha !== run.head_sha) return bad('head_sha differs from the run\'s head');
-            if (!['0', '1', 'error'].includes(res.changed)) return bad('changed is not one of 0, 1, error');
-            if (typeof res.diff !== 'string') return bad('diff is missing');
+            const why = kind.check(res);
+            if (why) return bad(why);
 
             // The number is only a claim of the PR's code: check it is a PR of this
             // repository whose current head is the commit this run was for.
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
             if (pr.base.repo.full_name !== `${owner}/${repo}`) return bad('PR is not in this repository');
             if (pr.head.sha !== run.head_sha) { core.info('A newer commit was pushed; skipping the stale result.'); return; }
-
-            // Text derived from the PR: no forged marker (every HTML-comment opener is
-            // broken in one pass, so a nested marker cannot reassemble), no mentions, and it is shown
-            // verbatim in a code fence (longer than any backtick run inside) so links,
-            // images, HTML and #N references do not render. A diff over the cap is truncated, not
-            // dropped, so its label and comment still follow the result. The cap is applied after
-            // the mention and backtick rewrites, which add characters, so the body stays
-            // under GitHub's 65,536 limit; runs of 8+ backticks are split so the fence
-            // stays at most 8 long.
-            // The producer's `diff --markdown` output carries its own heading, intro and
-            // ```diff fence. Fenced again, those would show as literal code: take the diff
-            // lines out of it and write the heading and the one fence here, as that job does.
-            // CRLF line ends and blank lines after the closing fence are the same wrapper.
-            const wrapped = res.diff.replace(/\r\n/g, '\n')
-              .match(/^## CLI interface change detected\n\n[^\n]*\n\n```diff\n([\s\S]*)\n```\n*$/);
-            let text = (wrapped ? wrapped[1] : res.diff).replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b')
-              .replace(/`{8,}/g, (m) => m.match(/`{1,7}/g).join('\u200b'));
-            if (text.length > MAX_DIFF_CHARS) {
-              text = text.slice(0, MAX_DIFF_CHARS).replace(/[\ud800-\udbff]$/, '') +
-                '\n... (truncated)';
-            }
-            const ticks = Math.max(2, ...(text.match(/`+/g) || []).map((t) => t.length)) + 1;
-            const fence = '`'.repeat(ticks);
-            const diff = `${fence}diff\n${text.replace(/\n$/, '')}\n${fence}`;
             const { existing, put } = await sticky(issue_number);
-
-            if (res.changed === 'error') {
-              // surface unknown: leave the label as it is; the text is this job's own, not the artifact's
-              await put(`${marker}\n## CLI interface check could not run\n\nThe CLI surface could not be dumped ` +
-                `or diffed from the base or the head; see the [cli-interface run](${run.html_url}).`);
-            } else if (res.changed === '1') {
-              try {
-                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'B60205',
-                  description: "Changes dokimi's user-facing CLI surface" });
-              } catch (e) { /* already exists */ }
-              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [label] });
-              await put(`${marker}\n## CLI interface change detected\n\nThis PR changes dokimi's user-facing ` +
-                `CLI surface (commands and/or options):\n\n${diff}\n_Updated on every push; the \`${label}\` ` +
-                'label is on while the diff is non-empty._');
-            } else {
-              try {
-                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label });
-              } catch (e) { /* was not applied */ }
-              if (existing) {
-                await put(`${marker}\nThe CLI surface now matches the base branch: no user-facing CLI change.`);
-              }
-            }
+            await kind.post(res, issue_number, existing, put);
