@@ -78,7 +78,7 @@ runs:
         if sha := os.environ["SHA"]:
             header += f"For commit `{sha}` ([run]({os.environ['RUN_URL']})).\n\n"
         content = Path(table).read_text(encoding="utf-8")
-        content = content.replace("<!--", "<!\u200b--").replace("@", "@\u200b")
+        content = content.replace("&", "&amp;").replace("<", "&lt;").replace("@", "@\u200b")
         capped = content.encode("utf-8")[:60000 - len(header.encode("utf-8"))]
         Path(body).write_text(header + capped.decode("utf-8", errors="ignore"), encoding="utf-8")
         PYTHON

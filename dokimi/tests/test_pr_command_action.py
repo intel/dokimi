@@ -258,3 +258,15 @@ def test_escaping_precedes_utf8_comment_limit(tmp_path: Path) -> None:
     assert len(body) <= 60000
     assert body.decode("utf-8").count("<!--") == 1
     assert "@alice" not in body.decode("utf-8")
+
+
+def test_entities_and_html_from_the_findings_cannot_mention_or_render(tmp_path: Path) -> None:
+    # GitHub renders `&#64;bob` as a working @bob mention; a claim file name can carry it.
+    table = tmp_path / "table.md"
+    table.write_text("| 1 | docs/&#64;bob &commat;bob &#x40;org/team <img src=x> <!-- m --> |\n", encoding="utf-8")
+    result, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, FAKE_TABLE=str(table))
+    assert result.returncode == 0, result.stderr
+    body = (tmp_path / "body.md").read_text(encoding="utf-8")
+    for raw in ("&#64;", "&commat;", "&#x40;", "<img", "<!-- m"):
+        assert raw not in body, raw
+    assert body.count("<") == 1 and "&amp;#64;bob" in body

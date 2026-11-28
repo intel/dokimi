@@ -53,9 +53,9 @@ comment while the run was queued. To pin what runs, comment `/dokimi run <sha>` 
 40-hex head commit; a short prefix could be matched by a crafted commit): the gate refuses it with a reply when the head has moved.
 Set `require-sha: 'true'` on `actions/pr-command` to accept only that form, for a
 repository where a push between the comment and the run is a concern. The
-comment text is built from the findings, which quote the pull request's files: `@`
-mentions and `<!--` are broken with a zero-width space, so the table cannot ping anyone
-or forge the comment's marker. No step interpolates `${{ }}` into a `run:` script; every
+comment text is built from the findings, which quote the pull request's files: `&` and
+`<` are escaped and `@` gets a zero-width space, so no entity, HTML tag or mention in them
+can ping anyone or forge the comment's marker. No step interpolates `${{ }}` into a `run:` script; every
 value reaches the shell through `env:`.
 
 ## Inputs
