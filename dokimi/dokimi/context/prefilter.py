@@ -30,6 +30,7 @@ from dokimi.context import shell
 from dokimi.context.session_log import Event, Session
 from dokimi.novelty.spans import segment
 from dokimi.repos.rule_frontmatter import blank_frontmatter
+from dokimi.text_spans import quote_after, quote_inert
 
 CANDIDATE = "candidate_for_ablation"
 IN_USE = "in_use"
@@ -260,17 +261,19 @@ def _masked_line(line: str, quote: str) -> tuple[str, str]:
     return "".join(pieces) + line[pos:], quote
 
 
-def _heredoc_words(line: str, quote: str) -> tuple[list[tuple[str, bool]], str]:
-    """The heredocs ``line`` opens, as (WORD, whether ``<<-`` strips tabs), and the quote open at its end. ``quote`` is
-    the one an earlier line left open, so it still hides a ``<<`` here. A ``<<`` inside quotes, in a comment or in
-    arithmetic is text and opens none."""
+def _heredoc_words(line: str, quote: str, scopes: str = "") -> tuple[list[tuple[str, bool]], str, str]:
+    """The heredocs ``line`` opens, as (WORD, whether ``<<-`` strips tabs), and the quote and the scopes open at its end. ``quote`` is
+    the one an earlier line left open, so it still hides a ``<<`` here, and ``scopes`` the stack of quotes, ``$(`` and ``case`` of the lines kept.
+    A ``<<`` inside quotes, in a comment, in arithmetic or in a quote of a substitution is text and opens none."""
     masked, quote = _masked_line(line, quote)
-    opened_words = []
+    text, read, opened_words = line + "\n", 0, []
     for opened in _HEREDOC_OPEN.finditer(_blank_arithmetic(masked)):
         word = _HEREDOC_WORD.match(line, opened.end())
-        if word:
+        scopes, read = quote_after(text, read, opened.start(), scopes)
+        if word and read <= opened.start() and not quote_inert(scopes):
             opened_words.append((_dequote(word.group(2)), word.group(1) == "-"))
-    return opened_words, quote
+            read = max(read, word.end())
+    return opened_words, quote, quote_after(text, read, len(text), scopes)[0]
 
 
 def _without_heredoc_bodies(command: str) -> str:
@@ -280,7 +283,7 @@ def _without_heredoc_bodies(command: str) -> str:
         return command
     out: list[str] = []
     pending: list[tuple[str, bool]] = []  # the WORDs of the bodies still to skip, in order
-    quote = ""  # the quote the kept lines so far leave open
+    quote, scopes = "", ""  # the quote the kept lines so far leave open, and the stack of quotes and substitutions
     for line in command.split("\n"):
         if pending:
             name, strip_tabs = pending[0]
@@ -289,7 +292,7 @@ def _without_heredoc_bodies(command: str) -> str:
                 pending.pop(0)
             continue
         out.append(line)
-        opened, quote = _heredoc_words(line, quote)
+        opened, quote, scopes = _heredoc_words(line, quote, scopes)
         pending.extend(opened)
     return "\n".join(out)
 
