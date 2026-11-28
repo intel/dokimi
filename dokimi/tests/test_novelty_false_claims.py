@@ -76,7 +76,7 @@ def test_judge_contradictions_need_a_verbatim_quote():
     judge = _scripted({
         ATOMS[0].statement: {"verdict": "contradicts", "quote": "driver version 3.0"},
         ATOMS[1].statement: {"verdict": "contradicts", "quote": "--use-the-accel"},  # not verbatim
-        ATOMS[2].statement: {"verdict": "supports", "quote": ""},
+        ATOMS[2].statement: {"verdict": "supports", "quote": "supported on Windows"},  # verbatim
     })
     report = find_false_claims(ANSWER, ATOMS, judge=judge)
     assert [(c.atom_id, c.quote, c.how) for c in report.claims] == [
