@@ -63,6 +63,8 @@ class _Scan:
                 self.eat()
         elif ch == "\\":  # a continued line is dropped; an escaped character is a word character
             self.eat(2, keep=nxt != "\n")
+        elif self.comment(ch, nxt):
+            pass
         elif ch in "'\"`" or (ch == "$" and nxt == "(") or (self.depth and ch in "()"):
             self.open_close(ch, nxt)
         elif self.bracket(ch + nxt):
@@ -77,6 +79,16 @@ class _Scan:
                 return sep
             self.eat()
         return ""
+
+    def comment(self, ch: str, nxt: str) -> bool:
+        """A ``#`` that starts a word inside ``$(...)`` or backticks: keep the comment up to the newline (up to the closing backtick in backticks), reading no quote or parenthesis in it."""
+        if not (ch == "#" and nxt != ")" and (self.depth or self.tick) and self.cur and self.cur[-1][-1:] in " \t\n(;&|"):
+            return False
+        end = self.i
+        while end < len(self.text) and self.text[end] != "\n" and not (self.tick and not self.depth and self.text[end] == "`"):
+            end += 1
+        self.eat(end - self.i)
+        return True
 
     def bracket(self, pair: str) -> bool:
         """``((``, ``[[`` or ``]]``: track and keep it, so ``;`` and ``&&`` inside do not split."""
@@ -187,6 +199,9 @@ def _mask(text: str) -> str:
         if not quote and ch == "$" and text[i + 1:i + 2] == "(":
             j, d = i + 2, 1
             while j < len(text) and d:
+                if text[j] == "#" and text[j - 1] in " \t\n(;&|" and text[j + 1:j + 2] != ")":  # a comment's `)` is no closer
+                    j = text.find("\n", j) % (len(text) + 1)
+                    continue
                 d += (text[j] == "(") - (text[j] == ")")
                 j += 1
             out.append("SUBST")
