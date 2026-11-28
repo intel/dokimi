@@ -340,7 +340,7 @@ def call_tokens(role: str, n_tokens: int, tier: str | None = None,
         if role == "answerer":
             in_per *= context_share / MEASURED_CONTEXT_SHARE
     return (max(0, round(in_base + in_per * n_tokens)),
-            # mutation-ok[bump-int]: every output base is above 95, so the floor never binds
+            # mutation-ok[bump-int]: every output base is at least 95 and no output slope is negative, so the floor never binds
             max(0, round(out_base + out_per * n_tokens)))
 
 

@@ -140,9 +140,9 @@ def least_sure_role(usd_by_role: dict[str, float]) -> dict[str, str]:
     """The role the dollar figure is least sure of, and why (#631, #1217).
 
     The role with the largest dollars at every tier; a tie goes to the first of extractor,
-    answerer, judge. Priced at its own ``--dry-run`` call counts with the refit profile, the 17
-    paid runs of 2026-11-28 had the largest dollar error in the role with the largest estimated
-    dollars in 15. The other two are triage runs where every role's error was under $0.01. At
+    answerer, judge. In 15 of the 17 paid runs of 2026-11-28, each priced at its own ``--dry-run``
+    call counts with the refit profile, the role with the largest estimated dollars had the
+    largest dollar error. The other two are triage runs where every role's error was under $0.01. At
     standard, study and untiered the role furthest off was the extractor, mostly through its call
     count.
     """

@@ -1472,8 +1472,8 @@ price. `usd_by_role` splits `expected_usd` into `extractor`, `answerer` and `jud
 after the first count under `judge`), and `least_sure_role` names the role the figure is least
 sure of with a reason; both are `null` with `expected_usd`, and `--dry-run` prints the role and its
 share on stderr. One rule at every tier: the role with the largest dollars, a tie going to the
-first of extractor, answerer, judge. Priced at its own `--dry-run` call counts, 15 of 17 paid runs
-of 2026-11-28 had their largest dollar error in that role; in the other two, triage runs, every
+first of extractor, answerer, judge. Each priced at its own `--dry-run` call counts, 15 of the 17
+paid runs of 2026-11-28 had their largest dollar error in that role; in the other two, triage runs, every
 role was off by under $0.01. At standard, study and untiered the role furthest off was always the
 extractor, mostly through its call count, not its tokens.
 The token profile is fitted on 10 of those 17 runs: seven skills of 640 to 5,954 tokens, every
@@ -1492,7 +1492,7 @@ tokens: above that the dollar figure extrapolates, and the payload says so
 arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
 per answerer call than a two-arm one; a `--placebo-text` of another length is not read. On the
 November runs the largest dollar errors at standard and study came from the atom count
-({{issue:atom-count}}).
+(`TOKENS_PER_ATOM`), not the token profile.
 The measured runs, the tier table above among them, predate the spread cap: their extraction
 stopped at the cap. A capped run now asks every extraction batch, and the projection counts
 one extraction call per batch of 25 spans, as the run asks them, while the probes stay at the

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``skill novelty analyze --estimate-only`` splits its dollars by role and names the least sure one (#631)."""
+"""``skill novelty analyze --dry-run`` splits its dollars by role and names the least sure one (#631)."""
 
 from __future__ import annotations
 
