@@ -20,6 +20,7 @@ from tests.test_context_prefilter import _prompt, _report, _row, _session
     "Allow at\n  most 3 concurrent connections.",
     "Keep functions under `50 lines`.",
     "Limit the total number of retries to 3.",
+    "Keep each file below the 800-line cap.",
 ])
 def test_a_limit_in_words_with_a_number_is_kept_protected(rule):
     """#937: docs/session-prefilter.md says a rule with a threshold is `kept_protected` and never ranked as waste."""
@@ -34,6 +35,7 @@ def test_a_limit_in_words_with_a_number_is_kept_protected(rule):
     "Store reports under reports/2026/.",
     "Store reports under `2026.d/`.",
     "Store reports under `2026\\archive`.",
+    "Store the 2026-11 reports in the archive.",
 ])
 def test_a_rule_with_no_limit_is_not_protected_by_a_number_alone(rule):
     """#937: only a limit word with a number, or a counted noun, reads as a threshold."""
