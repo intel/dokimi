@@ -302,3 +302,13 @@ def test_slash_separated_identifiers_reach_the_judge(documented, listed):
     assert [(claim.atom_id, claim.how, claim.quote) for claim in report.claims] == [
         (atom.id, "judge", "unsupported"),
     ]
+
+
+@pytest.mark.parametrize("marker", ["**", "__", "*"])
+def test_closing_emphasis_keeps_two_claims_separate(marker):
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "The accelerator is not supported on Windows."})
+    first = f"{marker}The accelerator is supported on Windows.{marker}"
+    answer = f"{first} The accelerator is not supported on Linux."
+    assert [sentence.text for sentence in split_sentences(answer)] == [
+        first, "The accelerator is not supported on Linux."]
+    assert [claim.quote for claim in find_false_claims(answer, [atom]).claims] == [first]

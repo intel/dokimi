@@ -73,9 +73,9 @@ _VALUE = re.compile(
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _NEGATION = re.compile(
     r"\b(not|never|no|cannot|can't|don't|doesn't|isn't|unsupported|deprecated|without)\b", re.I)
-# Closing quotes belong to the sentence. Internal dots in versions and identifiers do not end it.
+# Closing quotes and emphasis belong to the sentence. Internal dots in versions do not end it.
 _SENTENCE = re.compile(
-    r"[^\r\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])[\"'”’»›]*(?=\s|$)|(?=[\r\n]|$))", re.M,
+    r"[^\r\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])[\"'”’»›*_]*(?=\s|$)|(?=[\r\n]|$))", re.M,
 )
 _ABBREVIATION = re.compile(r"(?<!\w)(?:e\.g|i\.e)\.(?!\w)", re.I)
 _CONFIDENCE = re.compile(r"confidence:\s*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?", re.I)
