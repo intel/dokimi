@@ -398,6 +398,18 @@ def test_compare_plugin_runs_pairs_runs_whose_seeds_differ_only_in_value():
     assert not any("run_config" in warning for warning in payload["warnings"])
 
 
+def test_compare_plugin_runs_pairs_unseeded_runs_whose_dropped_seeds_differ():
+    # a route that cannot take a seed records the one asked for (``seed_requested``) beside ``seed=None``
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    unsupported = {"seed": None, "seed_status": "unsupported"}
+    baseline["run_config"] = {**_run_config(), **unsupported, "seed_requested": 1}
+    plugin["run_config"] = {**_run_config(), **unsupported, "seed_requested": 2}
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert payload["score_deltas"]["skill"]["aggregate_delta"] == 0.0
+
+
 def test_compare_plugin_runs_warns_when_only_one_run_records_run_config():
     baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
     plugin["run_config"] = _run_config(max_tokens=64)
