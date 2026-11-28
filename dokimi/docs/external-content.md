@@ -412,6 +412,21 @@ names a planned, paid follow-up command (a model run over the candidates), which
 yet available; its flags may change before it lands. The thresholds are conservative and
 the section is a shortlist, not a judgement.
 
+### Repair receipt (`catalog repair-receipt`)
+
+`catalog repair-receipt BEFORE AFTER EDITED [--out FILE]` compares two saved
+`catalog check --format json` (or `--json`) reports, one taken before an edit and one after, and
+prints the findings the edit `cleared`, `added` and `retained`. `EDITED` is the file
+you changed; it is recorded as given. It runs no scan: the two scans are yours, so a
+standalone `catalog check` still needs one. A finding is identified by its whole row,
+the skill's `relpath` plus the finding's `level`, `code` and `message`, with the line
+numbers in the message left out. A finding that only moved lines is therefore retained,
+shown at its new line, and a message that changed wording is one cleared row and one
+added row. `counts` are rows, not files: one script with two warnings counts two. A row
+that occurs twice before and once after is cleared once and retained once; among such
+identical findings the receipt does not say which copy cleared. A file that is not a
+`catalog check` report is a usage error.
+
 ### Network checks (`--online`, opt in)
 
 `catalog check` opens no connection by default. `--online` adds two checks that

@@ -600,6 +600,9 @@ def register(sub, positive_int, eval_sub) -> None:
     from dokimi.commands.routing_compare import add_routing_compare
 
     add_routing_compare(catalog_sub)  # catalog routing-compare: two saved runs (#710)
+    from dokimi.commands.repair_receipt import add_repair_receipt
+
+    add_repair_receipt(catalog_sub)  # catalog repair-receipt: two saved scans (#960)
 
     from dokimi.commands import catalog_novelty
 
