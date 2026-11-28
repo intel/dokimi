@@ -22,6 +22,13 @@ With `--doc-source` you can point it at a local directory or any URL instead.
 | `okf:<path>` | Google OKF (Open Knowledge Format) bundle — a directory of Markdown files with YAML frontmatter |
 | `mcp:<ref>` | Retrieve through a real MCP server (requires `pip install mcp`) |
 
+### What `local:` and `okf:` do with a path they cannot read
+
+- A missing path is refused: `eval questions generate` and `benchmark preflight` exit 2, and retrieval raises `MCPConnectionError`.
+- A directory that cannot be listed, the root or one below it, gets the same refusal and the message names that directory. A tree is never read as a smaller one: on a source holding `a.md` and `sub/b.md` with `sub` unlistable, `eval questions generate` exits 2 rather than using `a.md` alone.
+- A directory with no doc files logs a warning and gives no docs.
+- A file that cannot be read is skipped; the other files are still used.
+
 ### Naming the library for `context7` and `mcp:`
 
 A Context7 library ID is not derivable from a product name, so nothing guesses

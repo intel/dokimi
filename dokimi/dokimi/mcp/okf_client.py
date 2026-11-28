@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Tuple
 import yaml
 
 from . import MCPClient, MCPConnectionError
-from .utils import score_chunk
+from .utils import list_doc_tree, score_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,11 @@ class OKFClient(MCPClient):
         Returns:
             List of dicts with keys: content, source, file, library_id, query,
             relevance_score, metadata (the parsed OKF frontmatter).
+
+        Raises:
+            MCPConnectionError: the path does not exist, or a directory under it (the root
+                included) cannot be listed; the message names that directory. A file that
+                cannot be read is skipped, and a directory with no documents gives ``[]``.
         """
         if not self.path.exists():
             raise MCPConnectionError(f"OKFClient: path does not exist: {self.path}")
@@ -193,10 +198,17 @@ class OKFClient(MCPClient):
         return results
 
     def check_connection(self) -> bool:
-        """Return True if the path exists and holds at least one OKF document."""
+        """Return True if the path exists, can be listed and holds at least one OKF document.
+
+        A directory that cannot be listed gives False and a warning that names it; this never raises for it.
+        """
         if not self.path.exists():
             return False
-        return any(True for _ in self._iter_candidate_files())
+        try:
+            return any(True for _ in self._iter_candidate_files())
+        except MCPConnectionError as exc:
+            logger.warning("%s", exc)
+            return False
 
     # ── internals ──────────────────────────────────────────────────────────
 
@@ -206,7 +218,7 @@ class OKFClient(MCPClient):
             if self.path.suffix.lower() in _OKF_EXTENSIONS:
                 yield self.path
             return
-        for fp in self.path.rglob("*"):
+        for fp in list_doc_tree("OKFClient", self.path):
             if fp.is_file() and fp.suffix.lower() in _OKF_EXTENSIONS:
                 yield fp
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from . import MCPClient, MCPConnectionError
-from .utils import strip_html, score_chunk
+from .utils import list_doc_tree, strip_html, score_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,11 @@ class LocalMarkdownClient(MCPClient):
 
         Returns:
             List of dicts with keys: content, source, file, library_id, query.
+
+        Raises:
+            MCPConnectionError: the path does not exist, or a directory under it (the root
+                included) cannot be listed; the message names that directory. A file that
+                cannot be read is skipped, and a directory with no doc files gives ``[]``.
         """
         if not self.path.exists():
             raise MCPConnectionError(f"LocalMarkdownClient: path does not exist: {self.path}")
@@ -119,10 +124,17 @@ class LocalMarkdownClient(MCPClient):
         return results
 
     def check_connection(self) -> bool:
-        """Return True if the path exists and contains at least one doc file."""
+        """Return True if the path exists, can be listed and contains at least one doc file.
+
+        A directory that cannot be listed gives False and a warning that names it; this never raises for it.
+        """
         if not self.path.exists():
             return False
-        return len(self._collect_files()) > 0
+        try:
+            return len(self._collect_files()) > 0
+        except MCPConnectionError as exc:
+            logger.warning("%s", exc)
+            return False
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -132,7 +144,7 @@ class LocalMarkdownClient(MCPClient):
             return [self.path] if self.path.suffix.lower() in _DOC_EXTENSIONS else []
 
         files = []
-        for fp in self.path.rglob("*"):
+        for fp in list_doc_tree("LocalMarkdownClient", self.path):
             if fp.is_file() and fp.suffix.lower() in _DOC_EXTENSIONS:
                 if fp.stat().st_size <= self.max_file_size_bytes:
                     files.append(fp)
