@@ -260,7 +260,10 @@ def find_false_claims(
     judge: Callable[[str], dict] | None = None,
     min_overlap: float = 0.3,
 ) -> FalseClaimsReport:
-    """Flag answer sentences that contradict documented atoms.
+    """Flag answer sentences that may contradict documented atoms.
+
+    Without a judge the claims are lexical candidates (low precision); with one, each is
+    a sentence the judge marked ``contradicts`` with a verbatim quote.
 
     Args:
         answer: The agent's answer as stored.
