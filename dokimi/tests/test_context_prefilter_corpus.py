@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
 from dokimi.cli import build_parser
 from dokimi.commands.context import _read_sessions
 from dokimi.context.session_log import read_session_tree
+from dokimi.utils import InputError
 from tests.test_context_prefilter import GUIDE, _prompt, _report, _row, _tool, _write
 
 RULE = "- Run `make ci-local` when pushing a branch.\n"
@@ -125,3 +128,29 @@ def test_a_skipped_line_of_a_subagent_transcript_named_alone_makes_the_report_pa
     lone = _bad_line(_write(tmp_path / "x" / "subagents" / "agent-1.jsonl",
                             [_at(3, _tool("Bash", command="ls"), isSidechain=True)]))
     assert _json_status(tmp_path, capsys, good, lone) == "partial"
+
+
+def _page():
+    return " ".join((Path(__file__).resolve().parent.parent / "docs" / "session-prefilter.md").read_text(encoding="utf-8").split())
+
+
+def test_a_log_that_cannot_be_read_alone_is_refused_not_partial(tmp_path):
+    """#937: no readable session is an input refusal (exit 2, a `failed` document), and the page says so."""
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("not a session log\n", encoding="utf-8")
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(bad), "--json"])
+    with pytest.raises(InputError, match="no session could be read"):
+        args.func(args)
+    assert re.search(r"When no session can be read at all.{0,80}exit 2.{0,80}`failed` document", _page())
+
+
+def test_a_failed_subagent_transcript_is_a_warning_with_exit_0(tmp_path, capsys):
+    """#937: the exit 1 rule of the page covers the files named on the command line, not a subagent transcript."""
+    a = _write(tmp_path / "s1.jsonl", [_at(1, _prompt("push the branch now"))])
+    b = _write(tmp_path / "s2.jsonl", [_at(1, _prompt("push the branch now"))])
+    (tmp_path / "s1" / "subagents").mkdir(parents=True)
+    (tmp_path / "s1" / "subagents" / "agent-a.jsonl").write_text('{"type":"summary","summary":"x"}\n', encoding="utf-8")
+    assert _json_status(tmp_path, capsys, a, b) == "partial"  # returns, so the exit code stays 0
+    assert re.search(r"files named on the command line failed\. A failed subagent transcript.{0,200}exit code stays 0", _page())
