@@ -55,5 +55,13 @@ A finding object has three keys: `level` (`note`, `warn` or `error`), `code` (on
 versions, so match on `code`). A `script-crlf` or `script-syntax` finding also has `script`, the
 script's path relative to the skill directory.
 
+A finding has two more keys only when the check knows them: `line`, a 1-based line number, and `path`,
+the file the finding is about relative to the skill directory (with `/` separators), set for a finding
+about a bundled script. `line` counts lines in `path` when `path` is present, else in the skill's
+`SKILL.md`. The links and paths in the body (`link-missing`, `link-escapes-skill`, `path-missing`,
+`path-escapes-skill`) name the first line the check reads that holds them (fenced code is skipped);
+`name-*`, `description-too-long` and `frontmatter-unknown-key` name the line of the key.
+`install-unpinned` is one finding per skill and has no `line`. The `message` of the mechanical codes ends with the edit that clears them.
+
 The field list above is the contract that `tests/test_catalog_output_docs.py` checks against
 the rows the scan writes: a key added to a row must be added here.

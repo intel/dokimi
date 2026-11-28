@@ -94,21 +94,21 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .description_overlap import (NEAR_DUPLICATE_JACCARD, NEAR_DUPLICATE_MIN_SHARED, SIMILAR_JACCARD,
                                   _candidate_pairs, _jaccard, _tokens)
-from .bundle_paths import path_missing
-from .link_files import _file_ref, _link_files
+from .link_files import _link_files
 from .catalog import SkillCatalogEntry, _within
 from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings, skill_md_content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
+from .bundle_findings import bundle_findings
+from .finding_lines import key_line
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import entry_chars, in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
-from .paths import _exists, _in_checkout, _inside, _resolved
-from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
+from .skill_markdown import QUOTE_MARK_RE
 from .upstream_codes import UPSTREAM_FINDING_CODES
 from .when_cues import when_clause_found
 
@@ -258,7 +258,28 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
-def _unknown_key_findings(meta: dict) -> list[Finding]:
+def _valid_name(name: str) -> bool:
+    """Whether ``name`` passes ``name-format``, so a fix may offer it."""
+    return bool(NAME_PATTERN.fullmatch(name)) and len(name) <= NAME_MAX
+
+
+def _name_missing_fix(dir_name: str, at_root: bool) -> str:
+    """The edit that clears ``name-missing``: the directory name only when it is a valid name."""
+    if at_root:
+        return "add a 'name:' line"
+    if _valid_name(dir_name):
+        return f"add 'name: {dir_name}'"
+    return "rename the directory to a lowercase kebab-case name and add it as 'name:'"
+
+
+def _name_mismatch_fix(declared: str, dir_name: str) -> str:
+    """The edits that clear ``name-mismatch``: each side is offered only when it is a valid name."""
+    options = [f"rename the directory to {declared!r}"] if _valid_name(declared) else []
+    options += [f"set name to {dir_name!r}"] if _valid_name(dir_name) else []
+    return " or ".join(options) or "rename the directory and set name to the same lowercase kebab-case name"
+
+
+def _unknown_key_findings(meta: dict, text: str = "") -> list[Finding]:
     findings: list[Finding] = []
     unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
     if "allowed_tools" in unknown_keys:
@@ -269,6 +290,7 @@ def _unknown_key_findings(meta: dict) -> list[Finding]:
                 "frontmatter-unknown-key",
                 "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
                 "use 'allowed-tools'.",
+                line=key_line(text, "allowed_tools"),
             )
         )
     if unknown_keys:
@@ -277,7 +299,9 @@ def _unknown_key_findings(meta: dict) -> list[Finding]:
                 "note",
                 "frontmatter-unknown-key",
                 f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
-                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos; "
+                "remove or rename any that are typos.",
+                line=key_line(text, next(iter(unknown_keys))) if len(unknown_keys) == 1 else None,  # one line per finding
             )
         )
     return findings
@@ -293,7 +317,8 @@ def _frontmatter_findings(
     ``fmt`` ``opencode``: OpenCode's rules (``skill_format``): ``name`` is optional and a display
     label, so no name/directory or missing-name finding, no description cap, and a bad name is a warning.
     """
-    meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
+    text = skill.path.read_text(encoding="utf-8")
+    meta, parse_error = _strict_meta(text)
     if parse_error is not None:
         return [parse_error], False
     opencode = fmt == FORMAT_OPENCODE
@@ -307,7 +332,9 @@ def _frontmatter_findings(
                     "warn",
                     "name-missing",
                     "no name in the frontmatter"
-                    + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+                    + ("" if at_root else f"; the directory name {dir_name!r} is used")
+                    + f"; {_name_missing_fix(dir_name, at_root)}",
+                    line=key_line(text, "name"),  # an empty `name:` key has a line; an absent one has none
                 )
             )
     else:
@@ -316,7 +343,9 @@ def _frontmatter_findings(
                 Finding(
                     "error",
                     "name-mismatch",
-                    f"name {declared!r} is not the directory name {dir_name!r}",
+                    f"name {declared!r} is not the directory name {dir_name!r}; "
+                    + _name_mismatch_fix(declared, dir_name),
+                    line=key_line(text, "name"),
                 )
             )
         # ``name-format`` also covers the length: a name over 64 characters is not a separate code.
@@ -329,17 +358,21 @@ def _frontmatter_findings(
             # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
             findings.append(
                 Finding("warn" if opencode else "error", "name-format",
-                        f"name {declared!r} {' and '.join(problems)}")
+                        f"name {declared!r} {' and '.join(problems)}; use lowercase letters, digits and single "
+                        f"hyphens, at most {NAME_MAX} characters",
+                        line=key_line(text, "name"))
             )
     if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
             Finding(
                 "error",
                 "description-too-long",
-                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
+                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}; "
+                f"shorten it to {DESCRIPTION_MAX} characters or fewer",
+                line=key_line(text, "description"),
             )
         )
-    findings += _unknown_key_findings(meta)
+    findings += _unknown_key_findings(meta, text)
     findings += _tool_findings(meta.get("allowed-tools"))
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
     hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in (
@@ -456,69 +489,6 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     if o_entry.source_root.resolve() == entry.source_root.resolve():
         return where
     return f"{where} in {o_entry.source_root.as_posix()}"
-
-
-def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
-    """The finding for one link destination (inline or reference), or None when it is fine."""
-    text = _file_ref(raw, link=True)
-    if text is None:
-        return None
-    named = skill_dir / text
-    if not _inside(named, skill_dir):
-        return _escapes_link(raw)
-    target = _resolved(named)
-    if target is not None and not target.is_relative_to(real_dir):
-        return _escapes_link(raw)
-    if target is not None and _exists(target):
-        return None
-    from_root = ""
-    rooted = _in_checkout(source_root / text, source_root)
-    if rooted is not None and _exists(rooted):
-        from_root = " (it exists from the catalog root: the base is wrong)"
-    return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}")
-
-
-def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
-    """The finding for a code span that names an existing file outside the skill (``../``), or None."""
-    text = _file_ref(raw)
-    if text is None or not raw.startswith("../"):
-        return None
-    target = _in_checkout(skill_dir / text, source_root)
-    if target is None or not _exists(target) or target.is_relative_to(real_dir):
-        return None  # outside the checkout, as written or resolved: not read
-    return Finding(
-        "warn",
-        "path-escapes-skill",
-        f"{raw!r} points outside the skill directory; it breaks when the skill "
-        "is installed alone",
-    )
-
-
-def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
-    """Link and path checks on the body of ``skill``: missing targets, or targets outside it.
-
-    A target is classed by its written name, then by where it resolves, before any file is read:
-    one outside the skill directory is ``link-escapes-skill`` whether or not it exists, and one
-    outside the catalog checkout (through a symlink too) is never stat-ed.
-    """
-    skill_dir = skill.path.parent
-    real_dir = skill_dir.resolve()
-    targets, spans = link_pieces(outside_fences(skill.body))
-    found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
-    found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
-    linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
-    return [finding for finding in found if finding is not None] + [
-        Finding("warn", "path-missing", message)
-        for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
-    ]
-
-
-def _escapes_link(raw: str) -> Finding:
-    return Finding(
-        "warn",
-        "link-escapes-skill",
-        f"link {raw!r} points outside the skill directory; it breaks when the skill is installed alone",
-    )
 
 
 def _description_findings(skill: Skill) -> list[Finding]:
@@ -721,7 +691,7 @@ def review_skills(
                     f for f in findings if f.code == "allowed-tools-unrestricted-bash"
                 ]
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
-            review.findings += _bundle_findings(skill, entry.source_root)
+            review.findings += bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)
             review.findings += [
                 Finding("warn", code, message)
@@ -733,7 +703,7 @@ def review_skills(
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
             review.findings += _unreferenced_findings(skill, at_root=at_root and not standalone)
-            review.findings += [Finding(*item) for item in script_findings(
+            review.findings += [Finding(*item, path=item[3]) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)

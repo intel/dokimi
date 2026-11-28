@@ -24,6 +24,7 @@ from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
 from dokimi.external.catalog_rates import RateTally, text_lines
+from dokimi.external.findings import locate
 from dokimi.external.listing import listed_chars
 from dokimi.external.skill_format import NOT_CHECKED_CODES, not_checked
 from dokimi.utils import InputError
@@ -152,7 +153,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "listing": preview,
         "listing_name": listing_name,
         "ignored": sorted(ignore),
-        "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
+        "findings": [{"level": f.level, "code": f.code, "message": f.message, **locate(f)}
                      for f in kept],
     }
 

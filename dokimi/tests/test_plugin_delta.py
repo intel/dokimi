@@ -433,3 +433,16 @@ def test_arms_plugin_delta_cli_refuses_changed_judge_settings(tmp_path, monkeypa
     assert f"different {field}" in result.err
     assert not out.exists()
     assert not out.with_suffix(".md").exists()
+
+
+def test_compare_plugin_runs_pairs_unseeded_runs_whose_dropped_seed_values_differ():
+    """Two arms on a route that drops the seed (`seed_requested` 1 vs 2) pair: only whether a seed was pinned counts."""
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    dropped = {"seed": None, "seed_status": "unsupported"}
+    baseline["run_config"] = _run_config(**dropped, seed_requested=1)
+    plugin["run_config"] = _run_config(**dropped, seed_requested=2)
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert payload["score_deltas"]["skill"]["aggregate_delta"] == 0.0
+    assert not any("run_config" in warning for warning in payload["warnings"])

@@ -18,6 +18,7 @@ from .catalog import DEFAULT_SUITES_MANIFEST, DEFAULT_TASKS_SUBDIR, SkillCatalog
 from .catalog_eval_inputs import Inputs, UnsafePath, checked_path, finding, redirected, relative_path
 from .no_frontmatter import NO_FRONTMATTER
 from .validate import review_skills
+from .findings import locate
 
 
 def _yaml(inputs: Inputs, path: Path) -> Any:
@@ -149,7 +150,7 @@ def _review(entries: list[SkillCatalogEntry], specs: list[dict], rows: list[dict
             findings.append(finding("skill-load", entry.error, row["path"]))
         if review:
             # The hint is the scan's finding; the inventory keeps the loader's error for the same file.
-            findings.extend({**finding(f.code, f.message, row["path"], f.level), **({"script": f.script} if f.script else {})}
+            findings.extend({**finding(f.code, f.message, row["path"], f.level), **locate(f, path=False)}
                             for f in review.findings if f.code != NO_FRONTMATTER)
         declared = str(spec.get("name") or "").strip()
         if fallback or not declared:

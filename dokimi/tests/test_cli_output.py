@@ -834,3 +834,16 @@ def test_a_partial_runs_list_has_no_next_step(monkeypatch, capsys, tmp_path):
     (root / "broken.json").write_text('{"schema_version": "eval.v1", "evaluations": [', encoding="utf-8")
     doc = _json_run(monkeypatch, capsys, ["runs", "list"])
     assert doc["status"] == "partial" and doc["next"] == []
+
+
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+def test_a_source_starting_with_a_dash_is_refused_so_no_budget_step_is_suggested(monkeypatch, capsys, tmp_path, leaf):
+    # a source `-repo` is refused by RepoSource.parse (it could be read as a git option), so no `repo budget -repo` step
+    repo = _guidance_repo(tmp_path)
+    repo.rename(tmp_path / "-repo")
+    monkeypatch.chdir(tmp_path)
+    assert _exit_code(monkeypatch, ["repo", leaf, "--json", "--", "-repo"]) == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] != "complete"
+    assert not doc.get("next")
+    assert "invalid repository source" in json.dumps(doc)

@@ -75,7 +75,13 @@ LIST_ITEM_RE = re.compile(r"[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]")
 
 
 def outside_fences(body: str) -> list[str]:
-    """The lines of ``body`` that are not inside a fenced code block, without their blockquote markers.
+    """The lines of ``body`` that are not inside a fenced code block, without their blockquote markers."""
+    return [line for _, line in fenced_view(body)]
+
+
+def fenced_view(body: str) -> list[tuple[int, str]]:
+    """The lines :func:`outside_fences` keeps, each with its 0-based index in ``body.splitlines()`` (-1 for the
+    blank line it puts where a block or a quote depth ends).
 
     A block closes only at a line of the same marker (backticks or tildes) that is at least as long
     as the opening run, as in CommonMark. A fence in a blockquote keeps only the opener's ``>``
@@ -86,13 +92,13 @@ def outside_fences(body: str) -> list[str]:
     sit at most three columns past the item's content column, as outside one. A change of quote
     depth is a blank line.
     """
-    lines: list[str] = []
+    lines: list[tuple[int, str]] = []
     fence = ""  # the run that opened the current block; "" outside one
     depth = 0  # the blockquote depth of the opener
     col = 0  # the content column of the list item the opener sits in; 0 for a fence outside any item
     items: list[tuple[int, int]] = []  # (content column, blockquote depth) of the open items, outermost first
     last_depth = 0
-    for line in body.splitlines():
+    for index, line in enumerate(body.splitlines()):
         if fence:
             rest, count = _unquote(line, depth)
             ended = count < depth or bool(col and rest.strip() and _indent(rest) < col)
@@ -100,7 +106,7 @@ def outside_fences(body: str) -> list[str]:
                 close = FENCE_CLOSE_RE.match(_dedent(rest, col))
                 if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
                     fence = ""
-                    lines.append("")  # a blank line keeps a definition above the block from reaching below it
+                    lines.append((-1, ""))  # a blank line keeps a definition above the block from reaching below it
                 continue
             fence = ""  # the container ended before a closing marker: this line is outside the block
         rest, count = _unquote(line)
@@ -120,12 +126,12 @@ def outside_fences(body: str) -> list[str]:
         # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
         if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
             fence, depth, col = opened.group(1), count, (items[-1][0] if items else 0)
-            lines.append("")
+            lines.append((-1, ""))
             continue
         if count != last_depth:
-            lines.append("")
+            lines.append((-1, ""))
         last_depth = count
-        lines.append(rest)
+        lines.append((index, rest))
     return lines
 
 

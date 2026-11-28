@@ -113,15 +113,22 @@ def emit_leaf(kind: str, data: Any, **fields: Any) -> None:
 
 
 def finding(level: str, code: str, message: str, file: str | None = None, line: int | None = None,
-            script: str | None = None) -> dict[str, Any]:
+            script: str | None = None, path: str | None = None, sparse: bool = False) -> dict[str, Any]:
     """One entry of a subject's ``findings``. ``warning`` is spelled ``warn``.
 
     ``script`` (#961) is only present for a finding about a bundled script: its path relative to the skill directory.
+    ``path`` (#942) is only present for a finding about a file other than the SKILL.md in ``file``: its path relative
+    to the skill directory; ``line`` then counts lines in ``path``, else in ``file``. ``sparse`` leaves a null
+    ``line`` out of the entry.
     """
     entry: dict[str, Any] = {"level": "warn" if level == "warning" else level, "code": code, "message": message,
                              "file": file, "line": line}
+    if sparse and line is None:  # #942: a catalog check finding has `line` only when the check knows it
+        del entry["line"]
     if script is not None:
         entry["script"] = script
+    if path is not None:
+        entry["path"] = path
     return entry
 
 

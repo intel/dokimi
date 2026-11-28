@@ -341,7 +341,8 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
         bad = bool(row["error"]) or any(f["code"] == "unreadable" for f in row["findings"]) or (
             fails_on_finding(row, fail_on)) or (
             args.strict and (row["state"] == "error" or unrestricted_and_risky(row)))
-        findings = [cli_output.finding(f["level"], f["code"], f["message"], file, script=f.get("script")) for f in row["findings"]]
+        findings = [cli_output.finding(f["level"], f["code"], f["message"], file, f.get("line"),
+                                      script=f.get("script"), path=f.get("path"), sparse=True) for f in row["findings"]]
         if row["error"]:
             findings.insert(0, cli_output.finding("error", "load-error", str(row["error"]), file))
         subjects.append({"subject": row["name"], "verdict": "fail" if bad else "pass", "findings": findings})
