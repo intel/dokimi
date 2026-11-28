@@ -15,13 +15,37 @@ import re
 import sys
 from pathlib import Path
 
-from dokimi import llms_txt, opportunities
+from dokimi import cli_flags, llms_txt, opportunities
 from dokimi.artifacts import schema_errors
 from dokimi.commands._output import write_report_text
 from dokimi.utils import InputError
 
 
-def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
+def _looks_like_json(path: str, text: str) -> bool:
+    suffix = Path(path).suffix.lower()
+    start = text.lstrip()
+    return bool(suffix == ".json" or start.startswith("{") or (
+        suffix not in {".txt", ".md"} and start.startswith("[")
+        and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", start)
+    ))
+
+
+def _check_json_unicode(path: str, data: object) -> None:
+    try:
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InputError(f"{path}: JSON contains an unpaired Unicode surrogate") from exc
+
+
+def _repo_static(path: str, data: dict, repository: str | None) -> list[opportunities.Opportunity]:
+    if errors := schema_errors("repo_static.v1", data):
+        raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
+    embedded = data.get("repo")
+    name = repository or (embedded if isinstance(embedded, str) else None)
+    return opportunities.from_repo_static(data, target="", repository=name, identity_target=name or path)
+
+
+def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Opportunity]]:
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError) as e:
@@ -29,16 +53,12 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
     try:
         data = json.loads(text)
     except ValueError as e:
-        if Path(path).suffix.lower() == ".json" or text.lstrip().startswith("{") or (
-            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
-        ):
+        if _looks_like_json(path, text):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
+    _check_json_unicode(path, data)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
-        if errors := schema_errors("repo_static.v1", data):
-            raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
-        return "repo_static", opportunities.from_repo_static(
-            data, target="", repository=data.get("repo") if isinstance(data.get("repo"), str) else None)
+        return "repo_static", _repo_static(path, data, repository)
     version = data.get("schema_version") if isinstance(data, dict) else None
     if version == "catalog_eval.v1":
         return "catalog_eval", opportunities.from_catalog_eval(data)
@@ -53,11 +73,11 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
                      "judge_validity.v1 file, nor an llms.txt file")
 
 
-def build(paths: list[str]) -> dict:
+def build(paths: list[str], *, repository: str | None = None) -> dict:
     """The ``opportunities.v1`` payload (without its envelope) for these input files."""
     inputs, items = [], []
-    for path in paths:
-        kind, found = _read(path)
+    for path in dict.fromkeys(paths):
+        kind, found = _read(path, repository)
         inputs.append({"path": path, "kind": kind})
         items.extend(found)
     return {"inputs": inputs, "items": opportunities.rank(items)}
@@ -66,7 +86,7 @@ def build(paths: list[str]) -> dict:
 def cmd_report_opportunities(args: argparse.Namespace) -> None:
     from dokimi.artifacts import save_artifact, stamp, validate_artifact
 
-    doc = build(args.inputs)
+    doc = build(args.inputs, repository=args.repository)
     if args.format == "json":
         doc = stamp("opportunities", doc)
         validate_artifact("opportunities", doc)
@@ -93,6 +113,8 @@ def register(report_sub, positive_int) -> None:
     p.add_argument("inputs", nargs="+", metavar="PATH",
                    help="novelty, repo_static.v1, catalog_eval.v1 (catalog eval --out-dir) or "
                         "judge_validity.v1 JSON, or an llms.txt file")
+    cli_flags.add(p, "repository_identity", "--repository",
+                  help="Override repo_static identity (default: embedded repo or input path)")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")
     p.add_argument("--top-n", type=positive_int, default=10, help="Rows in the markdown table (default 10)")

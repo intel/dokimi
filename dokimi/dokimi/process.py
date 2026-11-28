@@ -54,6 +54,7 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
+from . import process_hooks
 from .process_io import (
     PipeReader,
     PipeReaderOwner,
@@ -303,7 +304,9 @@ def _on_signal(previous: object) -> Callable[[int, object], None]:
         if getattr(_spawning, "active", False):  # the new child is not in _live yet: kill it once it is
             _spawning.deferred.append((handler, signum, frame))
             return
+        process_hooks.notify(signum)  # before the kills: a killed child's caller then knows of the signal
         kill_children()
+        process_hooks.run(signum)  # a hook may raise, as a run directory does to record its stop
         if callable(previous):
             previous(signum, frame)
             with _live_lock:  # the earlier handler let the process go on: so may run()

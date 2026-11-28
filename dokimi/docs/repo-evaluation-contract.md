@@ -175,7 +175,7 @@ outside every workspace and passes its absolute path to entry points as
   anywhere in that context, for example a build wrapper under `<eval-dir>`,
   and must work for every task base: a version pinned in the task tree (such
   as `.bazelversion`) is read at run time, not baked in. A build that runs
-  past `--build-timeout` seconds (3 hours by default) fails as a container
+  past `--timeout build=SEC` seconds (3 hours by default) fails as a container
   error rather than hanging the batch.
 - `eval check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
@@ -838,7 +838,7 @@ A missing cell counts on its host’s row when one exists. Otherwise it counts o
 its task, arm and model, or only in the batch total when there are zero or multiple such rows.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=DIR` that is not one; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
@@ -2282,6 +2282,11 @@ output prints them after the warnings, on one `incomplete: ...` line, and when
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look.
+Dead links name the missing target. A literal YAML, TOML, CFG or INI configuration
+path with a directory component also fails when the snapshot lacks its parent,
+unless it has two or more directories and the first is absent too (a sibling
+repository's file or a placeholder stays `unresolved`).
+For one release, `--fail-on-fail` accepts the same gate and warns on stderr.
 
 **A gate any repository can adopt (#851).** Three things keep `--fail-on fail` from failing on noise
 the repository cannot fix:
@@ -2484,7 +2489,7 @@ eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
 `~/.cache/dokimi/caches/<id>/<name>`; `--cache-root` moves them all and
-`--cache NAME=PATH` points one elsewhere. A `--cache-root` or `--cache NAME=PATH` that is a regular file or
+`--cache NAME=DIR` points one elsewhere. A `--cache-root` or `--cache NAME=DIR` that is a regular file or
 below one (checked before a remote source is cloned), or a `--cache-root` that holds a regular file named after a
 cache, is refused before the image build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
 `--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
@@ -2784,8 +2789,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
   both ends are bounded from 6 tasks on, whatever the ties, and open (`null` under `data` in `--json`, `-inf` / `+inf` in the
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
-  ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
-  non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
+  ends are its step points, so an end can be a delta itself, or 0. The text prints an end, the delta mean (`repo compare` and the rule
+  ledger) and an arm mean at 3 decimals, and a non-zero one that would print as `0.000` at 2 significant digits
+  (`+0.0002`, `1e-12`), so it keeps its side of 0.
   The ends and `delta.mean` are printed at 4 places, or at 2 significant digits where 4 places would give 0, so a
   non-zero one is never `0.0`: six deltas of `4e-5` give `4e-05` for the mean and both ends. `delta.mean` stays
   inside those ends. `mde`, the per-task `baseline`, `treatment` and `delta` and the arm means `baseline_mean` and

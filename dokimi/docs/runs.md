@@ -51,8 +51,7 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   fields depends on the kind: `product` of a questions set, `library_name` of
   an arms run, `artifact.ref` of a novelty run, `repo.id` of a reach run,
   `judge_model` and `evaluated_at` of an eval. An artifact that records no
-  subject shows `-` (an eval, a task run, a reach matrix, a questions set from
-  `questions generate`, which records the model but not the product); nothing is guessed
+  subject shows `-` (an eval, a task run, a reach matrix); nothing is guessed
   from the path. When an artifact records no time, its file's mtime is used
   for the order and shown with `*`. A time that is not ISO 8601 (`yesterday`) is
   printed as written, with no `*`, and the row is placed by the file's mtime.
@@ -199,7 +198,7 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 - **`--keep-baselines`** keeps the runs a saved baseline holds: each copy that
   `baseline save` listed in `baselines/eval/manifest.json` (in the working
   directory) is read, and a run whose `run_id` a copy carries is kept and named. A
-  copy saved before the envelope holds no run. A copy that cannot be read exits 2
+  copy saved before the envelope holds no run. A copy that cannot be read, or whose JSON is not an object (`[]`), exits 2
   before anything is removed, since the run it holds is not known.
 - An entry under the root that cannot be read may be the newest artifact of a run,
   so while one is there `runs gc` removes nothing and exits 2, naming the first. `runs

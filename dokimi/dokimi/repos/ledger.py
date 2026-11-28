@@ -32,7 +32,7 @@ from dokimi.eval.sign_flip import ALPHA, EPS, min_sign_flip_p
 from dokimi.eval.stats import adjust_pvalues
 
 from .compare import PRIMARY, _num, compare, load_batches, parse_selector, selector_matches
-from .compare_interval import format_interval
+from .compare_interval import format_interval, format_value
 from .compare_tasks import CompareError
 
 KEEP, REVIEW, INSUFFICIENT = "keep", "review", "insufficient-evidence"
@@ -286,7 +286,7 @@ def format_ledger(result: dict[str, Any]) -> str:
             ci = format_interval(d["lo"], d["hi"])  # an end is open (None) at 5 or fewer paired cases
             label = "mean score" if e["measure"] == "score" else "pass rate"  # a score is not a success rate
             lines.append(f"  paired {e['paired']} of {e['linked']} linked: {label} {_num(e['baseline_mean'])} -> "
-                         f"{_num(e['treatment_mean'])}, delta {d['mean']:+.3f} {ci}, p {_p(e['p'])}, "
+                         f"{_num(e['treatment_mean'])}, delta {format_value(d['mean'], signed=True)} {ci}, p {_p(e['p'])}, "
                          f"p_holm {_p(e['p_holm'])}, up/down/tied {e['up']}/{e['down']}/{e['tied']}")
         lines.append(f"  {e['reason']}")
         if e["missing"]:

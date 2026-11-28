@@ -407,6 +407,33 @@ def test_gc_keep_baselines_refuses_when_a_baseline_copy_cannot_be_read(root, mon
     assert _left(root) == before
 
 
+@pytest.mark.parametrize("text", ["[]", "null", '"x"', "3"])
+def test_gc_keep_baselines_refuses_a_baseline_copy_that_is_not_an_object(root, monkeypatch, capsys, text):
+    """#1332: a copy that parses but is no object names no run, so gc exits 2 (docs/runs.md)."""
+    monkeypatch.setattr("sys.argv", ["dokimi", "baseline", "save", "--from-eval",
+                                     "results/r1/eval/onetbb.json", "--name", "main"])
+    cli.main()
+    capsys.readouterr()
+    Path("baselines/eval/main.json").write_text(text + "\n", encoding="utf-8")
+    before = _left(root)
+
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "30d", "--keep-baselines",
+                        "--dry-run")
+
+    assert code == 2
+    assert "baseline main: baselines/eval/main.json: not a JSON object" in err
+    assert "so the run it holds is not known" in err
+    assert _left(root) == before
+
+
+def test_runs_guide_does_not_say_generated_questions_have_no_subject():
+    """#1332: `questions generate` saves `product`, so `runs list` shows it as the subject."""
+    text = " ".join((Path(__file__).resolve().parent.parent / "docs" / "runs.md")
+                    .read_text(encoding="utf-8").split())
+
+    assert "a questions set from `questions generate`" not in text
+
+
 @pytest.mark.parametrize("age", ["30", "4w", "-1d", "1.5d", "d"])
 def test_gc_takes_an_age_in_days_only(root, monkeypatch, capsys, age):
     code, _, err = _run(monkeypatch, capsys, "gc", f"--older-than={age}")

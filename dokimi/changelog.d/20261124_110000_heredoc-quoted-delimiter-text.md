@@ -1,0 +1,3 @@
+### Fixed
+
+- **A quoted heredoc delimiter keeps its quotes in the command, and a delimiter with outer spaces is closed by its own line** — `cat <<"a'b"` was passed on as `cat <<a'b`, so the apostrophe opened a quote and swallowed the commands after the heredoc, and a `;` in a quoted delimiter split the command; `cat <<' a'` was never closed by its line ` a`, so the commands after it were cut away as an unclosed heredoc. `split_commands` keeps the quotes, a line closes a heredoc as it stands or without its surrounding whitespace, and a double-quoted delimiter with a backslash (`<<"a\$b"`) opens no heredoc (#930).

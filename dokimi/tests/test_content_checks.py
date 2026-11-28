@@ -662,6 +662,50 @@ def test_visible_neighbours_of_the_fillers_are_not_reported(tmp_path, neighbour)
     assert _hidden(tmp_path, f"a{chr(neighbour)}b") == []
 
 
+@pytest.mark.parametrize("letters,cp", [("가나다라마바사", 0x115F), ("αβγδεζη", 0x034F)], ids=["hangul", "greek"])
+def test_more_than_three_script_fillers_on_a_line_are_all_reported(tmp_path, letters, cp):
+    """#1274: seven fillers beside script letters on one line carry hidden bits; each is reported."""
+    text = "Review code. " + "".join(c + chr(cp) for c in letters) + " Use it."
+    from dokimi.external.content_checks import REPORT_PER_FILE
+
+    hits = _hidden(tmp_path, text)
+    assert len(hits) == REPORT_PER_FILE + 1
+    assert hits[-1].endswith(f"{len(letters) - REPORT_PER_FILE} more hidden characters not listed")
+
+
+def test_filler_grouping_does_not_rescan_a_long_line():
+    """#1274: finding each filler's line must not search the text from its start: the work stays linear."""
+    from dokimi.external.content_checks import _hidden_hits
+
+    spans = []
+
+    class Counting(str):
+        def rfind(self, sub, start=0, end=None):
+            spans.append((len(self) if end is None else end) - start)
+            return super().rfind(sub, start, end)
+
+    text = Counting("α\u034f" * 2000)
+    assert len(_hidden_hits("a.txt", text)) == 6
+    assert sum(spans) <= 4 * len(text)
+
+
+@pytest.mark.parametrize("count,reported", [(3, 0), (4, 4)], ids=["three", "four"])
+def test_script_filler_limit_is_three_per_line(tmp_path, count, reported):
+    """#1274: three fillers on a line stay exempt, a fourth makes all four hidden."""
+    assert len(_hidden(tmp_path, "".join(c + "\u034f" for c in "αβγδ"[:count]))) == reported
+
+
+def test_script_fillers_are_counted_per_line(tmp_path):
+    """#1274: three fillers on each of two lines are exempt; the limit is per line."""
+    line = "".join(c + "\u034f" for c in "αβγ")
+    assert _hidden(tmp_path, f"{line}\n{line}") == []
+
+
+def test_braille_blank_run_is_not_limited(tmp_path):
+    """#1274: a run of Braille blanks is text and stays exempt however long."""
+    assert _hidden(tmp_path, "⠁" + "⠀" * 8 + "⠃") == []
+
+
 def test_fullwidth_version_step_is_not_a_retired_prefix():
     """#960: gpt-4.1 written with a Cyrillic letter and a fullwidth 1 is a version step, not the retired gpt-4."""
     from dokimi.external.content_checks import _legacy_hits

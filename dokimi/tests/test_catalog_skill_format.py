@@ -164,7 +164,7 @@ def test_an_unsupported_host_without_a_description_is_a_note_not_an_error(tmp_pa
 
 
 def test_the_unsupported_note_says_what_was_read(tmp_path, capsys):
-    # A loaded skill's safety and content checks ran; an unloaded one got only the command and Bash-grant checks.
+    # A loaded skill's safety and content checks ran; an unloaded one got the command, Bash-grant and content checks, not the frontmatter ones.
     _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
     _write(tmp_path, ".kiro/skills/loaded/SKILL.md", "---\nname: loaded\ndescription: Use when quantum questions come up.\n---\n\n# Body\n")
     rows = _rows(tmp_path, capsys)
@@ -172,7 +172,7 @@ def test_the_unsupported_note_says_what_was_read(tmp_path, capsys):
     def note(row):
         return next(f["message"] for f in row["findings"] if f["code"] == "unsupported-skill-format")
 
-    assert note(rows[".kiro/skills/quantum"]).endswith("this SKILL.md did not load, so only its commands and its Bash grant were checked")
+    assert note(rows[".kiro/skills/quantum"]).endswith("this SKILL.md did not load, so only its commands, its Bash grant and its content were checked")
     assert note(rows[".kiro/skills/loaded"]).endswith("the safety and content checks still ran")
 
 

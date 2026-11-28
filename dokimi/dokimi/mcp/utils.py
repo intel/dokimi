@@ -91,14 +91,15 @@ def read_cache_text(path: Path) -> Optional[str]:
 def write_cache_text(path: Path, text: str) -> bool:
     """Store a cache entry; a reader never sees half of it. Returns whether it was stored.
 
-    A failed write is a warning, not an error: the caller already has what it fetched.
+    A failed write is a warning, not an error: the caller already has what it fetched. Text that does not
+    encode as UTF-8 (a lone surrogate) is not stored: an entry would replay other text than was fetched.
 
     The file is published by :func:`dokimi.atomic_write.write_text_atomic`: a random tmp name, so concurrent
     writers of one entry each publish a whole file, and the mode and group of an entry it replaces are kept.
     """
     try:
         write_text_atomic(path, text)
-    except OSError as exc:
+    except (OSError, UnicodeEncodeError) as exc:
         logger.warning("Could not write cache entry %s: %s", path, exc)
         return False
     return True

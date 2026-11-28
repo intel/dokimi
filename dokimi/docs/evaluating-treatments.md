@@ -75,6 +75,19 @@ fallback gives the mixed stamp. To compare with an older run, written before
 `judge_materials`, run answering and judging again: re-judging that file sees only
 the snippets.
 
+To measure how much the material itself moves the judge, run with `--judge`
+and `--judge-context baseline` (on `arms run` or `arms matrix-run`). The flag is refused
+without `--judge`, since an answers-only run would keep the withheld text in place of the
+material. The judge is then
+shown no material on any arm, the context a baseline arm's judge sees, so every
+arm is judged on one context. The answering path is unchanged. The output is
+stamped `treatment_material.withheld.v1`, which pools only with other withheld
+runs. Partial artifacts saved before judging also keep this stamp. Rejudging a
+withheld artifact still supplies no treatment material when a stored context
+is missing. Its stored scores can be included in `eval judge agreement` with
+pairwise or checklist results, whose judges see the answers alone. The default,
+`--judge-context arm`, is the material protocol above.
+
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5
 judge, 24 bases, one run), the full material raised the mean intact score from

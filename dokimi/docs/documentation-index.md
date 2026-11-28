@@ -69,6 +69,10 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   and counts what it skipped, `cli.py runs show` checks one against its schema
   or lists one run, `cli.py runs rm` and `cli.py runs gc --older-than` remove
   runs. No LLM call.
+- [run-directories.md](run-directories.md) — a run's own directory: `run.json`,
+  its plan, its result and its artifacts together, and what a stopped run
+  (signal, Ctrl-C, spend cap) still leaves: `run.json` says `incomplete`, and a
+  run with a plan has its result. No command writes one yet.
 - [opportunities.md](opportunities.md) — `cli.py report opportunities` ranks stored
   novelty, static repository, catalog evaluation, judge-validity and llms.txt findings
   into one queue of fixes with execution prompts. No LLM call.
@@ -148,6 +152,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   harness profiles, and the guidance reach probe; and how to run its task
   self-check, agent runs, report and arm comparison (`eval check`,
   `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
+- [pr-command.md](pr-command.md) — implemented: a `/dokimi run` pull request comment from a writer runs the checks and keeps one `dokimi report opportunities` comment (`actions/pr-command`, `actions/opportunities-comment`).
 - [reach-matrix.md](reach-matrix.md) — the reach conformance suite: fixture
   repositories, what each harness's vendor documentation says they load, the
   `scripts/reach_conformance.py` run and merge that produce the agent × version
