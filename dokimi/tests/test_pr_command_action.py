@@ -31,7 +31,15 @@ printf '%s\n' "$*" >> "$GH_LOG"
 case "$*" in
   *collaborators*permission*) [ "$FAKE_PERM" = fail ] && exit 1; echo "$FAKE_PERM" ;;
   *"repos/o/r/pulls/"*) echo "$FAKE_SHA" ;;
-  *"--paginate"*) [ -n "$FAKE_IDS" ] && echo "$FAKE_IDS"; exit 0 ;;
+  "api user "*) [ -n "${FAKE_USER:-}" ] || exit 1; echo "$FAKE_USER"; exit 0 ;;
+  *"--paginate"*)
+    [ "${FAKE_LOOKUP:-}" = fail ] && exit 1
+    if [ -n "${FAKE_COMMENTS:-}" ]; then
+      while [ "$1" != --jq ]; do shift; done
+      printf '%s' "$FAKE_COMMENTS" | jq -r "$2"; exit
+    fi
+    [ -n "$FAKE_IDS" ] && echo "$FAKE_IDS"; exit 0 ;;
+  *reactions*) [ "${FAKE_REACT:-}" = fail ] && exit 1 ;;
   *"-F body=@"*) all="$*"; f="${all##*body=@}"; f="${f%% *}"; cp -- "$f" "$GH_BODY" ;;
 esac
 exit 0
@@ -39,6 +47,7 @@ exit 0
 
 FAKE_DOKIMI = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOKIMI_LOG"
+[ -n "${FAKE_RC:-}" ] && exit "$FAKE_RC"
 out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
 if [ -n "${FAKE_TABLE:-}" ]; then
   cp -- "$FAKE_TABLE" "$out"
@@ -171,6 +180,56 @@ def test_an_existing_comment_is_updated(tmp_path: Path) -> None:
     assert r.returncode == 0, r.stderr
     log = (tmp_path / "gh.log").read_text(encoding="utf-8")
     assert "-X PATCH repos/o/r/issues/comments/123" in log and "-X POST" not in log
+
+
+MARKER = "<!-- dokimi-opportunities -->"
+
+
+def _comments(*rows: tuple[int, str, str]) -> str:
+    return json.dumps([{"id": i, "user": {"login": login}, "body": body} for i, login, body in rows])
+
+
+def _writes(tmp_path: Path) -> list[str]:
+    log = (tmp_path / "gh.log").read_text(encoding="utf-8").splitlines()
+    return [line for line in log if line.startswith(("api -X PATCH", "api -X POST"))]
+
+
+def test_only_the_bots_own_marked_comment_is_updated(tmp_path: Path) -> None:
+    # The gate's refusal reply comes from the same bot, and anyone can post a comment with the marker.
+    comments = _comments((1, "github-actions[bot]", "`/dokimi run` needs write or admin permission"),
+                         (2, "mallory", MARKER + "\nall clear"), (3, "github-actions[bot]", MARKER + "\nold"))
+    r, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, FAKE_COMMENTS=comments)
+    assert r.returncode == 0, r.stderr
+    assert [w.split()[2:4] for w in _writes(tmp_path)] == [["PATCH", "repos/o/r/issues/comments/3"]]
+
+
+def test_a_user_token_edits_only_the_comment_of_its_own_login(tmp_path: Path) -> None:
+    comments = _comments((4, "github-actions[bot]", MARKER), (6, "carol", MARKER))
+    r, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, GH_TOKEN="u", FAKE_USER="carol", FAKE_COMMENTS=comments)
+    assert r.returncode == 0, r.stderr
+    assert [w.split()[2:4] for w in _writes(tmp_path)] == [["PATCH", "repos/o/r/issues/comments/6"]]
+
+
+def test_a_user_token_without_a_readable_login_writes_nothing(tmp_path: Path) -> None:
+    comments = _comments((4, "github-actions[bot]", MARKER))
+    r, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, GH_TOKEN="u", FAKE_COMMENTS=comments)
+    assert r.returncode == 1 and _writes(tmp_path) == []
+
+
+def test_a_failed_lookup_posts_no_duplicate_and_keeps_the_table_in_the_summary(tmp_path: Path) -> None:
+    r, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, FAKE_LOOKUP="fail")
+    assert r.returncode == 0, r.stderr
+    assert _writes(tmp_path) == []
+    assert "the comment lookup failed" in r.stdout
+    assert "| 1 |" in (tmp_path / "summary").read_text(encoding="utf-8")
+
+
+def test_a_failed_report_is_posted_as_failed_and_fails_the_step(tmp_path: Path) -> None:
+    r, _ = _comment(tmp_path, {"a.json": "{"}, FAKE_RC="2")
+    assert r.returncode == 2
+    assert [w.split()[3] for w in _writes(tmp_path)] == ["repos/o/r/issues/7/comments"]
+    assert "`dokimi report opportunities` failed (exit 2); see the [run](https://x/run)" in (
+        tmp_path / "body.md").read_text(encoding="utf-8")
 
 
 def test_no_findings_says_so_without_running_dokimi(tmp_path: Path) -> None:
