@@ -80,6 +80,12 @@ def test_described_link_can_include_balanced_parentheses():
     assert llms_txt.check(text) == []
 
 
+def test_a_file_of_exactly_the_token_budget_is_within_it():
+    budget = llms_txt.estimate_tokens(GOOD)
+    assert llms_txt.check(GOOD, token_budget=budget) == []
+    assert [f.check for f in llms_txt.check(GOOD, token_budget=budget - 1)] == ["size"]
+
+
 def test_fenced_examples_cost_time_linear_in_their_number(monkeypatch):
     calls = []
     closer = code_spans._Runs.closer

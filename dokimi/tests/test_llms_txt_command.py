@@ -67,7 +67,8 @@ def test_json_is_a_cli_output_document_with_the_findings(tmp_path, monkeypatch, 
     assert _main(monkeypatch, [str(f), "--json"]) == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc["kind"] == "docs llms-txt" and doc["verdict"] == "fail"
-    assert doc["summary"]["fail"] == 2 and doc["data"]["token_budget"] == 2000
+    assert (doc["summary"]["fail"], doc["summary"]["warn"]) == (2, 2)
+    assert doc["data"]["token_budget"] == 2000 and doc["data"]["tokens"] == 1
     checks = {x["check"] for x in doc["data"]["findings"]}
     assert {"summary", "links", "when_to_use", "when_not_to_use"} <= checks
     assert {x["code"] for x in doc["subjects"][0]["findings"]} == checks
@@ -77,6 +78,13 @@ def test_json_is_a_cli_output_document_with_the_findings(tmp_path, monkeypatch, 
 def test_a_missing_path_is_an_input_error(tmp_path, monkeypatch, capsys):
     assert _main(monkeypatch, [str(tmp_path)]) == 2
     assert "no such file" in capsys.readouterr().err
+
+
+def test_a_file_that_is_not_utf8_is_an_input_error(tmp_path, monkeypatch, capsys):
+    (tmp_path / "llms.txt").write_bytes(b"\xff\xfe# T\n")
+    assert _main(monkeypatch, [str(tmp_path)]) == 2
+    message = capsys.readouterr().err
+    assert "decode" in message and "Traceback" not in message
 
 
 def test_a_path_without_search_permission_is_an_input_error(tmp_path, monkeypatch, capsys):
