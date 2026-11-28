@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
-from dokimi.artifacts import RUN_ID_ENV, load_artifact
+from dokimi.artifacts import RUN_ID_ENV, load_artifact, save_artifact
 from dokimi.runs import rm, rundir
 from dokimi.runs.rundir import open_run
 from dokimi.utils import InputError
@@ -22,6 +24,11 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv(RUN_ID_ENV, "r-1")
     monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "arms", "run"])
     return tmp_path / "results"
+
+
+def _plan() -> dict:
+    path = Path(__file__).resolve().parent / "fixtures" / "artifacts" / "plan.v1.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("given", [False, True], ids=["named", "empty-out-dir"])
@@ -63,3 +70,16 @@ def test_a_name_whose_run_runs_rm_removed_can_be_used_again(root, monkeypatch):
     record = load_artifact("run", open_run(root, name="nightly-7").path / "run.json")
 
     assert (record["run_id"], record["name"], record["status"]) == ("r-2", "nightly-7", "running")
+
+
+@pytest.mark.parametrize("kind", ["plan", "result", "run"])
+def test_a_plan_saved_past_write_plan_cannot_make_an_unmeasured_run_complete(root, kind):
+    """docs/run-directories.md: "a run is refused complete while a planned cell has no measured status";
+    artifact_path refuses the kinds the run writes itself, so no plan reaches the disk unknown to the run."""
+    with open_run(root, name="n") as run:
+        with pytest.raises(ValueError, match="write_plan"):
+            save_artifact(kind, _plan(), run.artifact_path(kind))
+
+    record = load_artifact("run", run.path / "run.json")
+    assert (record["status"], record["artifacts"]) == ("complete", [])
+    assert sorted(os.listdir(run.path)) == ["run.json"]

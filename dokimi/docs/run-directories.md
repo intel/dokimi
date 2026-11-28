@@ -47,7 +47,8 @@ results/20261123T101500Z-1a2b3c4d/
 - **Names** have the characters of a run id: 1-128 letters, digits, `.`, `_`
   or `-`, starting with a letter or a digit, so a name is one path segment.
 - **Artifacts** are `<schema_version>.json` in the directory, one per kind
-  (`RunDir.artifact_path`). They carry the run's envelope like any artifact,
+  (`RunDir.artifact_path`; it refuses `plan`, `result` and `run`, which the
+  run writes itself: the plan through `write_plan`). They carry the run's envelope like any artifact,
   so `runs list` groups them, with `run.json`, as one run.
 
 ## `run.json`

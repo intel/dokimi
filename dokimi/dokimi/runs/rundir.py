@@ -31,6 +31,8 @@ from dokimi.utils import InputError
 #: The directory's own record, ``run.v1``.
 RUN_FILE = "run.json"
 Status = Literal["complete", "incomplete", "failed"]
+#: The kinds a run writes itself, never through :meth:`RunDir.artifact_path`.
+_OWN_KINDS = ("plan", "result", "run")
 StopReason = Literal["interrupted", "terminated", "spend_cap", "no_price", "run_stopped", "error"]
 
 
@@ -132,7 +134,7 @@ class RunDir:
         self._plan: dict[str, Any] | None = None
         self._planned: dict[str, None] = {}  # the plan's cell ids, in its order
         self._cells: dict[str, dict[str, Any]] = {}
-        self._lock = threading.RLock()  # _end asks artifact_path for the result under it
+        self._lock = threading.RLock()  # _end asks _own_path for the result under it
         self._hooked = False
         self._signal: int | None = None  # the terminating signal that stopped the block
 
@@ -144,7 +146,13 @@ class RunDir:
     def artifact_path(self, kind: str) -> Path:
         """Where the run keeps its ``kind`` artifact: ``<schema_version>.json`` in the directory
         (``arms.v1.json``). ``run.json`` lists it, by its relative path, once the run ends and
-        the file is there. ``KeyError`` for an unregistered kind, as :func:`save_artifact`."""
+        the file is there. ``KeyError`` for an unregistered kind, as :func:`save_artifact`;
+        ``ValueError`` for a kind the run writes itself (a plan saved past it reads as measured)."""
+        if kind in _OWN_KINDS:
+            raise ValueError(f"run {self.path} writes its {kind} itself: save a plan with write_plan")
+        return self._own_path(kind)
+
+    def _own_path(self, kind: str) -> Path:
         name = f"{SCHEMA_VERSIONS[kind]}.json"
         with self._lock:
             self._kinds.setdefault(kind, name)
@@ -161,7 +169,7 @@ class RunDir:
             self._running()
             snapshot = copy.deepcopy(plan)
             planned = dict.fromkeys(c["cell_id"] for c in snapshot["cells"])
-            path = self.artifact_path("plan")
+            path = self._own_path("plan")
             try:
                 written = save_artifact("plan", snapshot, path)
                 self._plan, self._planned = written, planned
@@ -218,7 +226,7 @@ class RunDir:
                 if status == "complete" and not measured:
                     raise ValueError(f"run {self.path} is not complete: planned cells have no measured "
                                      "status (result.v1)")
-                save_artifact("result", result, self.artifact_path("result"))
+                save_artifact("result", result, self._own_path("result"))
             if status is None:
                 status = "complete" if measured else "incomplete"
             ended = {**self._record, "status": status, "finished_at": _now(), "stop": stop}
