@@ -94,8 +94,8 @@ def plan_rm(root: Path, address: str) -> Removal:
 
 def baseline_runs(entries: list[dict]) -> dict[str, str]:
     """The ``run_id`` each saved baseline copy carries -> the baseline's name; a copy saved before
-    the envelope carries none. Raises ``InputError`` when a copy cannot be read, since the run it
-    holds is then not known."""
+    the envelope carries none. Raises ``InputError`` when a copy cannot be read or is not a JSON
+    object, since the run it holds is then not known."""
     held: dict[str, str] = {}
     for entry in entries:
         try:
@@ -103,7 +103,10 @@ def baseline_runs(entries: list[dict]) -> dict[str, str]:
         except (OSError, ValueError, RecursionError) as exc:
             raise InputError(f"baseline {plain(entry['name'])}: {plain(entry['path'])}: "
                              f"{read_error_reason(exc)}, so the run it holds is not known") from exc
-        run_id = data.get("run_id") if isinstance(data, dict) else None
+        if not isinstance(data, dict):  # #1332: an array or scalar names no run
+            raise InputError(f"baseline {plain(entry['name'])}: {plain(entry['path'])}: not a JSON "
+                             "object, so the run it holds is not known")
+        run_id = data.get("run_id")
         if isinstance(run_id, str) and is_run_id(run_id):
             held.setdefault(run_id, entry["name"])
     return held

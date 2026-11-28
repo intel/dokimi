@@ -1,0 +1,115 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: dokimi opportunities comment
+description: >-
+  Runs `dokimi report opportunities --format markdown` over the findings the checks
+  wrote (novelty artifacts, repo_static.v1 documents, llms.txt files) and creates or
+  updates one comment on the pull request with the table. Reads the inputs as data
+  only; never runs pull request code. Needs `pull-requests: write`. Run it after
+  actions/setup. Serialize publishing jobs per pull request and pass head-sha to skip superseded results.
+
+inputs:
+  inputs-dir:
+    description: >-
+      Directory holding the findings files (top level only, `*.json` and `*.txt`), as
+      written by the checks job. Empty or missing: the comment says there is nothing to rank.
+    required: true
+  pr:
+    description: Pull request number to comment on
+    required: true
+  head-sha:
+    description: The checked commit. Skip publishing when the pull request head has moved.
+    required: false
+    default: ''
+  top-n:
+    description: Rows in the table
+    required: false
+    default: '10'
+  github-token:
+    description: Token for the comment (needs pull-requests write)
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Render and post the opportunities table
+      shell: bash
+      env:
+        IN: ${{ inputs.inputs-dir }}
+        PR: ${{ inputs.pr }}
+        SHA: ${{ inputs.head-sha }}
+        TOP_N: ${{ inputs.top-n }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if ! command -v dokimi >/dev/null; then
+          echo "::error title=dokimi opportunities::dokimi is not on PATH; run intel/dokimi/actions/setup first"
+          exit 1
+        fi
+        if ! [[ "$PR" =~ ^[1-9][0-9]*$ ]] || ! [[ "$TOP_N" =~ ^[1-9][0-9]*$ ]] || ! [[ "$SHA" =~ ^([0-9a-f]{40})?$ ]]; then
+          echo "::error title=dokimi opportunities::pr, top-n or head-sha is malformed"
+          exit 1
+        fi
+        marker='<!-- dokimi-opportunities -->'
+        body="$RUNNER_TEMP/dokimi-opportunities-comment.md"
+        table="$RUNNER_TEMP/dokimi-opportunities.md"
+        shopt -s nullglob
+        files=()
+        if [ -d "$IN" ]; then files=("$IN"/*.json "$IN"/*.txt); fi
+        status=0
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "_No findings files were written; nothing to rank._" > "$table"
+        else
+          dokimi report opportunities --format markdown --top-n "$TOP_N" --out "$table" -- "${files[@]}" || status=$?
+          [ "$status" -eq 0 ] || echo "_\`dokimi report opportunities\` failed (exit $status); see the [run]($RUN_URL)._" > "$table"
+        fi
+        # Escape before applying the byte limit and preserve whole UTF-8 characters.
+        python - "$table" "$body" "$marker" <<'PYTHON'
+        import os
+        import sys
+        from pathlib import Path
+
+        table, body, marker = sys.argv[1:]
+        header = marker + "\n## dokimi opportunities\n\n"
+        if sha := os.environ["SHA"]:
+            header += f"For commit `{sha}` ([run]({os.environ['RUN_URL']})).\n\n"
+        content = Path(table).read_text(encoding="utf-8")
+        content = content.replace("&", "&amp;").replace("<", "&lt;").replace("@", "@\u200b")
+        capped = content.encode("utf-8")[:60000 - len(header.encode("utf-8"))]
+        Path(body).write_text(header + capped.decode("utf-8", errors="ignore"), encoding="utf-8")
+        PYTHON
+        cat -- "$table" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$GH_TOKEN" = "$DEFAULT_TOKEN" ]; then
+          me='github-actions[bot]'
+        else
+          me=$(gh api user --jq .login 2>/dev/null) || {
+            echo "::error title=dokimi opportunities::github-token has no readable user login; use the default token or a user token"
+            exit 1
+          }
+        fi
+        # A failed lookup is not proof that no comment exists: skip instead of posting a duplicate.
+        ids=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id") || {
+          echo "::warning title=dokimi opportunities::the comment lookup failed; the table is in the job summary"
+          exit "$status"
+        }
+        id=${ids%%$'\n'*}
+        if [ -n "$SHA" ]; then
+          current=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          if [ "$current" != "$SHA" ]; then
+            echo "The pull request head changed; leaving its comment alone."
+            exit "$status"
+          fi
+        fi
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null ||
+            echo "::warning title=dokimi opportunities::the comment could not be updated"
+        else
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$body" >/dev/null ||
+            echo "::warning title=dokimi opportunities::the comment could not be posted"
+        fi
+        exit "$status"

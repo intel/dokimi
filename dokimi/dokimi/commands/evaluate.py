@@ -281,8 +281,8 @@ def _validity_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
     return _pairwise_judges(args)  # the judges pairwise_judge(args) builds; one copy of the escalation default
 
 
-def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
-    """Measure whether the judge can order pairs whose ordering is known."""
+def _judge_arg_problems(args: argparse.Namespace) -> None:
+    """Refuse a flag combination that would report the wrong thing, before any file is read."""
     if args.mode != "pairwise" and (args.escalate_model or args.escalate_ties):
         # Silently ignoring it would report an absolute run as if escalation had been asked for.
         raise InputError("--escalate-model / --escalate-ties need --mode pairwise")
@@ -293,85 +293,127 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
             sprt_bounds(args.min_accuracy)
         except ValueError as exc:
             raise InputError(str(exc)) from exc
-    from dokimi.eval.degrade import DEGRADATIONS
-    from dokimi.eval.judge import Judge
-    from dokimi.eval.judge_validity import judge_scorer, run_validity
+    # The judge modules load here, after the refusals and before the answers file is read,
+    # as the command always did: a broken install is reported before any input is.
+    from dokimi.eval.degrade import DEGRADATIONS  # noqa: F401
+    from dokimi.eval.judge import Judge  # noqa: F401
+    from dokimi.eval.judge_validity import judge_scorer, run_validity  # noqa: F401
 
-    run = _load_answers(args.answers)
-    answers = list(run.records)
-    library = args.product or run.meta.get("library_name") or "the library"
+
+def _judge_variants(args: argparse.Namespace) -> list[str]:
+    """The degradations to check: ``--variants``, or every shipped one."""
+    from dokimi.eval.degrade import DEGRADATIONS
 
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
     if unknown:
         raise InputError(f"unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}")
+    return variants
 
-    # The default arm is the shipped judge. A typed arm is a local baseline that
-    # reads the answer but generates nothing — a second reference line next to
-    # the length-only one, not a judge replacement.
-    # Built once and passed to both modes, so a new scorer kind is a change to
-    # this block, not to each run path.
+
+def _build_scorer(args: argparse.Namespace, answers: list, variants: list[str], library: str):
+    """``(scorer, typed, label)``: the scorer the run measures, the typed scorer (None for the judge), its label.
+
+    The default arm is the shipped judge. A typed arm is a local baseline that
+    reads the answer but generates nothing — a second reference line next to
+    the length-only one, not a judge replacement.
+    Built once and passed to both modes, so a new scorer kind is a change to
+    this block, not to each run path.
+    """
     if args.scorer not in ("judge", "typed") and not args.scorer.startswith("typed:"):
         raise InputError(f"unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'")
     if args.context == "stored" and (args.scorer != "judge" or args.mode == "pairwise"):
         # Refused before any model is loaded: neither scorer has a context slot.
         what = "the typed scorer" if args.scorer != "judge" else "--mode pairwise"
         raise InputError(f"--context stored needs a judge that takes context; {what} does not")
-    typed = None
     if args.scorer == "judge":
+        from dokimi.eval.judge import Judge
+        from dokimi.eval.judge_validity import judge_scorer
+
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)
-        scorer = judge_scorer(judge)
-        label = f"{args.judge_provider}/{args.judge_model}"
-    elif args.mode == "pairwise":
+        return judge_scorer(judge), None, f"{args.judge_provider}/{args.judge_model}"
+    if args.mode == "pairwise":
         # _score_pairs gives pair_scorer precedence, so the pairwise judge would grade
         # the pairs and the report would carry the typed arm's label.
         raise InputError("a typed scorer reads one answer at a time; it has no --mode pairwise")
-    else:
-        from dokimi.eval.degrade import build_pairs
-        from dokimi.eval.typed_scorer import parse_spec, typed_scorer
+    from dokimi.eval.degrade import build_pairs
+    from dokimi.eval.typed_scorer import parse_spec, typed_scorer
 
-        spec = args.scorer.partition(":")[2] or "laya"
-        try:
-            parse_spec(spec)
-        except ValueError as exc:
-            raise InputError(str(exc)) from exc
-        # Loading the model takes longer than building every pair, so find out
-        # first whether there is anything to score.
-        noop: dict = {}
-        if not build_pairs(answers, n_bases=args.max_bases if args.sequential else args.bases,
-                           seed=args.seed,
-                           variants=variants, library=library, noop=noop):
-            why = (f"every degradation left the answer unchanged (no-op pairs: {noop})"
-                   if noop else "too few answers, or all too short")
-            raise InputError(f"the answers file yields no usable degradation pairs ({why})")
-        try:
-            typed = typed_scorer(
-                spec,
-                max_len=args.typed_max_len,
-                threads=args.typed_threads,
-            )
-        except ImportError as exc:  # a missing optional backend: a dependency, not an input
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(2)
-        except (ValueError, OSError) as exc:  # a typed spec that cannot be used: an input refusal
-            raise InputError(str(exc)) from exc
-        scorer = typed
-        # The budget is part of what was measured: one checkpoint at 512 and at
-        # 2048 tokens is two arms.
-        label = typed.name + (f" max_len={typed.effective_max_len}" if typed.effective_max_len else "")
-    store = None
-    if args.context == "stored":
-        # The gate in the setting arms runs score in: each answer with its arm's
-        # treatment material, from the artifact's judge_materials.
-        from dokimi.eval.judge_context import JudgeContextStore
+    spec = args.scorer.partition(":")[2] or "laya"
+    try:
+        parse_spec(spec)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    # Loading the model takes longer than building every pair, so find out
+    # first whether there is anything to score.
+    noop: dict = {}
+    if not build_pairs(answers, n_bases=args.max_bases if args.sequential else args.bases,
+                       seed=args.seed,
+                       variants=variants, library=library, noop=noop):
+        why = (f"every degradation left the answer unchanged (no-op pairs: {noop})"
+               if noop else "too few answers, or all too short")
+        raise InputError(f"the answers file yields no usable degradation pairs ({why})")
+    try:
+        typed = typed_scorer(
+            spec,
+            max_len=args.typed_max_len,
+            threads=args.typed_threads,
+        )
+    except ImportError as exc:  # a missing optional backend: a dependency, not an input
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except (ValueError, OSError) as exc:  # a typed spec that cannot be used: an input refusal
+        raise InputError(str(exc)) from exc
+    # The budget is part of what was measured: one checkpoint at 512 and at
+    # 2048 tokens is two arms.
+    label = typed.name + (f" max_len={typed.effective_max_len}" if typed.effective_max_len else "")
+    return typed, typed, label
 
-        # from_artifact reads the file's judge_materials, which the Run records do not keep.
-        data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-        store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
-        if store is None or not any(store.materials().values()):
-            raise InputError("--context stored needs an arms artifact with non-empty stored judge "
-                  "material; this file has none (judge_materials missing, or no record cites a "
-                  "digest that matches)")
+
+def _context_store(args: argparse.Namespace):
+    """The stored judge materials for ``--context stored`` (None otherwise); an InputError when the file has none."""
+    if args.context != "stored":
+        return None
+    # The gate in the setting arms runs score in: each answer with its arm's
+    # treatment material, from the artifact's judge_materials.
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # from_artifact reads the file's judge_materials, which the Run records do not keep.
+    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+    store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
+    if store is None or not any(store.materials().values()):
+        raise InputError("--context stored needs an arms artifact with non-empty stored judge "
+              "material; this file has none (judge_materials missing, or no record cites a "
+              "digest that matches)")
+    return store
+
+
+def _warn_inconclusive(summary: dict, sequential: bool) -> None:
+    if summary["inconclusive_variants"]:
+        # --sequential ignores --bases, so pointing at it would send the user nowhere.
+        more = "Raise --max-bases or add answers (see above)." if sequential else "Re-run with more --bases."
+        print(
+            "\n⚠️  INCONCLUSIVE at this sample size: "
+            f"{', '.join(summary['inconclusive_variants'])}. {more}",
+            file=sys.stderr,
+        )
+    if summary["unmeasured_variants"]:
+        print(
+            f"\n⚠️  INCONCLUSIVE: no pair was built for {', '.join(summary['unmeasured_variants'])} "
+            "(the degradation left every answer unchanged).",
+            file=sys.stderr,
+        )
+
+
+def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
+    """Measure whether the judge can order pairs whose ordering is known."""
+    _judge_arg_problems(args)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
+    library = args.product or run.meta.get("library_name") or "the library"
+    variants = _judge_variants(args)
+    scorer, typed, label = _build_scorer(args, answers, variants, library)
+    store = _context_store(args)
     warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     pair_scorer = None
     if args.mode == "pairwise":
@@ -398,6 +440,8 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         pair_scorer=pair_scorer,
         store=store,
     )
+    from dokimi.eval.judge_validity import run_validity  # already loaded by _judge_arg_problems
+
     try:
         if args.sequential:
             from dokimi.eval.judge_sequential import run_sequential
@@ -432,20 +476,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     # A pass whose interval straddles the gate is inconclusive: it warns and exits 3 (§2.6), not 0.
     # --strict makes it a failure (exit 1).
     if not summary["conclusive"]:
-        if summary["inconclusive_variants"]:
-            # --sequential ignores --bases, so pointing at it would send the user nowhere.
-            more = "Raise --max-bases or add answers (see above)." if args.sequential else "Re-run with more --bases."
-            print(
-                "\n⚠️  INCONCLUSIVE at this sample size: "
-                f"{', '.join(summary['inconclusive_variants'])}. {more}",
-                file=sys.stderr,
-            )
-        if summary["unmeasured_variants"]:
-            print(
-                f"\n⚠️  INCONCLUSIVE: no pair was built for {', '.join(summary['unmeasured_variants'])} "
-                "(the degradation left every answer unchanged).",
-                file=sys.stderr,
-            )
+        _warn_inconclusive(summary, args.sequential)
         sys.exit(1 if args.strict else EXIT_INCONCLUSIVE)
 
 

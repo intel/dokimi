@@ -8,13 +8,14 @@ from __future__ import annotations
 import errno
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from dokimi.artifacts import load_artifact
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, main
 from dokimi.eval_coverage import coverage_report, load_graph, read_labels
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.needs import PROMPT_VERSION
@@ -111,6 +112,51 @@ def test_an_empty_graph_exits_1_and_writes_nothing(tmp_path, monkeypatch, capsys
     assert not out.exists()
 
 
+@pytest.mark.parametrize("price", [None, 0.12500149])
+def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monkeypatch, capsys, price):
+    from dokimi.metrics.usage import UsageRecord
+
+    def transport(self, prompt, system, *, accept=None, draw=0):
+        reply = json.dumps(REPLY).replace("save the workbook", "save\tthe workbook")
+        assert accept(reply)
+        return reply, UsageRecord(cost_usd=price)
+
+    monkeypatch.setattr(LLMClient, "_default_transport", transport)
+    out = tmp_path / "g.json"
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json", "--max-usd", "5")
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["data"] == load_artifact("need_graph", out)
+    assert doc["data"]["nodes"][0]["text"] == "save\tthe workbook"
+    assert doc["artifacts"] == {"out": str(out)}
+    assert doc["cost"] == {"calls": 1, "spent_usd": 0.0 if price is None else 0.125001, "priced": price is not None,
+                           "cap_usd": 5.0, "remaining_usd": None if price is None else 4.874999, "estimate_kind": None}
+
+
+def test_graph_json_reports_why_the_artifact_was_rejected(tmp_path, monkeypatch, capsys):
+    from dokimi.novelty.needs import NeedGraph
+
+    _stub(monkeypatch, REPLY)
+    as_dict = NeedGraph.as_dict
+
+    def invalid_graph(self):
+        data = as_dict(self)
+        data["nodes"][0]["text"] = ""
+        return data
+
+    monkeypatch.setattr(NeedGraph, "as_dict", invalid_graph)
+    out = tmp_path / "g.json"
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json")
+
+    assert result.returncode == 5
+    doc = json.loads(result.stdout)
+    assert doc["error"]["code"] == "infra" and doc["cost"]["calls"] == 1
+    assert "nodes/0/text" in doc["reason"] and doc["reason"] == doc["error"]["message"]
+    assert doc["reason"] in result.stderr
+    (rejection,) = tmp_path.glob(".eval-graph-*/g.json.rejected")
+    assert str(rejection) in doc["reason"] and not out.exists()
+
+
 def test_prompt_version_is_a_full_sha256():
     assert PROMPT_VERSION.startswith("sha256:") and len(PROMPT_VERSION) == 7 + 64
 
@@ -126,20 +172,32 @@ def test_no_hard_links_is_refused_before_the_paid_call(tmp_path, monkeypatch, ca
     assert prompts == [] and not out.exists()  # a paid graph is never built and then dropped
 
 
-def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("machine", [False, True])
+def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, capsys, machine):
+    from dokimi.metrics.usage import UsageRecord
+
     out = tmp_path / "g.json"
 
     def racer(self, prompt, system, *, accept=None, draw=0):
         out.write_text("other run", encoding="utf-8")
-        return json.dumps(REPLY), None
+        return json.dumps(REPLY), UsageRecord(cost_usd=0.125)
 
     monkeypatch.setattr(LLMClient, "_default_transport", racer)
 
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+    options = ["--json"] if machine else []
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "graph", str(_skill(tmp_path)),
+                                    "--out", str(out), "--max-usd", "5", *options])
+    with refusal() as result:
+        main()
 
-    assert result.returncode == 2 and "frozen" in result.stderr
+    assert result.code == 2 and "frozen" in result.err
     assert out.read_text(encoding="utf-8") == "other run"
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
+    if machine:
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["error"]["code"] == "input"
+        assert doc["cost"]["calls"] == 1 and doc["cost"]["spent_usd"] == 0.125
+        assert doc["cost"]["cap_usd"] == 5.0
 
 
 def test_a_bad_model_ref_is_a_usage_error(capsys):
@@ -445,7 +503,8 @@ def test_priced_cut_off_reply_reports_a_ceiling_without_an_unavailable_flag(tmp_
     assert "--max-output-tokens" not in result.stderr
 
 
-def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("machine", [False, True])
+def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys, machine):
     from dokimi.metrics.usage import UsageRecord
 
     truncated = UsageRecord(prompt_tokens=11, completion_tokens=3, total_tokens=14, truncated=True)
@@ -454,9 +513,19 @@ def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeyp
                         (json.dumps(REPLY), truncated))
     out = tmp_path / "g.json"
 
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
-
-    assert result.returncode == 1 and "nothing was written" in result.stderr and not out.exists()
+    options = ["--json"] if machine else []
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "graph", str(_skill(tmp_path)),
+                                    "--out", str(out), "--max-usd", "5", *options])
+    with refusal() as result:
+        main()
+    assert result.code == 1 and "nothing was written" in result.err and not out.exists()
+    if machine:
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["status"] == "budget_stopped" and doc["data"] is None
+        assert doc["reason"] == result.err.strip()
+        assert doc["cost"]["calls"] == 1 and doc["cost"]["priced"] is False
+    else:
+        assert result.out == ""
 
 
 def test_an_unusable_unmetered_reply_writes_nothing_and_no_warning_for_a_graph(tmp_path, monkeypatch, capsys):

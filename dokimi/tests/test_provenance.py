@@ -82,7 +82,7 @@ def test_a_version_is_a_non_empty_string_or_an_integer(value):
     assert provenance.parse_version(value) == value
 
 
-@pytest.mark.parametrize("value", ["", "  ", True, 1.5, []])
+@pytest.mark.parametrize("value", ["", "  ", True, 1.0, 1.5, []])
 def test_a_malformed_version_is_refused(value):
     with pytest.raises(provenance.ProvenanceError):
         provenance.parse_version(value)
@@ -106,12 +106,13 @@ def test_questions_schema_accepts_a_malformed_provenance_the_parser_warns_about(
     assert schema_errors("questions.v2", {"questions": [item]}) == []
 
 
-@pytest.mark.parametrize("value", ["2", 3, "  ", True, 1.5, None])
+@pytest.mark.parametrize("value", ["2", 3, "  ", True, 1.0, 1.5, None])
 def test_questions_schema_accepts_any_version_so_old_files_still_load(value):
     assert schema_errors("questions.v2", {"questions": [{"id": "q1", "question": "How?", "version": value}]}) == []
 
 
-@pytest.mark.parametrize(("version", "block"), [(1.5, "hand-written"), ("2", {"status": "done"}), (True, None)])
+@pytest.mark.parametrize(("version", "block"), [(1.0, "hand-written"), (1.5, "hand-written"), ("2", {"status": "done"}),
+                                                 (True, None)])
 def test_a_malformed_question_version_or_provenance_warns_and_the_set_still_loads(tmp_path, caplog, version, block):
     path = tmp_path / "questions.json"
     question = {"id": "q1", "question": "How?", "version": version, "provenance": block}

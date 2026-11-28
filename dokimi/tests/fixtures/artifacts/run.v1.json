@@ -1,0 +1,13 @@
+{
+  "schema_version": "run.v1",
+  "name": "nightly-7",
+  "argv": ["eval", "arms", "run", "--out-dir", "results/nightly-7"],
+  "started_at": "2026-11-23T10:15:00+00:00",
+  "finished_at": "2026-11-23T10:40:00+00:00",
+  "status": "incomplete",
+  "stop": {"reason": "spend_cap", "detail": "spent $5.02 of the $5.00 cap"},
+  "artifacts": [
+    {"kind": "plan", "path": "plan.v1.json"},
+    {"kind": "result", "path": "result.v1.json"}
+  ]
+}

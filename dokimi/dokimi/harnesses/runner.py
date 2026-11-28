@@ -43,7 +43,7 @@ class TaskSuiteRunner:
     command_template: str | None = None
     dry_run: bool = False
     repeats: int = 1
-    network: tuple[str, ...] = ()  # --network PHASE=MODE overrides, docker-* harnesses only
+    network: tuple[str, ...] = ()  # --network [PHASE=]MODE overrides, docker-* harnesses only
     # Starts the processes of every harness except the `docker-*` ones (docker_solver spawns its own).
     runner: process.Runner = field(default=process.run, repr=False)
 
@@ -82,9 +82,7 @@ class TaskSuiteRunner:
             for harness_id in self.harnesses:
                 for rep in range(1, repeats + 1):
                     harness = self._create(harness_id)
-                    output_dir = self.output_root / task.name / _safe_id(harness_id)
-                    if repeats > 1:
-                        output_dir = output_dir / f"run{rep}"
+                    output_dir = self.output_root / task.name / _safe_id(harness_id) / f"run{rep}"
                     # Isolate each cell: a harness crash (docker build/exec error,
                     # bad config) must not abort the whole sweep and discard every
                     # completed cell — record it as a failed row and continue.
@@ -131,6 +129,169 @@ def _elapsed_seconds(value: Any) -> float:
     return as_float(value) or 0.0
 
 
+def _new_task_stats() -> dict[str, Any]:
+    """The empty counters for one harness: _accumulate folds rows in, _finish reports them."""
+    return {
+        "n": 0,
+        "passed": 0,
+        "errored": 0,
+        "_rewards": [],
+        "elapsed_sec": 0.0,
+        "operation_count": 0,
+        "operations_by_type": {},
+        # telemetry accumulators (LLM-backed harnesses only)
+        "_cost_sum": 0.0,
+        "_cost_known": 0,
+        "_tokens": {k: 0 for k in _COST_KEYS if k != "cost_usd"},
+        "_tokens_known": {k: 0 for k in _COST_KEYS if k != "cost_usd"},
+        "_by_task": {},   # task -> {"n", "passed", "errored"}
+        "_skill_reported": 0,
+        "_skill_invoked": 0,
+    }
+
+
+def _accumulate(stats: dict[str, Any], row: dict[str, Any]) -> None:
+    """Fold one task result row into its harness's counters."""
+    errored = is_errored(row)
+    passed = bool(row.get("passed")) and not errored
+    stats["n"] += 1
+    stats["passed"] += 1 if passed else 0
+    stats["errored"] += 1 if errored else 0
+    reward = as_float(row.get("reward"))
+    if reward is not None and not errored:
+        stats["_rewards"].append(reward)
+    stats["elapsed_sec"] += _elapsed_seconds(row.get("elapsed_sec"))
+    metrics = row.get("metrics", {})
+    stats["operation_count"] += _count(metrics.get("operation_count")) or 0
+    for op_type, count in metrics.get("operations_by_type", {}).items():
+        stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
+    # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
+    # bool is an int subclass: cost_usd=True is not a price.
+    cost = as_float(metrics.get("cost_usd"))
+    if cost is not None:
+        stats["_cost_sum"] += cost
+        stats["_cost_known"] += 1
+    for key in stats["_tokens"]:
+        val = as_float(metrics.get(key))
+        if val is not None:
+            stats["_tokens"][key] += int(val)
+            stats["_tokens_known"][key] += 1
+    # Skill use, for harnesses that write metrics.n_skill_invocations;
+    # rows that do not are left out of the rate, as are errored rows.
+    invocations = _count(metrics.get("n_skill_invocations"))
+    if invocations is not None and not errored:
+        stats["_skill_reported"] += 1
+        stats["_skill_invoked"] += 1 if invocations > 0 else 0
+    # Per-task breakdown (which tasks the harness solves).
+    task = row.get("task")
+    if task is not None:
+        bucket = stats["_by_task"].setdefault(task, {"n": 0, "passed": 0, "errored": 0})
+        bucket["n"] += 1
+        bucket["passed"] += 1 if passed else 0
+        bucket["errored"] += 1 if errored else 0
+
+
+def _finish(stats: dict[str, Any]) -> None:
+    """Replace the counters in ``stats``, in place, with the reported fields: rates, intervals, cost, per-task."""
+    # An errored cell gives no verdict, so it is out of the denominator: a
+    # counted 0 would charge infrastructure to the treatment (as in McNemar).
+    stats["scored"] = stats["n"] - stats["errored"]
+    stats["pass_rate"] = _rate(stats["passed"], stats["scored"])
+    # Same denominator as pass_rate: an errored cell is not a trial.
+    confidence = binary_stats.PASS_RATE_CI_CONFIDENCE
+    lo, hi = binary_stats.wilson_interval(stats["passed"], stats["scored"], confidence)
+    stats["pass_rate_ci"] = {"lo": lo, "hi": hi, "confidence": confidence, "method": "wilson"}
+    reported = stats.pop("_skill_reported")
+    invoked = stats.pop("_skill_invoked")
+    stats["skill_invocation_rate"] = round(invoked / reported, 4) if reported else None
+    stats["skill_invocation_n"] = reported
+    rewards = stats.pop("_rewards")
+    stats["avg_reward"] = round(mean(rewards), 4) if rewards else None
+    stats["elapsed_sec"] = round(stats["elapsed_sec"], 4)
+    # Finalize telemetry: only surface cost when at least one call was priced.
+    cost_known = stats.pop("_cost_known")
+    cost_sum = stats.pop("_cost_sum")
+    # A token sum over no row that reported it is unknown, not 0 (an arm of
+    # rows without usage, such as a provider that never answered).
+    known = stats.pop("_tokens_known")
+    tokens = {k: (v if known[k] else None) for k, v in stats.pop("_tokens").items()}
+    stats["cost"] = {
+        "total_cost_usd": round(cost_sum, 6) if cost_known else None,
+        "cost_known_n": cost_known,
+        # Only when every row was priced: a partial sum over passes would
+        # understate what a pass costs.
+        "cost_per_pass_usd": (
+            round(cost_sum / stats["passed"], 6)
+            if stats["passed"] and cost_known == stats["n"] else None
+        ),
+        **tokens,
+    }
+    by_task = stats.pop("_by_task")
+    stats["per_task"] = {
+        t: {"n": v["n"], "passed": v["passed"], "errored": v["errored"],
+            "pass_rate": _rate(v["passed"], v["n"] - v["errored"])}
+        for t, v in sorted(by_task.items())
+    }
+
+
+def _compare_to_baseline(per_harness: dict[str, dict[str, Any]], rows: list[dict[str, Any]],
+                         baseline_harness: str) -> dict[str, dict[str, Any]]:
+    """Each treatment harness against the baseline: pass-rate deltas, normalized gain and McNemar."""
+    comparisons: dict[str, dict[str, Any]] = {}
+    base = per_harness[baseline_harness]
+    base_pass = base.get("pass_rate")
+    outcomes, attempted = _outcomes_by_cell(rows)
+    for harness, stats in per_harness.items():
+        # The probe and the oracle are no treatment: as a McNemar row they
+        # would only enlarge the Holm family and dilute a real arm's p.
+        if harness == baseline_harness or _is_control_harness(harness):
+            continue
+        pass_rate = stats.get("pass_rate")
+        base_cost = base["cost"].get("total_cost_usd")
+        arm_cost = stats["cost"].get("total_cost_usd")
+        # Unpaired deltas are withheld when an error hit one arm only: that arm
+        # would look like fewer passes and less cost. McNemar uses shared cells.
+        comparable = _errored_cells(outcomes, attempted, harness) == _errored_cells(
+            outcomes, attempted, baseline_harness)
+        arm_exact = _exact_rate(stats["passed"], stats["scored"])
+        base_exact = _exact_rate(base["passed"], base["scored"])
+        comparisons[harness] = {
+            "baseline_harness": baseline_harness,
+            "pass_rate_delta": (
+                round(pass_rate - base_pass, 4)
+                if isinstance(pass_rate, float) and isinstance(base_pass, float)
+                and comparable
+                else None
+            ),
+            # Withheld with pass_rate_delta, for the same reason.
+            "normalized_gain": (
+                None if not comparable
+                else binary_stats.normalized_gain(arm_exact, base_exact)
+            ),
+            "normalized_change": (
+                None if not comparable
+                else binary_stats.normalized_change(arm_exact, base_exact)
+            ),
+            "errored": stats["errored"],
+            "baseline_errored": base["errored"],
+            "passed_delta": (
+                stats.get("passed", 0) - base.get("passed", 0) if comparable else None
+            ),
+            "operation_count_delta": stats.get("operation_count", 0) - base.get("operation_count", 0),
+            "cost_delta_usd": (
+                round(arm_cost - base_cost, 6)
+                if isinstance(arm_cost, (int, float)) and isinstance(base_cost, (int, float))
+                and comparable
+                else None
+            ),
+            "mcnemar": _paired_binary_test(
+                outcomes, attempted, harness, baseline_harness
+            ),
+        }
+    _correct_across_harnesses(comparisons)
+    return comparisons
+
+
 def summarize_task_results(
     rows: list[dict[str, Any]],
     *,
@@ -139,163 +300,14 @@ def summarize_task_results(
     per_harness: dict[str, dict[str, Any]] = {}
     for row in rows:
         harness = row["harness"]
-        stats = per_harness.setdefault(
-            harness,
-            {
-                "n": 0,
-                "passed": 0,
-                "errored": 0,
-                "_rewards": [],
-                "elapsed_sec": 0.0,
-                "operation_count": 0,
-                "operations_by_type": {},
-                # telemetry accumulators (LLM-backed harnesses only)
-                "_cost_sum": 0.0,
-                "_cost_known": 0,
-                "_tokens": {k: 0 for k in _COST_KEYS if k != "cost_usd"},
-                "_tokens_known": {k: 0 for k in _COST_KEYS if k != "cost_usd"},
-                "_by_task": {},   # task -> {"n", "passed", "errored"}
-                "_skill_reported": 0,
-                "_skill_invoked": 0,
-            },
-        )
-        errored = is_errored(row)
-        passed = bool(row.get("passed")) and not errored
-        stats["n"] += 1
-        stats["passed"] += 1 if passed else 0
-        stats["errored"] += 1 if errored else 0
-        reward = as_float(row.get("reward"))
-        if reward is not None and not errored:
-            stats["_rewards"].append(reward)
-        stats["elapsed_sec"] += _elapsed_seconds(row.get("elapsed_sec"))
-        metrics = row.get("metrics", {})
-        stats["operation_count"] += _count(metrics.get("operation_count")) or 0
-        for op_type, count in metrics.get("operations_by_type", {}).items():
-            stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
-        # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
-        # bool is an int subclass: cost_usd=True is not a price.
-        cost = as_float(metrics.get("cost_usd"))
-        if cost is not None:
-            stats["_cost_sum"] += cost
-            stats["_cost_known"] += 1
-        for key in stats["_tokens"]:
-            val = as_float(metrics.get(key))
-            if val is not None:
-                stats["_tokens"][key] += int(val)
-                stats["_tokens_known"][key] += 1
-        # Skill use, for harnesses that write metrics.n_skill_invocations;
-        # rows that do not are left out of the rate, as are errored rows.
-        invocations = _count(metrics.get("n_skill_invocations"))
-        if invocations is not None and not errored:
-            stats["_skill_reported"] += 1
-            stats["_skill_invoked"] += 1 if invocations > 0 else 0
-        # Per-task breakdown (which tasks the harness solves).
-        task = row.get("task")
-        if task is not None:
-            bucket = stats["_by_task"].setdefault(task, {"n": 0, "passed": 0, "errored": 0})
-            bucket["n"] += 1
-            bucket["passed"] += 1 if passed else 0
-            bucket["errored"] += 1 if errored else 0
-
+        stats = per_harness.setdefault(harness, _new_task_stats())
+        _accumulate(stats, row)
     for stats in per_harness.values():
-        # An errored cell produced no verdict, so it is out of the denominator:
-        # counting a docker build failure as a 0 charges infrastructure to the
-        # treatment, the same reason _outcomes_by_cell drops it from McNemar.
-        stats["scored"] = stats["n"] - stats["errored"]
-        stats["pass_rate"] = _rate(stats["passed"], stats["scored"])
-        # Same denominator as pass_rate: an errored cell is not a trial.
-        confidence = binary_stats.PASS_RATE_CI_CONFIDENCE
-        lo, hi = binary_stats.wilson_interval(stats["passed"], stats["scored"], confidence)
-        stats["pass_rate_ci"] = {"lo": lo, "hi": hi, "confidence": confidence, "method": "wilson"}
-        reported = stats.pop("_skill_reported")
-        invoked = stats.pop("_skill_invoked")
-        stats["skill_invocation_rate"] = round(invoked / reported, 4) if reported else None
-        stats["skill_invocation_n"] = reported
-        rewards = stats.pop("_rewards")
-        stats["avg_reward"] = round(mean(rewards), 4) if rewards else None
-        stats["elapsed_sec"] = round(stats["elapsed_sec"], 4)
-        # Finalize telemetry: only surface cost when at least one call was priced.
-        cost_known = stats.pop("_cost_known")
-        cost_sum = stats.pop("_cost_sum")
-        # A token sum over no row that reported it is unknown, not 0 (an arm of
-        # rows without usage, such as a provider that never answered).
-        known = stats.pop("_tokens_known")
-        tokens = {k: (v if known[k] else None) for k, v in stats.pop("_tokens").items()}
-        stats["cost"] = {
-            "total_cost_usd": round(cost_sum, 6) if cost_known else None,
-            "cost_known_n": cost_known,
-            # Only when every row was priced: a partial sum over passes would
-            # understate what a pass costs.
-            "cost_per_pass_usd": (
-                round(cost_sum / stats["passed"], 6)
-                if stats["passed"] and cost_known == stats["n"] else None
-            ),
-            **tokens,
-        }
-        by_task = stats.pop("_by_task")
-        stats["per_task"] = {
-            t: {"n": v["n"], "passed": v["passed"], "errored": v["errored"],
-                "pass_rate": _rate(v["passed"], v["n"] - v["errored"])}
-            for t, v in sorted(by_task.items())
-        }
+        _finish(stats)
 
     comparisons: dict[str, dict[str, Any]] = {}
     if baseline_harness and baseline_harness in per_harness:
-        base = per_harness[baseline_harness]
-        base_pass = base.get("pass_rate")
-        outcomes, attempted = _outcomes_by_cell(rows)
-        for harness, stats in per_harness.items():
-            # The probe and the oracle are no treatment: as a McNemar row they
-            # would only enlarge the Holm family and dilute a real arm's p.
-            if harness == baseline_harness or _is_control_harness(harness):
-                continue
-            pass_rate = stats.get("pass_rate")
-            base_cost = base["cost"].get("total_cost_usd")
-            arm_cost = stats["cost"].get("total_cost_usd")
-            # The unpaired deltas compare totals. A cell lost to an error on one
-            # side only makes the arms differ by more than the treatment (an arm
-            # with fewer verdicts looks like fewer passes and less cost), so the
-            # deltas are withheld rather than computed over what survived. Cells
-            # both arms lost cancel out. The paired McNemar below always uses
-            # the shared scored cells.
-            comparable = _errored_cells(outcomes, attempted, harness) == _errored_cells(
-                outcomes, attempted, baseline_harness)
-            arm_exact = _exact_rate(stats["passed"], stats["scored"])
-            base_exact = _exact_rate(base["passed"], base["scored"])
-            comparisons[harness] = {
-                "baseline_harness": baseline_harness,
-                "pass_rate_delta": (
-                    round(pass_rate - base_pass, 4)
-                    if isinstance(pass_rate, float) and isinstance(base_pass, float)
-                    and comparable
-                    else None
-                ),
-                # Withheld with pass_rate_delta, for the same reason.
-                "normalized_gain": (
-                    None if not comparable
-                    else binary_stats.normalized_gain(arm_exact, base_exact)
-                ),
-                "normalized_change": (
-                    None if not comparable
-                    else binary_stats.normalized_change(arm_exact, base_exact)
-                ),
-                "errored": stats["errored"],
-                "baseline_errored": base["errored"],
-                "passed_delta": (
-                    stats.get("passed", 0) - base.get("passed", 0) if comparable else None
-                ),
-                "operation_count_delta": stats.get("operation_count", 0) - base.get("operation_count", 0),
-                "cost_delta_usd": (
-                    round(arm_cost - base_cost, 6)
-                    if isinstance(arm_cost, (int, float)) and isinstance(base_cost, (int, float))
-                    and comparable
-                    else None
-                ),
-                "mcnemar": _paired_binary_test(
-                    outcomes, attempted, harness, baseline_harness
-                ),
-            }
-        _correct_across_harnesses(comparisons)
+        comparisons = _compare_to_baseline(per_harness, rows, baseline_harness)
 
     summary: dict[str, Any] = {"per_harness": per_harness, "comparisons": comparisons}
     gaps = _discovery_gaps(rows, per_harness)

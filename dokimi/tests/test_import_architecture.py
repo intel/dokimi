@@ -79,7 +79,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.container_policy", "dokimi.defaults", "dokimi.docker_cmd",
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
         "dokimi.llm_sampling", "dokimi.llm_turn",
-        "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
+        "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_hooks", "dokimi.process_io",
         "dokimi.atomic_write", "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
         "dokimi.yaml_unique",
         "dokimi.judge_rule", "dokimi.spend", "dokimi.text_spans",

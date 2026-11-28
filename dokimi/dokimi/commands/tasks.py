@@ -397,10 +397,11 @@ def register(sub, positive_int, eval_sub) -> None:
         ),
     )
     run_p.add_argument(
-        "--network", action="append", default=[], metavar="PHASE=MODE",
+        "--network", action="append", default=[], metavar="[PHASE=]MODE[:hosts]",
         help=(
-            "Network for a docker-* phase (build, solve, verify, or all): none, public, or "
-            "allowlist:host[:port],... Repeatable; overrides the task's own network_mode. "
+            "Network for a docker-* phase (build, solve, verify, or all). Bare none or public applies to "
+            "every phase. For an allowlist, specify solve or verify, e.g. solve,verify=allowlist:pypi.org. "
+            "Repeatable; overrides the task's own network_mode. "
             "Default build=public solve=none verify=none"
         ),
     )

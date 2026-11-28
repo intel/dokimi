@@ -123,6 +123,12 @@ CONCEPTS: tuple[Concept, ...] = (
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
+        name="judge-context",
+        help="what the judge is shown about an arm's treatment material",
+        canonical=(Flag("--judge-context", "{arm,baseline}", "choice",
+                        meaning="baseline shows the judge no material on any arm, the context a baseline arm's judge sees"),),
+    ),
+    Concept(
         name="cell",
         help="one cell of a matrix",
         canonical=(Flag("--cell", "k=v,...", "text", repeatable=True),),
@@ -260,7 +266,8 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="timeout",
         help="time limits, per phase",
-        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        # F1b adds the phase prefix (#94 §2.4): the phases are the network's (build, solve, verify).
+        # A bare SEC is the agent run (solve). The value is seconds with an optional phase prefix.
         canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
@@ -299,6 +306,11 @@ CONCEPTS: tuple[Concept, ...] = (
                 "--custom-questions", "--atoms", "--novelty-artifact", "--from-eval"),
         note="The subject is a positional. --product, --library and --target name it, so new "
              "commands do not use them.",
+    ),
+    Concept(
+        name="repository_identity",
+        help="the logical repository that identifies findings across stored artifacts",
+        canonical=(Flag("--repository", "OWNER/REPO", "text"),),
     ),
     Concept(
         name="upstream",
@@ -424,12 +436,14 @@ class FlagMove:
     """An old spelling that moved: argv that uses it is tombstoned (exit 2, prints the new argv).
 
     ``leaves`` limits the move to those leaves (their argv paths), for a spelling that keeps
-    another meaning on other leaves. The empty tuple means every leaf.
+    another meaning on other leaves. The empty tuple means every leaf. ``prefix`` is put in front
+    of the old value: ``--build-timeout 5`` is ``--timeout build=5``.
     """
 
     old: str
     new: str
     leaves: tuple[tuple[str, ...], ...] = ()
+    prefix: str = ""
 
 
 FLAG_MOVES: tuple[FlagMove, ...] = (
@@ -467,7 +481,6 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
     # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
     FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("eval", "check"), ("repo", "budget"))),
-    FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
     # Run-name concept (F1b): the identity of a run directory. `--batch` is the batch directory's name on repo run.
@@ -490,6 +503,9 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Timeout concept (F1b): the phase is a prefix of the value. A bare SEC on `repo run` stays the agent run.
+    FlagMove("--build-timeout", "--timeout", leaves=(("repo", "run"), ("eval", "check")), prefix="build="),
+    FlagMove("--grade-timeout", "--timeout", leaves=(("repo", "run"), ("eval", "check")), prefix="verify="),
     # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
     FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
     # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.

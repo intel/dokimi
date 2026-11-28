@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from dokimi import text_spans
 from dokimi.context import session_log, shell
 from dokimi.harnesses import claude_json, fidelity, swebench_grade
 from dokimi.metrics import exploration
@@ -213,8 +214,8 @@ def test_final_answer_scans_unclosed_openers_in_linear_time() -> None:
 
 # cli_traces._HEREDOC and shell.split_commands -------------------------------------------------------------------------
 
-_OLD_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-_OLD_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
+_REF_CLI_HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_REF_SHELL_HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w++)\1([^\n]*)\n.*?\n\s*\2\s*(?=\n|$)", re.S)
 
 HEREDOC_TABLE = [
     "",
@@ -227,26 +228,31 @@ HEREDOC_TABLE = [
     "<<A\nx\nA\n<<B\ny\nB\nz",
     "<<A\nA\n",
     "<<A\n\nA\n",
-    "<<A\nbody\nB\n",
-    "<<A\nbody",
     "<<A",
-    "A\n<<A\nbody",
-    "B\n<<A\nbody\nB\n",
-    "<<AB\nx\nA\n",
     "<<AB\nx\nAB\nA\n",
     "<<A rest\nx\n  A  \n tail",
     "<<A\nx\nAB\nA\nz",
     "<<'A\nx\nA\n",
-    "<<A\r\nx\r\nA\r\n",
     "<<A\nx\nA \n\n\nB",
     "<<A\nx\n\n  A\n\n",
     "<<\nA\nx\nA\n",
     "echo <<A\n<<B\nx\nB\nA\n",
-    "<<'AB'\nx\nA\n",
     '<<"AB"\nx\nA\nAB\nz',
-    "<<'AB\nx\nA\n",
-    "<<AB'\nx\nA\n",
     "<<A1\nA1\n<<A2\nA2\nx\nA2\n",
+]
+
+# an opener no line closes: its body runs to the end of the input, as in a shell (#930); (text, cli_traces result, shell result)
+UNCLOSED_TABLE = [
+    ("<<A\nbody\nB\n", "", "<<A"),
+    ("<<A\nbody", "", "<<A"),
+    ("A\n<<A\nbody", "A\n", "A\n<<A"),
+    ("B\n<<A\nbody\nB\n", "B\n", "B\n<<A"),
+    ("<<AB\nx\nA\n", "", "<<AB"),
+    ("<<'AB'\nx\nA\n", "", "<<AB"),
+    ("<<AB'\nx\nA\n", "'", "<<AB'"),
+    ("<<'AB\nx\nA\n", "<<'AB\nx\nA\n", "<<'AB\nx\nA\n"),
+    ("cat <<AB\nsed -i s/x/y/ f\nA", "cat ", "cat <<AB"),
+    ("cat <<AB\necho hi\nA\nrm x\n", "cat ", "cat <<AB"),
 ]
 
 
@@ -254,30 +260,49 @@ def _cli_heredocs(text: str) -> str:
     return cli_traces._HEREDOC.sub(lambda m: m.group(3), text)
 
 
-def _old_cli_heredocs(text: str) -> str:
-    return _OLD_CLI_HEREDOC.sub(lambda m: m.group(3), text)
+def _ref_cli_heredocs(text: str) -> str:
+    return _REF_CLI_HEREDOC.sub(lambda m: m.group(3), text)
 
 
 def _shell_heredocs(text: str) -> str:
-    return shell._HEREDOC.sub(lambda m: f"<<{m.group(1)}{m.group(2)}", text)
+    return shell._HEREDOC.sub(lambda m: f"<<{m.group(2)}{m.group(3)}", text)
 
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
-def test_cli_trace_heredocs_are_cut_as_before(text: str) -> None:
-    assert _cli_heredocs(text) == _old_cli_heredocs(text)
+def test_cli_trace_heredocs_match_the_reference_regex(text: str) -> None:
+    assert _cli_heredocs(text) == _ref_cli_heredocs(text)
 
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
-def test_shell_heredocs_are_cut_as_before(text: str) -> None:
-    assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
+def test_shell_heredocs_match_the_reference_regex(text: str) -> None:
+    assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\2\3", text)
 
 
-def test_heredocs_match_the_old_regexes_on_random_scripts() -> None:
+@pytest.mark.parametrize(("text", "cli", "shell_cut"), UNCLOSED_TABLE)
+def test_an_unclosed_heredoc_runs_to_the_end_of_the_input(text: str, cli: str, shell_cut: str) -> None:
+    assert _cli_heredocs(text) == cli
+    assert _shell_heredocs(text) == shell_cut
+
+
+_OPENER = re.compile(r"<<-?\s*['\"]?\w")
+_QUOTE_BEFORE_OPENER = re.compile(r"['\"][\s\S]*<<")  # a quote runs over lines
+
+
+def test_heredocs_match_the_reference_regex_on_random_scripts_whose_openers_are_all_closed() -> None:
     pieces = ["<<", "<<-", "A", "B", "AB", "'", '"', "\n", "\n", " ", "\t", "\r", "x", "\n  ", "A\n", "B\n", "<<A\n",
               "<<'B'\n", "echo "]
+    compared = 0
     for text in _random_texts(pieces, 4):
-        assert _cli_heredocs(text) == _old_cli_heredocs(text), repr(text)
-        assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+        if _QUOTE_BEFORE_OPENER.search(text):  # a quote may hide the opener from the new code only
+            continue
+        cli, shell_cut = _ref_cli_heredocs(text), _REF_SHELL_HEREDOC.sub(r"<<\2\3", text)
+        if not _OPENER.search(cli):
+            assert _cli_heredocs(text) == cli, repr(text)
+            compared += 1
+        if not _OPENER.search(shell_cut):
+            assert _shell_heredocs(text) == shell_cut, repr(text)
+            compared += 1
+    assert compared > 100
 
 
 def test_cli_trace_heredoc_scans_openers_without_a_closer_in_linear_time() -> None:
@@ -314,23 +339,364 @@ def _long_delimiters_one_closing_length(k: int) -> str:
 
 
 def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_lengths_in_linear_time() -> None:
-    """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), copying prefixes only the first."""
+    """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), work per opener and delimiter length only the first."""
     def relative() -> float:
         ratio, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_unrelated_closing_lines(k)), 25_000)
         linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 25_000)
         return ratio / linear
 
-    assert any(relative() < 1.3 for _ in range(3))  # copying prefixes: 2.3 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
+    assert any(relative() < 1.3 for _ in range(3))  # a busy host spoils some attempts, and an attempt that passes ends the test
 
 
-def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
-    assert _cli_heredocs("<<ABC\nx\nAB\ny") == _old_cli_heredocs("<<ABC\nx\nAB\ny")
-    assert _cli_heredocs("AB\n<<ABC\nx\n") == _old_cli_heredocs("AB\n<<ABC\nx\n")
+@pytest.mark.parametrize(("text", "cut"), [("<<ABC\nx\nAB\ny", ""), ("AB\n<<ABC\nx\n", "AB\n"), ("cat <<AB\necho hi\nA\nrm x\n", "cat "), ("<<'AB'\nx\nA\ny", "")])
+def test_cli_trace_heredoc_is_not_closed_by_a_line_naming_part_of_its_delimiter(text: str, cut: str) -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), text) == cut  # the body runs to the end, not to the prefix line (#930)
+
+
+def test_cli_trace_heredoc_closes_by_the_whole_delimiter_after_a_prefix_line() -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == "cat \nls\n"
+
+
+def test_cli_trace_heredoc_is_closed_by_a_line_with_a_carriage_return() -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<EOF\r\nx\r\nEOF\r\nls\r\n") == "cat \r\nls\r\n"
+
+
+def test_split_commands_cuts_an_unclosed_heredoc_whose_body_has_a_prefix_line() -> None:
+    assert shell.split_commands("cat <<AB\nsed -i s/x/y/ f\nA\n") == [("cat <<AB", "")]
+    assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == [("cat <<AB", "\n"), ("ls", "\n")]
+
+
+def test_split_commands_keeps_the_commands_before_an_unclosed_heredoc() -> None:
+    assert shell.split_commands("ls\ncat <<AB\nrm x\nA") == [("ls", "\n"), ("cat <<AB", "")]
+
+
+@pytest.mark.parametrize("delimiter", ["EOF-END", "EOF.d", "a-b-c", "EOF/END", "EOF+1", "EOF:x"])
+def test_a_delimiter_of_more_than_word_characters_is_closed_by_its_whole_line_and_the_commands_after_it_stay(delimiter: str) -> None:
+    text = f"cat <<{delimiter}\nbody\n{delimiter}\nsed -i s/x/y/ f\n"
+    assert shell.split_commands(text) == [(f"cat <<{delimiter}", "\n"), ("sed -i s/x/y/ f", "\n")]
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+@pytest.mark.parametrize("opener", ["cat <<EOF\\-END", "cat <<EOF\\-END > f", "cat <<'EOF'\\-END", "cat <<EOF\\\\-END"])
+def test_a_delimiter_word_that_is_only_partly_read_opens_no_heredoc_and_the_closing_line_and_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nbody\nEOF-END\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("opener", ["cat <<$(printf EOF)", "cat <<$(printf EOF) > f", "cat <<'EOF'(x)"])
+def test_a_delimiter_word_cut_by_a_parenthesis_opens_no_heredoc_and_the_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nbody\n$(printf EOF)\nsed -i s/x/y/ f\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo \\<< /dev/null\nsed -i s/x/y/ f\ncat AGENTS.md\n", "echo \\<<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\n", "echo a\\\\ \\<<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\n"])
+def test_an_escaped_first_angle_bracket_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+def test_an_opener_after_an_escaped_backslash_still_opens_a_heredoc() -> None:
+    text = "echo \\\\<<EOF\nbody\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == "echo \\\\\nrm f\n"
+
+
+@pytest.mark.parametrize(("core", "line"), [("a", "a"), ("", " " * 9)])
+def test_delimiters_that_share_a_core_are_not_each_tried_against_every_closing_line(monkeypatch: pytest.MonkeyPatch, core: str, line: str) -> None:
+    """512 delimiters of one core (a blank prefix of 9 characters each, the core ``a`` or none) and 512 lines of that core: 262144 pairs on the code that tried each."""
+    prefixes = [format(i, "09b").replace("0", " ").replace("1", "\t") for i in range(512)]
+    reads = [0]
+
+    def counted(*args: int) -> range:
+        r = range(*args)
+        reads[0] += 1 + len(r)
+        return r
+
+    monkeypatch.setattr(text_spans, "range", counted, raising=False)
+    text = "".join(f"cat <<'{p}{core}'\n" for p in prefixes) + f"{line}\n" * 512
+    assert [c for c, _ in shell.split_commands(text)][0].startswith("cat <<")
+    assert _cli_heredocs(text).startswith("cat ")
+    assert reads[0] < 40 * 1024
+
+
+@pytest.mark.parametrize("text", ["cat <<<word\nsed -i s/x/y/ f\n", "cat <<<'a b' > f\nsed -i s/x/y/ f\n", "cat <<<$X\nsed -i s/x/y/ f\n"])
+def test_a_here_string_is_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["grep '<<EOF' x.txt\nrm f\n", "echo \"a <<EOF\"\nrm f\n", "echo 'it''s' '<<EOF'\nrm f\n", "'<<EOF' x\nrm f\n"])
+def test_a_heredoc_opener_inside_a_quote_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo $((1<<3))\ncat AGENTS.md\n", "echo $(( 1 << 3 ))\ncat AGENTS.md\n", "x=$((a<<b)) y=$((1<<2))\ncat AGENTS.md\n"])
+def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo $(( (1 + (2)) << 3 ))\ncat AGENTS.md\n", "echo $(( ((1)) << 3 )) $(( ((2)) <<4 ))\ncat AGENTS.md\n"])
+def test_a_shift_after_a_nested_group_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['python -c "\nx = 1 << 3\n"\ncat AGENTS.md\n', "git commit -m 'fix\n<<EOF\nmore'\ncat AGENTS.md\n"])
+def test_a_shift_in_a_quote_that_spans_lines_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_quote_in_a_heredoc_body_does_not_hide_the_shift_after_it() -> None:
+    text = "cat <<EOF\nit's\nEOF\necho $((1<<3))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+
+
+def test_a_quote_left_open_on_the_opener_line_leaves_no_body_to_skip() -> None:
+    text = "cat <<EOF 'a\nEOF\nb <<X' ; echo y\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text).endswith("cat AGENTS.md\n")
+
+
+def test_a_quote_in_a_heredoc_body_does_not_hide_the_next_heredoc() -> None:
+    assert _cli_heredocs("cat <<A\nit's\nA\ncat <<C\nrm -rf x\nC\n") == "cat \ncat \n"
+
+
+@pytest.mark.parametrize("text", ["echo '$(('\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho '))'\n", "# $((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\n# ))\n"])
+def test_an_arithmetic_marker_in_single_quotes_or_a_comment_does_not_hide_a_heredoc_between_them(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert "sed" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ['echo "$((1<<3))"\ncat AGENTS.md\n', "echo $# $((1<<3))\ncat AGENTS.md\n"])
+def test_an_arithmetic_marker_in_double_quotes_or_after_a_dollar_hash_still_hides_a_shift(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['echo "$((1<<3))"\necho $((1<<3))\ncat AGENTS.md\n', 'echo "a $((1<<3)) b" "$(( (1) <<2 ))"\necho $((1<<3))\ncat AGENTS.md\n',
+                                  "echo \"$((1)) '\" $((1<<3))\ncat AGENTS.md\n"])
+def test_a_shift_after_a_double_quoted_arithmetic_expansion_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_delimiters_of_blanks_of_many_lengths_are_not_each_tried_at_every_position_of_a_closing_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """128 delimiters of 1 to 128 blanks and 128 closing lines of 128 blanks: 1056768 candidate positions on the code that read each."""
+    reads = [0]
+
+    def counted(*args: int) -> range:
+        r = range(*args)
+        reads[0] += 1 + len(r)
+        return r
+
+    monkeypatch.setattr(text_spans, "range", counted, raising=False)
+    k = 128
+    text = "".join(f"cat <<'{' ' * i}'\n" for i in range(1, k + 1)) + (" " * k + "\n") * k
+    assert [c for c, _ in shell.split_commands(text)][0].startswith("cat <<")
+    assert _cli_heredocs(text).startswith("cat ")
+    assert reads[0] < 40 * 1024
+
+
+@pytest.mark.parametrize("text", ["# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi # cat <<EOF\ncat AGENTS.md\n", "  \t# cat <<'a b'\ncat AGENTS.md\n", "# 'x' cat <<EOF\ncat AGENTS.md\n"])
+def test_a_heredoc_opener_inside_a_comment_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["# note\ncat <<EOF\nbody\nEOF\nrm f\n", "echo a#b <<EOF\nbody\nEOF\nrm f\n", "echo $# <<EOF\nbody\nEOF\nrm f\n",
+                                  "echo '# x' <<EOF\nbody\nEOF\nrm f\n", "echo \\# <<EOF\nbody\nEOF\nrm f\n", "echo 'a' # '\ncat <<EOF\nbody\nEOF\nrm f\n",
+                                  "# a comment ends at its line, a backslash ending it continues nothing\\\ncat <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_that_starts_no_comment_or_a_comment_ended_by_its_line_does_not_hide_an_opener(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text).endswith("\nrm f\n")
+    assert "body" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ["echo hi;# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi&# cat <<EOF\ncat AGENTS.md\n", "echo hi|# cat <<EOF\ncat AGENTS.md\n",
+                                  "(# cat <<EOF\ncat AGENTS.md\n", "(echo hi)# cat <<EOF\ncat AGENTS.md\n", "echo hi \\\\;# cat <<EOF\ncat AGENTS.md\n"])
+def test_a_comment_after_a_shell_operator_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo \\;# <<EOF\nbody\nEOF\nrm f\n", "echo a;b#c <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_after_an_escaped_operator_or_inside_a_word_starts_no_comment(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ["echo a\\ # <<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\nEOF\n", "echo a\\\t# <<EOF\nsed -i s/x/y/ f\nEOF\n", "echo a\\\\\\ # <<EOF\nsed -i s/x/y/ f\nEOF\n"])
+def test_a_hash_after_an_escaped_blank_starts_no_comment_so_its_heredoc_hides_its_body(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith(("sed", "cat"))]
+    assert "sed" not in _cli_heredocs(text)
+
+
+def test_a_hash_after_an_even_run_of_backslashes_and_a_blank_still_starts_a_comment() -> None:
+    text = "echo a\\\\ # <<EOF\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo hi \\\n# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi \\\n\\\n# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi;\\\n# usage: cat <<EOF\ncat AGENTS.md\n"])
+def test_a_comment_after_a_line_continuation_and_a_blank_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo a\\\n# <<EOF\nbody\nEOF\nrm f\n", "echo a\\\\\\\n# <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_after_a_line_continuation_that_follows_a_word_starts_no_comment(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ['echo "$(printf "%s" "<<EOF")"\ncat AGENTS.md\n', 'echo "$(printf "%s" "<<EOF")" # c\ncat AGENTS.md\n',
+                                  "echo \"$(printf '%s' \"a <<EOF\" \"b\")\" \"x\"\ncat AGENTS.md\n", 'echo "$(echo "$(echo "<<EOF")")"\ncat AGENTS.md\n'])
+def test_quotes_in_a_command_substitution_are_apart_from_the_quote_around_it_so_a_shift_in_them_opens_no_heredoc(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['echo "$(cat <<EOF\nbody\nEOF\n)"\nrm f\n', 'echo "$(printf "%s" x)" $(cat <<EOF\nbody\nEOF\n)\nrm f\n',
+                                  'echo "$(echo $((1 << 3)) "a")"\ncat <<EOF\nbody\nEOF\nrm f\n'])
+def test_a_heredoc_inside_a_command_substitution_or_after_one_is_still_cut(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
+class _CountedSlices(str):
+    """A text that adds up the length of every slice taken from it."""
+
+    copied = 0
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        if isinstance(key, slice):
+            self.copied += len(range(*key.indices(len(self))))
+        return super().__getitem__(key)
+
+
+def test_comments_after_operators_copy_a_linear_volume_of_text() -> None:
+    text = _CountedSlices("echo hi;# note\n" * 4000 + "cat <<EOF\nbody\nEOF\n")
+    assert "body" not in [c for c, _ in shell.split_commands(text)]
+    assert text.copied <= 8 * len(text)
+    traces = _CountedSlices("echo hi;# note\n" * 4000 + "cat <<EOF\nbody\nEOF\n")
+    assert "body" not in _cli_heredocs(traces)
+    assert traces.copied <= 8 * len(traces)
+
+
+@pytest.mark.parametrize("text", ["echo $(( $(printf '))' >/dev/null; echo 1) << 3 ))\ncat AGENTS.md\n", "echo $(( $(printf \"))\"; echo 1) << 3 ))\ncat AGENTS.md\n",
+                                  "echo $(( $(echo 1 # ))\n) << 3 ))\ncat AGENTS.md\n", "echo $(( $(printf \\)\\); echo 1) << 3 ))\ncat AGENTS.md\n"])
+def test_a_quoted_parenthesis_in_a_substitution_inside_arithmetic_does_not_end_it_before_a_shift(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['echo $(( $(echo "$(echo "))")" >/dev/null; echo 1) << 3 ))\ncat AGENTS.md\n', "echo $(( `echo \"$(echo '))')\"` << 3 ))\ncat AGENTS.md\n"])
+def test_a_substitution_nested_in_a_quoted_substitution_inside_arithmetic_keeps_its_own_quotes(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo ${x:-<<EOF}\ncat AGENTS.md\n", 'echo "${x:-<<EOF}"\ncat AGENTS.md\n'])
+def test_a_shift_or_opener_in_a_parameter_expansion_opens_no_heredoc(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_heredoc_in_a_substitution_inside_a_parameter_expansion_is_still_cut() -> None:
+    text = "echo ${x:-$(cat <<EOF\nbody\nEOF\n)}\nrm f\n"
+    assert "body" not in _cli_heredocs(text)
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+
+
+@pytest.mark.parametrize("text", ["((x=1<<3))\ncat AGENTS.md\n", "for ((i=0; i<1<<3; i++)); do echo $i; done\ncat AGENTS.md\n", "echo a; (( x = (1 + 2) << 3 ))\ncat AGENTS.md\n",
+                                  "((x=1 \\( << 3))\ncat AGENTS.md\n"])
+def test_a_shift_in_an_arithmetic_command_or_header_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo '((x=1'\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho '))'\n", "# ((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\n# ))\n", 'echo "(("\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho "))"\n',
+                                  "echo \\((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho \\))\n"])
+def test_a_double_parenthesis_in_a_quote_a_comment_or_after_a_backslash_hides_no_heredoc_between_them(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert "sed" not in _cli_heredocs(text)
+
+
+def test_a_heredoc_after_arithmetic_is_still_cut_and_an_unclosed_arithmetic_opener_hides_nothing() -> None:
+    text = "echo $((1<<3)); cat <<EOF\nbody\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == "echo $((1<<3)); cat \nrm f\n"
+    assert [c for c, _ in shell.split_commands("echo $((1 <<EOF\nrm f\n")] == ["echo $((1 <<EOF"]  # no `))`: nothing is blanked
+
+
+def test_a_quote_closed_before_an_opener_does_not_hide_it() -> None:
+    text = "echo 'a' ; cat <<EOF\nbody\nEOF\nrm f\n"
+    assert shell.split_commands(text)[-1] == ("rm f", "\n")
+    assert _cli_heredocs(text) == "echo 'a' ; cat \nrm f\n"
+    assert _cli_heredocs("echo \\' <<EOF\nbody\nEOF\nrm f\n") == "echo \\' \nrm f\n"
+    assert _cli_heredocs("echo '\\' <<EOF\nbody\nEOF\nrm f\n") == "echo '\\' \nrm f\n"
+
+
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_a_quoted_delimiter_with_a_space_is_closed_by_its_whole_line_and_the_commands_after_it_stay(quote: str) -> None:
+    text = f"cat <<{quote}a b{quote}\nx\na b\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)] == [f"cat <<{quote}a b{quote}", "rm f"]
+    assert _cli_heredocs(text) == "cat \nrm f\n"
+    assert [c for c, _ in shell.split_commands(f"cat <<{quote}a b{quote}\nx\na\nrm f\n")] == [f"cat <<{quote}a b{quote}"]  # `a` closes nothing
+    assert _cli_heredocs(f"cat <<{quote}a b{quote}\nx\na\nrm f\n") == "cat "
+
+
+@pytest.mark.parametrize(("opener", "closing"), [("<<\"a'b\"", "a'b"), ("<<'a\"b'", 'a"b'), ('<<"a;b"', "a;b"), ("<<'a&&b'", "a&&b")])
+def test_a_quoted_delimiter_keeps_its_quotes_in_the_command_and_the_commands_after_it_are_split_out(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert shell.split_commands(text) == [(f"cat {opener}", "\n"), ("sed -i s/x/y/ f", "\n")]
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+@pytest.mark.parametrize("opener", ['cat <<"a\\$b"', 'cat <<"a\\"b"', 'cat <<"a\\\\b"', 'cat <<"a\\$b" > f'])
+def test_a_double_quoted_delimiter_with_a_backslash_opens_no_heredoc_and_the_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nx\na$b\nsed -i s/x/y/ f\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize(("opener", "closing"), [("<<' a'", " a"), ("<<'a '", "a "), ("<<' '", " "), ('<<" a b "', " a b "), ("<<' a'", " a\r")])
+def test_a_quoted_delimiter_with_outer_whitespace_is_closed_by_its_whole_line_and_the_commands_after_it_stay(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+@pytest.mark.parametrize(("opener", "closing"), [("<<'a '", "a \r"), ("<<' '", " \r"), ("<<' a '", " a \r"), ("<<'a '", "a  "), ("<<'a '", "  a \r\r"), ("<<' a'", "  a")])
+def test_a_quoted_delimiter_with_outer_whitespace_is_closed_by_a_line_with_more_whitespace_or_a_carriage_return(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+def test_cli_trace_heredoc_is_not_closed_by_a_line_whose_outer_character_is_no_blank_it_allows() -> None:
+    text = "cat <<EOF\nx\n\u00a0EOF\ncat AGENTS.md\n"
+    assert _cli_heredocs(text) == "cat "  # the body runs to the end: a no-break space is no blank of the closing line
+    assert shell.split_commands(text) == [("cat <<EOF", "\n"), ("cat AGENTS.md", "\n")]  # the `\s` of that regex reads it as one
+
+
+def test_a_quote_inside_the_other_quote_does_not_close_it_before_an_opener() -> None:
+    text = "echo \"it's\" <<EOF\nbody\nEOF\nrm f\n"
+    assert _cli_heredocs(text) == "echo \"it's\" \nrm f\n"
+
+
+def test_a_heredoc_that_a_line_closes_right_after_its_opener_leaves_the_commands_after_it() -> None:
+    assert shell.split_commands("cat <<A\nA\nrm x\n") == [("cat <<A", "\n"), ("A", "\n"), ("rm x", "\n")]
 
 
 @pytest.mark.parametrize("delimiter", ["EOF", "Z" * 80])
-def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_memory(delimiter: str) -> None:
-    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word went into the trie, also under an 80-character delimiter (#933 review)."""
+def test_cli_trace_heredoc_keeps_no_line_that_is_no_delimiter_in_memory(delimiter: str) -> None:
+    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word was kept, also under an 80-character delimiter (#933 review)."""
     rng = random.Random(0)
     body = "\n".join(rng.randbytes(40).hex() for _ in range(52_000))
     text = f"cat <<{delimiter} > f\n{body}\n{delimiter}\n"
@@ -340,14 +706,14 @@ def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_mem
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
-    assert cut == _old_cli_heredocs(text) == "cat  > f\n"
-    assert peak < 40 * len(text)  # the trie held about 250 bytes per character
+    assert cut == _ref_cli_heredocs(text) == "cat  > f\n"
+    assert peak < 40 * len(text)  # keeping every line word took 1.1 GB, 260 bytes per character
 
 
-def test_heredocs_close_by_a_delimiter_in_the_rest_of_an_earlier_opener_line() -> None:
+def test_a_delimiter_in_the_rest_of_an_earlier_opener_line_does_not_close_that_opener() -> None:
     text = "<<A <<LONGER\nx\nLONGER\n"
-    assert _cli_heredocs(text) == _old_cli_heredocs(text)
-    assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
+    assert _cli_heredocs(text) == " <<LONGER"
+    assert _shell_heredocs(text) == "<<A <<LONGER"
 
 
 def test_cli_trace_heredoc_scans_many_openers_on_one_line_of_a_closed_heredoc_in_linear_time() -> None:
@@ -360,10 +726,16 @@ def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_li
     _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=20_000)
 
 
-def test_heredocs_with_openers_on_one_line_are_cut_as_before() -> None:
-    for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "<<A <<B\n", "x <<A <<B \nA\nB\n"):
-        assert _cli_heredocs(text) == _old_cli_heredocs(text), repr(text)
-        assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+def test_openers_after_an_unclosed_arithmetic_expansion_are_scanned_in_linear_time() -> None:
+    """The lookahead of the first ``<<`` read the text to its end; every later opener on the line read the same tail again."""
+    _linear(shell.split_commands, lambda k: "echo $((0 " + "<<A " * k + "\n" + "x" * k, n=5_000)
+    _linear(_cli_heredocs, lambda k: "echo $((0 " + "<<A " * k + "\n" + "x" * k, n=5_000)
+
+
+def test_heredocs_with_openers_on_one_line_match_the_reference_regex() -> None:
+    for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "x <<A <<B \nA\nB\n"):
+        assert _cli_heredocs(text) == _ref_cli_heredocs(text), repr(text)
+        assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\2\3", text), repr(text)
 
 
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:

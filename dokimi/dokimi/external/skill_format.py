@@ -66,7 +66,7 @@ UNSUPPORTED_MESSAGE = (
     "not run; the safety and content checks still ran")
 UNLOADED_UNSUPPORTED_MESSAGE = (
     "no spec is known for this host's skills directory, and this SKILL.md did not load, so only its "
-    "commands and its Bash grant were checked")
+    "commands, its Bash grant and its content were checked")
 
 
 def _parts(path: Path, root: Optional[Path]) -> Sequence[str]:

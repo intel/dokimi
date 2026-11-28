@@ -72,6 +72,7 @@ from dokimi.eval.sign_flip import (
     min_sign_flip_p,
     pair_magnitudes,
     round_mean,
+    round_off_zero,
     sign_flip_row,
     tie_widths,
     within,
@@ -642,7 +643,7 @@ def _describe_deltas(
     return {
         "n": len(d),
         "delta_mean": within(round_mean(d_mean), shown_lo, shown_hi),
-        "delta_std": round(d_sd, 2),
+        "delta_std": round_off_zero(d_sd, 2),
         "cohens_d": cohens_d,
         "effect": effect_label(cohens_d),
         "ci_lo": shown_lo,

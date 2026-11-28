@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
+
 from dokimi import llms_txt, opportunities as opp
+from dokimi.utils import InputError
 
 NOVELTY = {
     "artifact": {"kind": "skill", "ref": "skill:skills/acme"},
@@ -27,7 +30,7 @@ def test_novelty_outcomes_become_weighted_fixes():
 
 
 def test_zero_counts_produce_no_opportunity():
-    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "n_paired": 5}}}
+    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "redundant": 0, "still_missing": 0, "n_paired": 5}}}
     assert opp.from_novelty(art) == []
 
 
@@ -152,3 +155,18 @@ def test_repo_claim_identity_ignores_the_report_name():
 def test_degraded_novelty_ranks_ahead_of_discovery_warning():
     items = opp.from_novelty(NOVELTY) + opp.from_llms_txt(llms_txt.check("# X\n\n- [A](a)"))
     assert opp.rank(items)[0]["kind"] == "high-severity"
+
+
+def test_novelty_probe_accepts_a_string_artifact_reference():
+    probe = {**NOVELTY, "artifact": "skill:skills/acme"}
+    assert {item.target for item in opp.from_novelty(probe)} == {"skill:skills/acme"}
+
+
+@pytest.mark.parametrize(("override", "error"), [
+    ({"counts": {"degraded": 50}}, "count must be between 0 and n_paired"),
+    ({"degraded": 1.5}, "must be a rate between 0 and 1"),
+])
+def test_novelty_rejects_counts_and_rates_outside_the_measured_range(override, error):
+    lenient = {**NOVELTY["paired"]["lenient"], **override}
+    with pytest.raises(InputError, match=error):
+        opp.from_novelty({**NOVELTY, "paired": {"lenient": lenient}})

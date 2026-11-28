@@ -1,0 +1,85 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Copy to .github/workflows/ and replace <sha> with your pinned dokimi commit;
+# a writer's `/dokimi run` comment runs the checks (docs/pr-command.md).
+name: dokimi PR command
+
+on:
+  issue_comment:  # zizmor: ignore[dangerous-triggers] -- gated on write permission; PR code runs only in the contents: read job
+    types: [created]
+
+permissions: {}
+
+jobs:
+  gate:
+    if: github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # the reply to a refused commenter and the reaction
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pr: ${{ steps.gate.outputs.pr }}
+      head-sha: ${{ steps.gate.outputs.head-sha }}
+    steps:
+      - id: gate
+        uses: intel/dokimi/actions/pr-command@<sha>  # vX.Y.Z
+
+  checks:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      findings: ${{ steps.upload.outputs.artifact-id }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # no write token near pull request code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.head-sha }}
+          persist-credentials: false
+      - id: setup
+        uses: intel/dokimi/actions/setup@<sha>  # vX.Y.Z
+        with:
+          dokimi-ref: <sha>
+      # Your checks: write each findings file (a novelty artifact, a repo_static.v1
+      # document, an llms.txt file) to the top level of $OUT/opportunities.
+      - name: Run the checks
+        env:
+          OUT: ${{ steps.setup.outputs.out-dir }}
+        run: |
+          mkdir -p -- "$OUT/opportunities"
+          if [ -f llms.txt ]; then cp -- llms.txt "$OUT/opportunities/llms.txt"; fi
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dokimi-opportunities
+          path: ${{ steps.setup.outputs.out-dir }}/opportunities
+          if-no-files-found: ignore
+
+  comment:
+    needs: [gate, checks]
+    concurrency:
+      group: dokimi-opportunities-comment-${{ needs.gate.outputs.pr }}
+      cancel-in-progress: false
+    if: needs.gate.outputs.run == 'true' && needs.checks.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # the opportunities comment
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        if: needs.checks.outputs.findings != ''
+        with:
+          name: dokimi-opportunities
+          path: ${{ runner.temp }}/opportunities
+      - uses: intel/dokimi/actions/setup@<sha>  # vX.Y.Z
+        with:
+          dokimi-ref: <sha>
+      - uses: intel/dokimi/actions/opportunities-comment@<sha>  # vX.Y.Z
+        with:
+          inputs-dir: ${{ runner.temp }}/opportunities
+          pr: ${{ needs.gate.outputs.pr }}
+          head-sha: ${{ needs.gate.outputs.head-sha }}

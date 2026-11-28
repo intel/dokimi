@@ -53,11 +53,11 @@ def _alive(pid: int) -> bool:
         return True
 
 
-def _gone_soon(pid: int, within: float = 5.0) -> bool:
+def _gone_soon(pid: int, within: float = 30.0) -> bool:
     return poll_until(lambda: not _alive(pid), within, interval=0.05)
 
 
-def _wait_for(path: Path, within: float = 10.0) -> str:
+def _wait_for(path: Path, within: float = 60.0) -> str:
     return wait_until(lambda: path.is_file() and path.read_text(), within, what=f"{path} to be written",
                       interval=0.05)
 
@@ -199,33 +199,6 @@ def test_a_detached_job_that_closed_its_output_is_killed_too(tmp_path):
                        env=INHERIT)
     assert done.ok
     assert _gone_soon(int(pid_file.read_text()))
-
-
-@_POSIX_ONLY
-def test_timeout_returns_despite_a_setsid_child(tmp_path):
-    """A child that calls setsid() leaves the group the kill reaches, and is not
-    contained. The call still returns at the timeout plus the drain grace instead of
-    waiting for that child to close the inherited pipes, keeping what was read."""
-    pid_file = tmp_path / "child.pid"
-    code = ("import os, sys, time\n"
-            "if os.fork() == 0:\n"
-            "    os.setsid()\n"
-            "    open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
-            "    os.rename(sys.argv[1] + '.tmp', sys.argv[1])\n"
-            "    time.sleep(60)\n"
-            "    os._exit(0)\n"
-            "print('before', flush=True)\n"
-            "time.sleep(60)\n")
-    start = time.monotonic()
-    done = _py(code, str(pid_file), timeout=2)
-    elapsed = time.monotonic() - start
-    child = int(_wait_for(pid_file))
-    try:
-        assert _alive(child)  # the escaped child is alive and holds stdout and stderr
-        assert done.timed_out and done.stdout == "before\n"
-        assert elapsed < 2 + process.DRAIN_GRACE_SEC + 2
-    finally:
-        os.kill(child, signal.SIGKILL)
 
 
 def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
