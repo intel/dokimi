@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Copyright (C) 2026 Intel Corporation. SPDX-License-Identifier: Apache-2.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "identity",
+    "mode",
+    "observations",
+    "summary",
+    "date",
+    "reproduce",
+    "required"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "delivery.v1"
+    },
+    "mode": {
+      "enum": [
+        "release",
+        "scan"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "manifest",
+        "artifact",
+        "profile",
+        "catalog",
+        "image",
+        "version"
+      ]
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "task",
+          "origin",
+          "identity",
+          "arm",
+          "outcome",
+          "evidence",
+          "repeat",
+          "sources_supplied",
+          "observed_reads",
+          "reason"
+        ],
+        "properties": {
+          "outcome": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "INCONCLUSIVE"
+            ]
+          },
+          "repeat": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task": {
+            "type": "string"
+          },
+          "arm": {
+            "enum": [
+              "release",
+              "A",
+              "B"
+            ]
+          },
+          "origin": {
+            "enum": [
+              "contract",
+              "scan"
+            ]
+          },
+          "evidence": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "sources_supplied": {
+            "type": "array"
+          },
+          "observed_reads": {
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "date": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "reproduce": {
+      "type": "string"
+    },
+    "required": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  },
+  "if": {
+    "properties": {
+      "mode": {
+        "const": "release"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "summary": {
+        "required": [
+          "verdict",
+          "checks"
+        ],
+        "properties": {
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "INCONCLUSIVE"
+            ]
+          }
+        }
+      },
+      "required": {
+        "minItems": 1
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "summary": {
+        "required": [
+          "A",
+          "B",
+          "partial"
+        ],
+        "properties": {
+          "partial": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

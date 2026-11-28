@@ -33,6 +33,7 @@ CALLER_FLAGS = [
 #: Commands whose ``--provider`` goes to :mod:`dokimi.llm` itself (``llm_call``, ``run_session``,
 #: ``chat_completion``, the novelty client).
 LLM_FLAGS = [
+    "delivery scan",
     "eval questions analyze", "eval questions review", "eval score panel", "arms run",
     "arms matrix-run", "subjects run", "skill novelty analyze", "skill novelty atoms",
     "skill novelty probe", "skill shorten", "skill routing", "catalog routing", "catalog novelty",

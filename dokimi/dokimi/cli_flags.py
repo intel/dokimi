@@ -293,6 +293,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="what a run reads; the subject itself is a positional",
         canonical=(
             Flag("--tasks", "DIR|FILE", "path"),
+            Flag("--corpus", "FILE", "path", meaning="a saved external source corpus"),
+            Flag("--fixture", kind="flag", meaning="replay recorded agent answers"),
             Flag("--task", "ID", "text", repeatable=True, meaning="a filter on --tasks"),
             Flag("--questions", "FILE", "path"),
             Flag("--answers", "FILE", "path"),

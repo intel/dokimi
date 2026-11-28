@@ -95,7 +95,7 @@
 --limit
 --listing-budget  # catalog check (#966): a cap on the skill listing's characters; no registry concept yet
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
---manifest
+--manifest  # repository-relative evaluation manifest or pinned delivery manifest
 --manifest-file
 --matrix-cell  # names one cell of a --matrix-cells file; the canonical --cell takes inline k=v settings, not a name
 --matrix-cells  # the matrix.cells descriptor file, not one cell; no canonical spelling names a matrix file

@@ -93,6 +93,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [Delivery contracts and AX replay](delivery.md) — validate a binary-only RC and compare saved source snapshots.
 - [product-experiment-replay.md](product-experiment-replay.md) — replay a frozen product experiment and its verifier evidence
 - [knowledge-runs.md](knowledge-runs.md) — ask one question set of one agent
   or model with no docs injected and grade it (`arms run --arm baseline`,

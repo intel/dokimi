@@ -1,0 +1,103 @@
+{
+  "schema_version": "delivery.v1",
+  "required": [
+    "double",
+    "binary-double"
+  ],
+  "reproduce": "dokimi delivery release --manifest results/delivery-example/good.json --tasks results/delivery-example/tasks.json --policy results/delivery-example/policy.json --out replay.json",
+  "mode": "release",
+  "date": "2026-11-23T12:00:00Z",
+  "identity": {
+    "manifest": "684d10b898e5f64fb52188d6c0f5686d868aa04fa7d611f6093e3d82037339c0",
+    "artifact": "fb634b91417192dc202b0f40f6122178776cd352ba66e32b2407506eaf8cc998",
+    "profile": "linux-cpu",
+    "catalog": "5706e833f8743f72e98772c38977888b36da1b3fe696c3907e341245f4790032",
+    "image": "sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8",
+    "version": "2.0-rc1",
+    "platform": "linux/amd64",
+    "docs_snapshot": "56bedd9f0bdf4fafbcfd94e7890448e875262b4870be085dca81deb8529292cb",
+    "policy": "eb26fbfd442ad64a1779309e39fb3492b0d55fb7430f24041d34f950bba2fdc8",
+    "policy_version": "1"
+  },
+  "observations": [
+    {
+      "origin": "contract",
+      "identity": {
+        "manifest": "684d10b898e5f64fb52188d6c0f5686d868aa04fa7d611f6093e3d82037339c0",
+        "artifact": "fb634b91417192dc202b0f40f6122178776cd352ba66e32b2407506eaf8cc998",
+        "profile": "linux-cpu",
+        "catalog": "5706e833f8743f72e98772c38977888b36da1b3fe696c3907e341245f4790032",
+        "image": "sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8",
+        "version": "2.0-rc1",
+        "platform": "linux/amd64",
+        "docs_snapshot": "56bedd9f0bdf4fafbcfd94e7890448e875262b4870be085dca81deb8529292cb",
+        "policy": "eb26fbfd442ad64a1779309e39fb3492b0d55fb7430f24041d34f950bba2fdc8",
+        "policy_version": "1"
+      },
+      "task": "double",
+      "arm": "release",
+      "repeat": 1,
+      "sources_supplied": [],
+      "observed_reads": null,
+      "evidence": {
+        "script": "shipcalc double",
+        "exit": 0,
+        "stderr": "",
+        "stdout": "cpu:34\ncpu:-8\n",
+        "verifier_exit": 0,
+        "verifier_stderr": ""
+      },
+      "outcome": "PASS",
+      "reason": null,
+      "owner": "shipped example",
+      "finding_id": null,
+      "budget_seconds": 20,
+      "verifier": "f2054e8e4ef0eda7ab57b1230acd5359091b8f6e191851fb8f5b357fbfae6fe8",
+      "input_sha256": "f46353f8e0510242b37fe0b4c15fc89ddb1e84fc17ac2d005507512c9fb96ed1",
+      "initial_sha256": "964beb3f874401fb1c94d00dfb90902c35e80d1e806e2d6d322b06a0e14debb5"
+    },
+    {
+      "origin": "contract",
+      "identity": {
+        "manifest": "684d10b898e5f64fb52188d6c0f5686d868aa04fa7d611f6093e3d82037339c0",
+        "artifact": "fb634b91417192dc202b0f40f6122178776cd352ba66e32b2407506eaf8cc998",
+        "profile": "linux-cpu",
+        "catalog": "5706e833f8743f72e98772c38977888b36da1b3fe696c3907e341245f4790032",
+        "image": "sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8",
+        "version": "2.0-rc1",
+        "platform": "linux/amd64",
+        "docs_snapshot": "56bedd9f0bdf4fafbcfd94e7890448e875262b4870be085dca81deb8529292cb",
+        "policy": "eb26fbfd442ad64a1779309e39fb3492b0d55fb7430f24041d34f950bba2fdc8",
+        "policy_version": "1"
+      },
+      "task": "binary-double",
+      "arm": "release",
+      "repeat": 1,
+      "sources_supplied": [],
+      "observed_reads": null,
+      "evidence": {
+        "script": "shipcalc double",
+        "exit": 0,
+        "stderr": "",
+        "stdout": "cpu:34\ncpu:-8\n",
+        "verifier_exit": 0,
+        "verifier_stderr": ""
+      },
+      "outcome": "PASS",
+      "reason": null,
+      "owner": "product CLI",
+      "finding_id": null,
+      "budget_seconds": 20,
+      "verifier": "f2054e8e4ef0eda7ab57b1230acd5359091b8f6e191851fb8f5b357fbfae6fe8",
+      "input_sha256": "f46353f8e0510242b37fe0b4c15fc89ddb1e84fc17ac2d005507512c9fb96ed1",
+      "initial_sha256": "964beb3f874401fb1c94d00dfb90902c35e80d1e806e2d6d322b06a0e14debb5"
+    }
+  ],
+  "summary": {
+    "verdict": "PASS",
+    "checks": {
+      "double": "PASS",
+      "binary-double": "PASS"
+    }
+  }
+}
