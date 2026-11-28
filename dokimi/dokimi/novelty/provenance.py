@@ -18,24 +18,8 @@ from pathlib import Path
 
 from dokimi import __version__
 
-# Substring of a lowercased model id -> vendor; first match wins. The CLI aliases
-# (opus, sonnet, haiku) are Claude models.
-_VENDOR_MARKERS = (
-    ("claude", "anthropic"), ("anthropic", "anthropic"), ("opus", "anthropic"),
-    ("sonnet", "anthropic"), ("haiku", "anthropic"),
-    ("gpt", "openai"), ("openai", "openai"),
-    ("grok", "xai"), ("xai", "xai"),
-    ("gemini", "google"), ("google", "google"),
-    ("nemotron", "nvidia"), ("nvidia", "nvidia"),
-    ("llama", "meta"), ("meta", "meta"),
-)
-UNKNOWN_VENDOR = "unknown"
-
-
-def vendor_of(model: str | None) -> str:
-    """The vendor a model id names (``us.anthropic.claude-...`` -> ``anthropic``), else ``unknown``."""
-    lowered = (model or "").lower()
-    return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), UNKNOWN_VENDOR)
+# The vendor table lives in dokimi.model_identity, where the eval judge warning reads it too.
+from dokimi.model_identity import UNKNOWN_VENDOR, vendor_of
 
 
 def vendor_record(answerer_model: str, judge_model: str) -> dict:
@@ -54,6 +38,16 @@ def same_vendor_warning(record: dict) -> str | None:
         return None
     return (f"the judge and the answerer are both {record['judge_vendor']} models: a judge can "
             "favour answers of its own vendor; pass a --judge-model of another vendor")
+
+
+def extractor_vendor_warning(extractor_model: str, answerer_model: str) -> str | None:
+    """The warning for an answer key written by the answerer's vendor, or ``None``."""
+    record = vendor_record(extractor_model, answerer_model)
+    if not record["same_vendor"]:
+        return None
+    return (f"the extractor ({extractor_model}) and the answerer ({answerer_model}) are both "
+            f"{record['answerer_vendor']} models: the answer key may favour answers its own vendor "
+            "wrote; pass --extract-model of another vendor")
 
 
 def prompts_sha256() -> str:

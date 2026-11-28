@@ -20,6 +20,7 @@ from typing import Any
 
 from dokimi.llm_cli import backend as cli_backend
 from dokimi.metrics.usage import UsageRecord
+from dokimi.model_identity import UNKNOWN_VENDOR, vendor_of as model_vendor
 from dokimi.spend import Spend, SpendCap, SpendCapReached
 from dokimi import judge_rule
 
@@ -285,20 +286,10 @@ def same_client(a: LLMClient, b: LLMClient) -> bool:
     return a.model == b.model or same_model(a.model, b.model)
 
 
-# Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:
-# PR #429 (novelty/provenance.py vendor_of) reads the same thing; reconcile on merge.
-_VENDOR_MARKERS = (
-    ("claude", "anthropic"), ("anthropic", "anthropic"), ("sonnet", "anthropic"),
-    ("opus", "anthropic"), ("haiku", "anthropic"),
-    ("gpt", "openai"), ("openai", "openai"), ("gemini", "google"), ("mistral", "mistral"),
-    ("grok", "xai"), ("xai", "xai"),
-)
-
-
 def vendor_of(model: str | None) -> str | None:
     """The vendor family a model id names (``us.anthropic.claude-...`` is ``anthropic``), else ``None``."""
-    lowered = (model or "").lower()
-    return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), None)
+    family = model_vendor(model)
+    return None if family == UNKNOWN_VENDOR else family
 
 
 def extractor_judge_relation(extractor_model: str, judge: LLMClient,

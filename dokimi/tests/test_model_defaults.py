@@ -161,8 +161,9 @@ def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(
     assert "independence warning" in capsys.readouterr().err
     assert _warn_judge_independence("anthropic", "claude-sonnet-5-5", "amazon-bedrock", "claude-sonnet-5-5")
     assert "independence warning" in capsys.readouterr().err
+    # a different model of one vendor family is not the same model (False, never a refusal), but it warns
     assert not _warn_judge_independence("anthropic", "claude-sonnet-5-5", "anthropic", "claude-haiku-5-5")
-    assert capsys.readouterr().err == ""
+    assert "one anthropic family" in capsys.readouterr().err
     # an unset model is not evidence of sameness
     assert not _warn_judge_independence("anthropic", "", "anthropic", "")
     assert not _warn_judge_independence("anthropic", "claude-sonnet-5-5", "anthropic", "")

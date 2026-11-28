@@ -119,7 +119,7 @@ def _clients():
     )
 
 
-def _analyze(tmp_path, **overrides):
+def _analyze(tmp_path, *, clients=None, **overrides):
     path = tmp_path / "accel-tuning" / "SKILL.md"
     path.parent.mkdir(parents=True)
     path.write_text(SKILL, encoding="utf-8")
@@ -128,8 +128,20 @@ def _analyze(tmp_path, **overrides):
         artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
         description=description, frontmatter=frontmatter, concurrency=1, **overrides,
     )
-    extractor, answerer, judge = _clients()
+    extractor, answerer, judge = _clients() if clients is None else clients
     return analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+
+
+def test_analyze_records_the_extractors_same_vendor_warning(tmp_path, capsys):
+    transport = _scripted("informed")
+    clients = (
+        LLMClient(model="claude-haiku-5-5", role="extractor", transport=transport),
+        LLMClient(model="claude-sonnet-5-5", role="answerer", transport=transport),
+        LLMClient(model="gpt-6.1-sol", role="judge", transport=transport),
+    )
+    result = _analyze(tmp_path, clients=clients)
+    [warning] = [line for line in result.artifact["warnings"] if "both anthropic models" in line]
+    assert warning in capsys.readouterr().err
 
 
 def test_a_self_judged_run_is_refused_before_any_extraction_call(tmp_path):

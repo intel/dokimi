@@ -16,6 +16,7 @@ artifact so a partial run is never quoted as a full sweep.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -245,6 +246,17 @@ def analyze(
             partial=record["partial"])
 
 
+def _note_extractor_vendor(extractor_model: str, answerer_model: str, warnings: list[str]) -> None:
+    """Warn when the answer key's writer and the answerer share a vendor family.
+
+    The extractor writes the answer key that grades the answerer's answers: one vendor on both sides
+    favours the answerer's own family. Warned, never refused (the judge's check is the refusal).
+    """
+    if text := provenance.extractor_vendor_warning(extractor_model, answerer_model):
+        print(f"WARNING {text}", file=sys.stderr)
+        warnings.append(text)
+
+
 def _analyze(
     text: str,
     config: AnalyzeConfig,
@@ -266,6 +278,7 @@ def _analyze(
         lambda member: measure.check_self_judge(member, answerer, config.allow_self_judge))
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = progress.warnings
+    _note_extractor_vendor(extractor.model, answerer.model, warnings)
     span_list = progress.spans = spans.segment(text)
     extraction = progress.extraction = atoms_mod.ExtractionReport()
     extracted = progress.extracted = atoms_mod.extract_atoms(
