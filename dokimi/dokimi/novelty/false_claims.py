@@ -138,7 +138,7 @@ def split_sentences(answer: str) -> list[Sentence]:
     out = []
     for m in _SENTENCE.finditer(answer):
         text = m.group(0).strip()
-        if not text or not _WORD.search(text):
+        if not re.search(r"[A-Za-z_]", text):  # a list marker such as "1." can never pair
             continue
         start = m.start() + m.group(0).index(text)
         out.append(Sentence(text, start, start + len(text)))

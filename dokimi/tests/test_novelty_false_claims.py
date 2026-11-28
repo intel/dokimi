@@ -312,3 +312,14 @@ def test_closing_emphasis_keeps_two_claims_separate(marker):
     assert [sentence.text for sentence in split_sentences(answer)] == [
         first, "The accelerator is not supported on Linux."]
     assert [claim.quote for claim in find_false_claims(answer, [atom]).claims] == [first]
+
+
+def test_numbered_list_markers_are_not_counted_as_unchecked_sentences():
+    items = ["Install driver version 2.1 for the accelerator.",
+             "The accelerator requires driver version 2.1 or newer.", "Restart the accelerator driver."]
+    numbered = "To set it up:\n\n" + "\n".join(f"{i}. {item}" for i, item in enumerate(items, 1))
+    bulleted = "To set it up:\n\n" + "\n".join(f"- {item}" for item in items)
+    reports = [find_false_claims(answer, ATOMS[:1]) for answer in (numbered, bulleted)]
+    assert [(r.n_sentences, r.n_unchecked) for r in reports] == [(4, 1), (4, 1)]
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use _123 to configure matrix precision."})
+    assert find_false_claims("_123.", [atom]).n_pairs == 1
