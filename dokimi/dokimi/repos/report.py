@@ -389,6 +389,12 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             "model_mismatch": model_mismatch(cells)}
 
 
+def _format_score(value: float) -> str:
+    """``value`` at 2 decimals; a non-zero value that would print as ``0.00`` gets 2 significant digits."""
+    text = f"{value:.2f}"
+    return f"{value:.2g}" if value and float(text) == 0 else text
+
+
 def format_report(summary: dict[str, Any]) -> str:
     rows = summary["rows"]
     width = max([len(r["task"]) for r in rows] + [4])
@@ -403,7 +409,7 @@ def format_report(summary: dict[str, Any]) -> str:
             lo, hi = r["ci95"]
             result = f"{r['successes']}/{r['n']} pass [{lo:.2f}, {hi:.2f}]"
         else:
-            result = "score -" if r["score"] is None else f"score {r['score']:.2f}"
+            result = "score -" if r["score"] is None else f"score {_format_score(r['score'])}"
         cost = "-" if r["cost_usd"] is None else f"{r['cost_usd']:.4f}"
         turns = "-" if r["turns"] is None else f"{r['turns']:.1f}"
         lines.append(f"{r['task']:<{width}}  {r['arm']:<{arm_w}}  {r['model']:<{model_w}}  {r['n']:>3}  "
