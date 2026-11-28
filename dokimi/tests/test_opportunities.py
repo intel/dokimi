@@ -94,6 +94,15 @@ def test_llms_txt_key_survives_a_change_in_h1_count():
     assert keys[0] == keys[1]
 
 
+def test_llms_txt_link_keys_preserve_code_labels_and_raw_destinations():
+    target = "https://example.test/öffnen?x=1&amp;y=2"
+    links = f"- [`api`]({target})\n- [`cli`]({target})"
+    findings = [f for f in llms_txt.check(links) if f.severity == "warn" and f.check == "links"]
+    assert [f.identity for f in findings] == [f"`api`|{target}", f"`cli`|{target}"]
+    assert all(f.message == f"link to {target} has no description" for f in findings)
+    assert len({item.source_key for item in opp.from_llms_txt(findings)}) == 2
+
+
 def test_catalog_errors_outrank_warnings_and_group_per_code():
     doc = {"skills": [{"path": "skills/a", "checks": {"findings": [
         {"level": "error", "code": "script-crlf", "message": "CRLF breaks bash", "path": "skills/a",

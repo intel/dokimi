@@ -126,6 +126,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("catalog", "trigger-probe"), PAID),
     Leaf(("docs", "check"), FREE, "Run the static benchmark spec and save a snapshot"),
     Leaf(("docs", "compare"), FREE, "Compare two saved benchmark snapshots"),
+    Leaf(("docs", "llms-txt"), FREE, "Check an llms.txt file: structure, positioning sections, size"),
     Leaf(("skill", "novelty", "analyze"), PAID),
     Leaf(("skill", "novelty", "atoms"), PAID),
     Leaf(("skill", "novelty", "probe"), PAID),

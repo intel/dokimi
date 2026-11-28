@@ -17,6 +17,5 @@ test:
     - "pytest-timeout >=2.2"
     - "pytest-randomly >=3.15"
     - "pytest-xdist >=3.6"
-    - "markdown-it-py >=3"
     - packaging
     - "mypy ==2.4.1"

@@ -117,6 +117,7 @@ nav:
       - "What did the agent do?": features/traces.md
       - "Will it keep working?": features/continuous-evaluation.md
   - Practical guides:
+      - Check llms.txt: llms-txt.md
       - what-it-measures.md
       - reviewing.md
       - external-content.md

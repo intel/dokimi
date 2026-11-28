@@ -221,3 +221,11 @@ def test_skills_card_says_novelty_view_has_no_outcome_colours():
     assert "category colouring" in para
     assert "span and category only" not in para
     assert "skill novelty analyze" in para
+
+
+
+def test_llms_txt_guide_has_one_navigation_entry():
+    config = (PROJECT / "mkdocs.yml").read_text(encoding="utf-8")
+    nav = config.split("\nnav:\n", 1)[1]
+    entries = re.findall(r"^ +-[^\n]*\bllms-txt\.md *$", nav, re.MULTILINE)
+    assert entries == ["      - Check llms.txt: llms-txt.md"]
