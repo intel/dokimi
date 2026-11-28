@@ -110,6 +110,15 @@ def _keep_previous_owner(new: Path, previous: Path) -> None:
         keep_owner_group_mode(new, old)
 
 
+def _unlink_receipt(path: Path) -> None:
+    """Remove a receipt this swap placed; a read-only one (the mode of a read-only previous receipt) is made writable first, as Windows refuses to unlink it."""
+    try:
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        path.unlink(missing_ok=True)
+
+
 def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
     """Swap the four receipt files within *out*; the directory itself is never renamed or removed."""
     placed: list[str] = []
@@ -124,7 +133,7 @@ def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
     except BaseException as exc:
         try:
             for name in placed:
-                (out / name).unlink(missing_ok=True)
+                _unlink_receipt(out / name)
             for name in _OUTPUTS:
                 if (backup / name).exists():
                     os.replace(backup / name, out / name)
