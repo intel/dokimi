@@ -73,6 +73,43 @@ def test_wrong_answer_that_exits_125_scores_zero(pack, local_shell):
     assert summary["A"]["false_success"] == [2, 2] and not summary["partial"]
 
 
+@needs_sh
+@pytest.mark.parametrize(
+    "script, failure",
+    [("echo partial; exec sleep 30", "timeout"), ("head -c 1100000 /dev/zero | tr '\\0' x", "truncated")],
+)
+def test_consumer_that_runs_out_of_time_or_output_is_graded_by_the_verifier(pack, local_shell, script, failure):
+    manifest = json.loads(pack.manifest.read_text())
+    verify = 'cat >/dev/null\n[ "$consumer_exit" -eq 124 ] && exit 10\nexit 99'
+    row: dict = {}
+    assert delivery._grade(manifest, b"", b"", script, b"", verify, 1, row) == "FAIL"
+    evidence = row["evidence"]
+    assert (evidence["exit"], evidence["verifier_exit"], evidence["failure"]) == (124, 10, failure)
+    assert "delivery-start-" not in evidence["stderr"]
+    if failure == "timeout":
+        assert evidence["stdout"] == "partial\n"
+
+
+@needs_sh
+def test_consumer_stderr_over_the_capture_limit_keeps_its_own_exit(pack, local_shell):
+    manifest = json.loads(pack.manifest.read_text())
+    verify = '[ "$consumer_exit" -eq 0 ] && [ "$(cat)" = ok ] && exit 0\nexit 10'
+    row: dict = {}
+    script = "head -c 1100000 /dev/zero | tr '\\0' x >&2; echo ok"
+    assert delivery._grade(manifest, b"", b"", script, b"", verify, 10, row) == "PASS"
+    assert "failure" not in row["evidence"]
+
+
+@needs_sh
+def test_install_that_runs_out_of_time_is_inconclusive(pack, local_shell):
+    manifest = json.loads(pack.manifest.read_text())
+    manifest["install"] = "exec sleep 30"
+    row: dict = {}
+    with pytest.raises(ValueError):
+        delivery._grade(manifest, b"", b"", "true", b"", "exit 0", 1, row)
+    assert row["evidence"]["failure"] == "timeout" and row["evidence"]["verifier_exit"] is None
+
+
 @pytest.mark.parametrize("status", [125, 137])
 def test_runner_failure_before_the_consumer_finishes_is_inconclusive(pack, monkeypatch, status):
     calls = []

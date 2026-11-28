@@ -57,6 +57,7 @@ def container(
     gpu: bool = False,
     platform: str = "linux/amd64",
     done_marker: str | None = None,
+    start_marker: str | None = None,
 ) -> process.Completed:
     name = "dokimi-delivery-" + uuid.uuid4().hex
     policy = ContainerPolicy(
@@ -78,17 +79,23 @@ def container(
         policy, [options, "network", "hardening", "pids", "resource", mounts_argv], image, ["-c", script]
     )
     env = process.Env.inherit()
+    stopped = True
     try:
         result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)
-        if result.timed_out:
+        stopped = result.timed_out
+        # A consumer that started and then ran out of time is graded; a hung install or runner is not.
+        if stopped and (start_marker is None or f"{start_marker}\n" not in result.stderr):
             raise ContainerFailure(result)
-    except BaseException:
-        # The daemon owns the container after its CLI exits. Keep the original failure if removal also fails.
-        with suppress(BaseException):
-            process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)
-        raise
+    finally:
+        if stopped:
+            # The daemon owns the container after its CLI exits. Keep the original failure if removal also fails.
+            with suppress(BaseException):
+                process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)
+    if result.timed_out:
+        return result
     finished = done_marker is not None and result.stderr.endswith(done_marker + "\n")
-    if result.truncated or (
+    # A consumer run's output limit is graded in _grade; a verifier's truncated evidence is a runner failure.
+    if (result.truncated and done_marker is None) or (
         not finished
         and (
             result.returncode in (125, 137)
@@ -180,7 +187,7 @@ def _consume(row: dict, image: str, wrapped: str, script: str, *args: Any) -> pr
             "stderr": result.stderr,
             "stdout": result.stdout,
             "verifier_exit": None,
-            "failure": "timeout" if result.timed_out else "truncated" if result.truncated else "runner",
+            "failure": "timeout" if result.timed_out else "runner",
         }
         raise ValueError(str(failure)) from failure
 
@@ -200,6 +207,7 @@ def _grade(
     image = manifest["image"]
     setup_marker = "delivery-workspace-" + uuid.uuid4().hex
     done_marker = "delivery-consumer-" + uuid.uuid4().hex
+    start_marker = "delivery-start-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "delivery"
         path.write_bytes(product)
@@ -218,7 +226,7 @@ def _grade(
             "chmod u+w ./consumer.sh || workspace_failed\n"
             "{\n"
             + manifest["install"]
-            + "\n} </dev/null >&2 || exit 120\n(\n"
+            + f"\n}} </dev/null >&2 || exit 120\nprintf '%s\\n' '{start_marker}' >&2\n(\n"
             + script
             + f"\n)\nstatus=$?\nprintf '%s\\n' '{done_marker}' >&2\nexit $status\n",
             script,
@@ -228,24 +236,29 @@ def _grade(
             manifest.get("gpu", False),
             manifest["platform"],
             done_marker,
+            start_marker,
         )
     marker_line = setup_marker + "\n"
     setup_failed = result.returncode == 121 and result.stderr.endswith(marker_line)
     stderr = result.stderr.removesuffix(marker_line) if setup_failed else result.stderr
-    stderr = stderr.removesuffix(done_marker + "\n")
+    stderr = stderr.removesuffix(done_marker + "\n").replace(start_marker + "\n", "", 1)
+    overflow = len(result.stdout_bytes) > process.CAPTURE_LIMIT
+    consumer_exit = process.TIMEOUT_RC if overflow else result.returncode
     row["evidence"] = {
         "script": script,
-        "exit": result.returncode,
+        "exit": consumer_exit,
         "stderr": stderr,
         "stdout": result.stdout,
         "verifier_exit": None,
     }
+    if result.timed_out or overflow:
+        row["evidence"]["failure"] = "timeout" if result.timed_out else "truncated"
     if setup_failed:
         raise ValueError(f"could not prepare consumer workspace: {stderr}")
     try:
         grade = container(
             image,
-            f"consumer_exit={result.returncode}\n" + verifier,
+            f"consumer_exit={consumer_exit}\n" + verifier,
             {},
             result.stdout_bytes,
             budget,
