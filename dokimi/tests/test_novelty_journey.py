@@ -356,3 +356,41 @@ def test_a_model_failure_exits_1_with_its_message_through_cli_main(command, tmp_
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == message
+
+
+_WALKTHROUGH = Path(__file__).resolve().parents[1] / "docs" / "skill-novelty-walkthrough.md"
+
+
+def test_walkthrough_says_a_capped_analyze_leaves_novelty_partial_json():
+    """#974: `analyze --max-usd` stopped in measurement writes `novelty.partial.json`, no `novelty.json`."""
+    text = _WALKTHROUGH.read_text(encoding="utf-8")
+    item = text[text.index("- `analyze` keeps nothing as a finished result"):]
+    item = item[:item.index("\n- ")]
+    assert "novelty.partial.json" in item and "writes no artifact" not in item
+
+
+def test_walkthrough_names_where_the_sole_carriers_are():
+    """#974: `annotated.html` holds no sole-carrier list; `novelty.json` has `views.sole_carriers`."""
+    text = _WALKTHROUGH.read_text(encoding="utf-8")
+    section = text[text.index("## 6. Read the view"):text.index("## What this path does not")]
+    assert "`views.sole_carriers`" in section and "`novelty.json`" in section
+
+
+def test_a_probe_file_has_no_run_config_and_the_walkthrough_says_so(tmp_path, monkeypatch):
+    """#974: the walkthrough must not ask readers to compare a `run_config` that `probe` never writes."""
+    from tests.test_novelty_atoms_sample import _capped_atoms_json, _cli
+
+    skill, atoms_json, _ = _capped_atoms_json(tmp_path, monkeypatch)
+    out = tmp_path / "p.json"
+    _cli(monkeypatch, "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
+         "--concurrency", "1", "--no-paraphrase", "--no-reversal", "--out", str(out))
+    assert "run_config" not in json.loads(out.read_text())
+    assert "A `probe` file carries no `run_config`" in _WALKTHROUGH.read_text(encoding="utf-8")
+
+
+def test_walkthrough_cap_summary_lists_analyze_among_the_steps_that_keep_a_partial_result():
+    """#974: `analyze` saves `novelty.partial.json`, so the cap paragraph must not say it writes nothing."""
+    text = _WALKTHROUGH.read_text(encoding="utf-8")
+    paragraph = text[text.index("A step that stops at the cap writes nothing"):]
+    paragraph = paragraph[:paragraph.index("\n\n")]
+    assert "`analyze`" in paragraph.split("except", 1)[1]

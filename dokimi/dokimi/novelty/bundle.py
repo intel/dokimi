@@ -613,7 +613,8 @@ def _stitch(files: list[BundleFile]) -> str:
     offset = 0
     for index, item in enumerate(files):
         header = "" if index == 0 else f"\n\n{BUNDLE_HEADER_PREFIX}{item.role}: {item.path}\n\n"
-        body = item.text.strip()
+        # Leading blank lines go, the first line's indentation stays: it can make the line code.
+        body = re.sub(r"\A(?:[ \t]*\r?\n)+", "", item.text).rstrip()
         marker = dangling_fence(body)
         if marker:
             body += f"\n{marker}"

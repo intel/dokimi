@@ -81,7 +81,7 @@ follows the artifact's length and the models. Pass `--max-usd <n>` to every step
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
 since the cap cannot see that spend. A step that stops at the cap writes nothing, except
-`atoms`, `probe`, `skill routing --model` and `catalog routing --model`, which save the calls they made as a `partial` result (see
+`atoms`, `probe`, `analyze`, `skill routing --model` and `catalog routing --model`, which save the calls they made as a `partial` result (see
 the list below and [skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
 
@@ -104,9 +104,12 @@ What a stopped run leaves behind depends on the step:
   finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces
   an earlier partial file, but never a finished one: if `<stem>.partial.json` holds anything
   other than a partial result, the new one goes to `<stem>.partial2.json` (and so on).
-- `analyze` keeps nothing. If the measurement is cut short, it stops before its classify and
-  attribution stages, writes no artifact, and reports how many probe answers were not run.
-  Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
+- `analyze` keeps nothing as a finished result when the measurement is cut short: it stops before
+  its classify and attribution stages and writes `novelty.partial.json` (status `partial`,
+  `partial.stage` `measurement`) with the atoms and the probe answers received, and reports how many
+  probe answers were not run. Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower
+  `--max-atoms`). If the cap stops it while the paraphrase or reversal wordings are built, the
+  partial file holds no answers.
 - `shorten` writes no candidate table and no `--out` file. Its retention verdicts are stored in
   `--cache-dir` as each is adjudicated, and the exit message says how many: rerun with a higher
   `--max-usd` (with no `--max-usd` when the stop is a model with no known price) and the same
@@ -176,7 +179,8 @@ knowledge the model got wrong with and without the artifact (`still_missing`), a
 carries atoms with nothing measured or judged against them (`unscored`). The full rules are
 in [skill-novelty.md](skill-novelty.md) ("Span attribution"). Two derived
 lists are where edits start: **dead weight** (dim spans by token cost) and **sole carriers**
-(spans that are the only source of something).
+(spans that are the only source of something). `annotated.html` does not list them: read
+`views.sole_carriers` and `views.dead_weight` in `novelty.json`; `novelty.md` gives their counts.
 
 With `--include-resources`, `bundle.by_source` says which *file* carried the knowledge. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
@@ -221,8 +225,10 @@ The protected-span count is not in `probe` output: it lives in `shorten`'s table
 If the atoms came from a bundle, put the shortened `SKILL.md` into a copy of the skill
 directory rather than probing `short/` on its own: `probe` refuses a file set that differs
 from the one recorded in `atoms.json`.
-Two cells compare only when their `run_config` blocks match, which includes the tier, the
-probe kinds, `include_resources` and the prompt digest.
+A `probe` file carries no `run_config`: two `probe` files compare as the same cell only when you
+ran them with the same atoms file, models, probe flags and `--seed`. The `run_config` block (the
+tier, the probe kinds, `include_resources` and the prompt digest) is in `analyze`'s `novelty.json`,
+and two `analyze` cells compare only when those blocks match.
 
 ## What this path does not tell you
 
