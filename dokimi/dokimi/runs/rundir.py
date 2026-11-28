@@ -7,7 +7,8 @@
 Used as a context manager, the :class:`RunDir` records how the run ended. On a stop (SIGTERM or
 SIGHUP, ``KeyboardInterrupt``, the spend cap, a run-wide CLI failure) ``run.json`` says ``incomplete``
 and, when the run has a plan, ``result.v1.json`` has ``not_run`` on every planned cell left; any
-other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md``.
+other exception makes it ``failed``; a ``sys.exit`` with a verdict's code ends the run by its cells.
+Layout and rules: ``docs/run-directories.md``.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Any, Literal
 
 from dokimi import process, process_hooks
 from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE
 from dokimi.runner.plan import STATUSES, completeness, plan_digest
 from dokimi.utils import InputError
 
@@ -33,6 +35,8 @@ RUN_FILE = "run.json"
 Status = Literal["complete", "incomplete", "failed"]
 #: The kinds a run writes itself, never through :meth:`RunDir.artifact_path`.
 _OWN_KINDS = ("plan", "result", "run")
+#: ``sys.exit`` codes of a run that ran (exit_codes.py: a verdict, inconclusive): its cells decide how it ended.
+_RAN_EXITS = (None, 0, EXIT_FAILURE, EXIT_INCONCLUSIVE)
 StopReason = Literal["interrupted", "terminated", "spend_cap", "no_price", "run_stopped", "error"]
 
 
@@ -284,7 +288,7 @@ class RunDir:
 
     def _how_ended(self, exc: BaseException | None) -> tuple[Status | None, dict[str, str | None] | None]:
         """How ``exc`` ends the run; a signal, also one the block caught, is _end's to apply."""
-        if exc is None:
+        if exc is None or (isinstance(exc, SystemExit) and exc.code in _RAN_EXITS):
             return None, None  # by the cells (_end)
         return _ending(exc)
 

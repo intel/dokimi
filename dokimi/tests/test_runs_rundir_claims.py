@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import exit_codes
 from dokimi.artifacts import RUN_ID_ENV, load_artifact, save_artifact
 from dokimi.runs import rm, rundir
 from dokimi.runs.rundir import open_run
@@ -83,3 +84,32 @@ def test_a_plan_saved_past_write_plan_cannot_make_an_unmeasured_run_complete(roo
     record = load_artifact("run", run.path / "run.json")
     assert (record["status"], record["artifacts"]) == ("complete", [])
     assert sorted(os.listdir(run.path)) == ["run.json"]
+
+
+@pytest.mark.parametrize("code", [None, 0, exit_codes.EXIT_FAILURE, exit_codes.EXIT_INCONCLUSIVE])
+@pytest.mark.parametrize("measured", [True, False])
+def test_a_block_that_exits_with_a_verdicts_code_ends_by_its_cells(root, code, measured):
+    """exit_codes.py: "Exit 1 is for a verdict or a gate that ran and failed", 3 for an inconclusive one, so
+    a run that exits so is not failed; a cell left unmeasured still keeps it from complete."""
+    ids = [cell["cell_id"] for cell in _plan()["cells"]]
+    with pytest.raises(SystemExit):
+        with open_run(root, name="n") as run:
+            run.write_plan(_plan())
+            for cid in ids if measured else ids[1:]:
+                run.record_cell(cid, "fail")
+            sys.exit(code)
+
+    record = load_artifact("run", run.path / "run.json")
+    assert (record["status"], record["stop"]) == ("complete" if measured else "incomplete", None)
+
+
+@pytest.mark.parametrize("code", [exit_codes.EXIT_USAGE, exit_codes.EXIT_INVALID, exit_codes.EXIT_INFRA, "boom"])
+def test_a_block_that_exits_with_any_other_code_is_failed(root, code):
+    """docs/run-directories.md: a run that "exits with another code" is failed, error."""
+    with pytest.raises(SystemExit):
+        with open_run(root, name="n") as run:
+            run.write_plan(_plan())
+            sys.exit(code)
+
+    record = load_artifact("run", run.path / "run.json")
+    assert (record["status"], record["stop"]) == ("failed", {"reason": "error", "detail": f"SystemExit: {code}"})

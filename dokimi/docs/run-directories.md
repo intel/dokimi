@@ -79,7 +79,8 @@ ends; while the run runs it is empty.
 | gets Ctrl-C (`KeyboardInterrupt`) | `incomplete` | `interrupted` | the cells left are `not_run` |
 | hits its `--max-usd` cap, or a call with no price | `incomplete` | `spend_cap`, `no_price` | the cells left are `not_run` |
 | stops on a run-wide CLI failure (a usage limit, no login) | `incomplete` | `run_stopped` | the cells left are `not_run` |
-| raises any other error | `failed` | `error` | the cells left are `not_run` |
+| calls `sys.exit` with 0, 1 (a failed verdict) or 3 (inconclusive) | as its cells say, `complete` or `incomplete` | - | as above |
+| raises any other error, or exits with another code | `failed` | `error` | the cells left are `not_run` |
 
 A run without a plan writes no `result.v1.json`: a result is a status per
 planned cell, tied to its plan by `plan_digest`. A cell left `not_run` by a stop
