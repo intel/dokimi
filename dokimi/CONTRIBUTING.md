@@ -170,9 +170,10 @@ minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 covering each. The surviving mutants go to its step summary and to one sticky PR comment that
 `cli-interface-comment.yml` posts from the job's artifact (the job itself holds a read-only
 token, fork PRs included); it is updated on every push and marked clean once none survives. A
-survivor that cannot change behaviour takes `# mutation-ok: <reason>` at the end of its line or
-alone on the line above; it is then listed as waived with its reason, and a `mutation-ok:` with
-no reason waives nothing. The job is warn-only until the repository variable `MUTATION_GATE` is
+survivor that cannot change behaviour takes `# mutation-ok[<operator>]: <reason>` at the end of
+its line or alone on the line above, naming the survivor's operator (several: `[a, b]`); only
+that operator's mutants on the line are then listed as waived with the reason. A `mutation-ok`
+with no operator, an unknown one or no reason waives nothing and is listed. The job is warn-only until the repository variable `MUTATION_GATE` is
 `true`; then an unwaived survivor fails it. It ships off, with no date to turn it on: replayed on
 ten merged PRs, 7 leave a survivor, most of them a clause of a condition no test needs.
 

@@ -7,8 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 
 - **The changed-lines mutation check posts its surviving mutants as one sticky PR comment.** The
   comment is updated on every push and marked clean once no mutant survives. A survivor that cannot
-  change behaviour takes `# mutation-ok: <reason>` at the end of its line or alone on the line above
-  and is listed as waived; a `mutation-ok:` with no reason waives nothing. With the repository
+  change behaviour takes `# mutation-ok[<operator>]: <reason>` at the end of its line or alone on
+  the line above, which waives only that operator's mutants there; a `mutation-ok` with no operator,
+  an unknown one or no reason waives nothing and is listed. With the repository
   variable `MUTATION_GATE` set to `true` an unwaived survivor fails the job; unset, the check only
   warns. The mutator also drops one clause of an `and`/`or`, cuts a conditional expression to one
   branch, drops a comprehension filter or one element of a literal collection, moves a comparison

@@ -169,8 +169,10 @@ finds little:
   updated on every push. A survivor whose module has a
   candidate test file that did not run is `inconclusive`, not a gap. Kill a
   survivor with an assertion; one that cannot change behaviour (equivalent)
-  takes `# mutation-ok: <reason>` at the end of its line or alone on the line
-  above, which lists it as waived (a waiver with no reason waives nothing).
+  takes `# mutation-ok[<operator>]: <reason>` (the Operator column of the
+  survivor) at the end of its line or alone on the line above, which waives
+  only that operator's mutants there (a waiver with no operator, an unknown
+  one or no reason waives nothing and is listed).
   It warns; with the repository variable `MUTATION_GATE` set to `true` an
   unwaived survivor fails the job. Run it locally with
   `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.

@@ -9,6 +9,7 @@ import ast
 import importlib.util
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -788,7 +789,7 @@ def test_the_script_starts_without_the_package_installed() -> None:
 
 WAIVED_SRC = (
     "def a(x):\n    return x == 1\n\n\n"
-    "def b(x):\n    return x == 2  # mutation-ok: b's result is never read\n\n\n"
+    "def b(x):\n    return x == 2  # mutation-ok[flip-compare, bump-int, return-none]: b's result is never read\n\n\n"
     "def c(x):\n    # mutation-ok:\n    return x == 3\n"
 )
 WAIVED_TESTS = (
@@ -801,20 +802,22 @@ WAIVED_COVER = {2: ["tests/test_zz.py::test_a"], 6: ["tests/test_zz.py::test_b_a
 
 
 def test_a_waiver_applies_at_the_end_of_its_line_or_alone_on_the_line_above() -> None:
-    src = ("x = 1  # mutation-ok: same value either way\n"
-           "    # mutation-ok:   the line below\n"
-           "y = 2\n"
-           "z = 3  # mutation-ok: only z\n"
+    src = ("x = 1  # mutation-ok[bump-int]: same value either way\n"
+           "    # mutation-ok[bump-int]:   the line below\n"
+           "y = 2  # mutation-ok[flip-bool, bump-int]: not this one\n"
+           "z = 3  # mutation-ok[ bump-int , return-none ]: only z\n"
            "w = 4\n"
-           "# mutation-ok:   \n"
-           "v = 5\n"
-           "s = '# mutation-ok: in a string'\n")
-    assert mc.waivers(src) == {1: "same value either way", 3: "the line below", 4: "only z", 7: ""}
+           "# mutation-ok[bump-int]:   \n"
+           "v = 5  # mutation-ok: no operator\n"
+           "s = '# mutation-ok[bump-int]: in a string'\n")
+    assert mc.waivers(src) == {1: {"bump-int": "same value either way"},
+                               3: {"bump-int": "the line below", "flip-bool": "not this one"},
+                               4: {"bump-int": "only z", "return-none": "only z"}, 7: {"bump-int": "", "": "no operator"}}
 
 
 def test_a_waiver_inside_a_multi_line_call_applies_to_the_next_line() -> None:
-    src = "f(\n    a,\n    # mutation-ok: b is ignored by f\n    b,\n)\n"
-    assert mc.waivers(src) == {4: "b is ignored by f"}
+    src = "f(\n    a,\n    # mutation-ok[drop-element]: b is ignored by f\n    b,\n)\n"
+    assert mc.waivers(src) == {4: {"drop-element": "b is ignored by f"}}
 
 
 def test_waive_marks_reasoned_survivors_and_lists_a_waiver_with_no_reason() -> None:
@@ -824,7 +827,8 @@ def test_waive_marks_reasoned_survivors_and_lists_a_waiver_with_no_reason() -> N
           mc.Mutant("p.py", 3, "return-none", (3, 4), (3, 5), "None", "5", status="survived"),
           mc.Mutant("p.py", 5, "bump-int", (5, 4), (5, 5), "8", "7", status="survived")]
     report: dict = {}
-    mc.waive(ms, {"p.py": "x = 1  # mutation-ok: equivalent\n# mutation-ok:\ny = 5\n\nz = 7\n"}, report)
+    mc.waive(ms, {"p.py": "x = 1  # mutation-ok[bump-int]: equivalent\n# mutation-ok[bump-int]:\ny = 5\n\nz = 7\n"},
+             report)
     assert [(m.status, m.waiver) for m in ms] == [("waived", "equivalent"), ("killed", None), ("survived", None),
                                                   ("survived", None), ("survived", None)]
     assert report["waivers_without_reason"] == ["p.py:3"]
@@ -860,7 +864,7 @@ def test_a_waived_survivor_is_reported_with_its_reason_and_does_not_fail_the_gat
 def test_with_every_survivor_waived_the_gate_passes_and_unwaived_it_fails_only_when_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    src = "def b(x):\n    return x == 2  # mutation-ok: equivalent here\n"
+    src = "def b(x):\n    return x == 2  # mutation-ok[flip-compare,bump-int,return-none]: equivalent here\n"
     tests = "from dokimi.zz import b\n\n\ndef test_b_is_only_called():\n    b(2)\n"
     cover = {2: ["tests/test_zz.py::test_b_is_only_called"]}
     rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, cover, "--fail-on-survivor")
@@ -876,9 +880,9 @@ def test_markdown_lists_waived_mutants_with_their_reason_and_bare_waivers() -> N
                   waiver="a | b is the same")
     text = mc.markdown({"mutants": [vars(s), vars(w)], "mutants_covered": 2, "max_mutants": 40, "uncovered_lines": {},
                         "seconds": 1.0, "waivers_without_reason": ["dokimi/dokimi/x.py:3"]})
-    assert "**1 survived**, 1 waived" in text and "`# mutation-ok: <reason>`" in text
+    assert "**1 survived**, 1 waived" in text and "`# mutation-ok[<operator>]: <reason>`" in text
     assert "| `dokimi/dokimi/x.py:4` | bump-int | `1` | `2` | ` a \\| b is the same ` |" in text
-    assert "A `mutation-ok:` with no reason waives nothing: `dokimi/dokimi/x.py:3`" in text
+    assert "an unknown operator or no reason waives nothing: `dokimi/dokimi/x.py:3`" in text
 
 
 def test_the_comment_result_cuts_long_source_text_and_counts_the_tests() -> None:
@@ -920,7 +924,7 @@ def test_collecting_into_a_list_named_warnings_is_not_a_log_call() -> None:
 def test_a_waiver_without_a_reason_is_listed_whatever_the_status_of_its_mutant() -> None:
     ms = [mc.Mutant("p.py", 1, "bump-int", (1, 4), (1, 5), "2", "1", status="killed")]
     report: dict = {}
-    mc.waive(ms, {"p.py": "x = 1  # mutation-ok:\n"}, report)
+    mc.waive(ms, {"p.py": "x = 1  # mutation-ok[bump-int]:\n"}, report)
     assert report["waivers_without_reason"] == ["p.py:1"] and ms[0].status == "killed"
 
 
@@ -929,3 +933,52 @@ def test_markdown_shows_a_waiver_reason_as_a_code_span_that_backticks_cannot_bre
     text = mc.markdown({"mutants": [vars(w)], "mutants_covered": 1, "max_mutants": 40, "uncovered_lines": {},
                         "seconds": 1.0})
     assert "| `` [a](http://x) `b` `` |" in text
+
+
+def test_a_waiver_waives_only_the_operator_it_names_after_its_line_is_rewritten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Written for the shift-boundary mutant of `if x <= limit:`; the line has since gained clauses.
+    src = ("def f(x, limit):\n"
+           "    if x <= limit and x != 0 or limit < 0:  # mutation-ok[shift-boundary]: x never equals limit here\n"
+           "        return 1\n    return 0\n")
+    tests = "from dokimi.zz import f\n\n\ndef test_f_is_only_called():\n    f(1, 2)\n"
+    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, {2: ["tests/test_zz.py::test_f_is_only_called"]},
+                               "--fail-on-survivor")
+    ops = {m["op"] for m in report["mutants"]}
+    assert rc == 1 and {"flip-compare", "drop-clause", "swap-boolop"} <= ops
+    assert {m["op"] for m in report["mutants"] if m["status"] == "waived"} == {"shift-boundary"}
+    assert {m["status"] for m in report["mutants"] if m["op"] != "shift-boundary"} == {"survived"}
+    assert report["waivers_without_reason"] == []
+
+
+def test_a_waiver_naming_an_unknown_operator_or_none_waives_nothing_and_is_listed() -> None:
+    for comment in ("# mutation-ok[bump-integer]: a typo", "# mutation-ok: no operator", "# mutation-ok[]: empty"):
+        ms = [mc.Mutant("p.py", 1, "bump-int", (1, 4), (1, 5), "2", "1", status="survived"),
+              mc.Mutant("p.py", 1, "flip-bool", (1, 4), (1, 5), "2", "1", status="survived")]
+        report: dict = {}
+        mc.waive(ms, {"p.py": f"x = 1  {comment}\n"}, report)
+        assert [m.status for m in ms] == ["survived", "survived"], comment
+        assert report["waivers_without_reason"] == ["p.py:1"], comment
+
+
+def test_a_waiver_of_a_known_operator_beside_an_unknown_one_still_waives_its_own() -> None:
+    ms = [mc.Mutant("p.py", 1, "bump-int", (1, 4), (1, 5), "2", "1", status="survived"),
+          mc.Mutant("p.py", 1, "flip-bool", (1, 4), (1, 5), "2", "1", status="survived")]
+    report: dict = {}
+    mc.waive(ms, {"p.py": "x = 1  # mutation-ok[bump-int, bump-integer]: same value\n"}, report)
+    assert [(m.status, m.waiver) for m in ms] == [("waived", "same value"), ("survived", None)]
+    assert report["waivers_without_reason"] == ["p.py:1"]
+
+
+def test_every_operator_the_mutator_emits_can_be_named_in_a_waiver() -> None:
+    emitted = set(re.findall(r'yield "([a-z-]+)", ', _SCRIPT.read_text(encoding="utf-8")))
+    assert emitted == mc.OPERATORS
+
+
+def test_each_operator_waived_on_a_line_keeps_its_own_reason() -> None:
+    ms = [mc.Mutant("p.py", 2, "bump-int", (2, 4), (2, 5), "2", "1", status="survived"),
+          mc.Mutant("p.py", 2, "flip-bool", (2, 4), (2, 5), "2", "1", status="survived")]
+    report: dict = {}
+    mc.waive(ms, {"p.py": "# mutation-ok[flip-bool]: the flag is unread\nx = 1  # mutation-ok[bump-int]: any int\n"}, report)
+    assert [m.waiver for m in ms] == ["any int", "the flag is unread"] and report["waivers_without_reason"] == []

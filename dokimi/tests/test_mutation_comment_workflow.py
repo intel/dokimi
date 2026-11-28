@@ -46,7 +46,7 @@ def test_survivors_are_posted_as_one_sticky_comment_with_a_row_each(tmp_path):
     text = body["body"]
     assert "| ` dokimi/dokimi/x.py `:12 | ` flip-compare ` | ` a == b ` | ` a != b ` | 3 |" in text
     assert "| ` dokimi/dokimi/x.py `:20 | ` bump-int ` | ` 1 ` | ` 2 ` | ` only the sign is read ` |" in text
-    assert "**1 survived**, 1 waived" in text and "`# mutation-ok: <reason>`" in text
+    assert "**1 survived**, 1 waived" in text and "`# mutation-ok[<operator>]: <reason>`" in text
     assert "Warn-only" in text and "https://x/run/7" in text
     assert not {"addLabels", "removeLabel"} & set(_names(calls))
 
@@ -113,7 +113,7 @@ def test_no_survivor_and_no_earlier_comment_posts_nothing(tmp_path):
 
 def test_a_waiver_with_no_reason_is_listed(tmp_path):
     body = _bodies(_post(tmp_path, _result(bare=["dokimi/dokimi/x.py:30"])))[0]
-    assert "with no reason waives nothing: ` dokimi/dokimi/x.py:30 `" in body
+    assert "an unknown operator or no reason waives nothing: ` dokimi/dokimi/x.py:30 `" in body
 
 
 def test_source_text_cannot_mention_forge_the_marker_break_the_table_or_render(tmp_path):

@@ -29,9 +29,10 @@ breaking. Steps:
    A survivor whose module has a candidate test file that did not run (out of time,
    or failing to collect) is ``inconclusive``: that file may be the one that catches
    the change, so it is not reported as a gap.
-6. A survivor whose line ends in a ``# mutation-ok: <reason>`` comment, or has one alone on the
-   line above, is ``waived`` and listed with its reason (``waivers``): a mutant that cannot change
-   behaviour. A ``mutation-ok:`` with no reason waives nothing and is listed as such.
+6. A survivor whose line ends in a ``# mutation-ok[<operator>]: <reason>`` comment naming its
+   operator, or has one alone on the line above, is ``waived`` and listed with its reason
+   (``waivers``): a mutant that cannot change behaviour. A ``mutation-ok`` with no operator, an
+   unknown one or no reason waives nothing and is listed as such.
 
 A line no candidate test executes, or one that continues a multi-line expression
 or signature, is listed as not mutated: the changed-lines coverage gate in ``ci.yml`` owns the first. The run stops starting
@@ -334,15 +335,20 @@ def pick(mutants: list[Mutant], cap: int) -> list[Mutant]:
     return chosen
 
 
-WAIVER = re.compile(r"\bmutation-ok:(.*)")
+OPERATORS = frozenset({
+    "flip-compare", "shift-boundary", "swap-boolop", "drop-clause", "negate-condition", "take-branch", "drop-not",
+    "drop-filter", "return-none", "flip-bool", "bump-int", "swap-addsub", "drop-element", "delete-statement",
+})
+WAIVER = re.compile(r"\bmutation-ok(?:\[([^\]]*)\])?:(.*)")
 CELL = 80  # characters of source text kept per table cell and per field of the comment result
 _LAYOUT = {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER, tokenize.COMMENT}
 
 
-def waivers(src: str) -> dict[int, str]:
-    """Line -> reason of each ``# mutation-ok: <reason>`` comment: at the end of that line, or alone on the line above.
+def waivers(src: str) -> dict[int, dict[str, str]]:
+    """Line -> {operator: reason} of each ``# mutation-ok[<operator>,...]: <reason>`` comment.
 
-    An empty reason is kept as ``""``: it waives nothing, and the report lists it.
+    The comment is at the end of that line, or alone on the line above. A waiver with no operator
+    is kept under ``""`` and an empty reason as ``""``: they waive nothing, and the report lists them.
     """
     code: set[int] = set()
     comments: list[tuple[int, str]] = []
@@ -351,26 +357,32 @@ def waivers(src: str) -> dict[int, str]:
             comments.append((tok.start[0], tok.string))
         elif tok.type not in _LAYOUT:
             code.update(range(tok.start[0], tok.end[0] + 1))
-    out: dict[int, str] = {}
+    out: dict[int, dict[str, str]] = {}
     for line, text in comments:
         if m := WAIVER.search(text):
-            out.setdefault(line if line in code else line + 1, m.group(1).strip())
+            ops = [op.strip() for op in (m.group(1) or "").split(",")]
+            target = out.setdefault(line if line in code else line + 1, {})
+            for op in ops:
+                target.setdefault(op, m.group(2).strip())
     return out
 
 
 def waive(mutants: list[Mutant], sources: dict[str, str], report: dict) -> None:
-    """Mark each survivor with a reasoned waiver ``waived``; list the lines whose waiver has no reason in ``report``."""
+    """Mark each survivor whose operator has a reasoned waiver on its line ``waived``.
+
+    A line whose waiver names no operator, an unknown one, or no reason is listed in ``report``: it waives nothing.
+    """
     marks = {path: waivers(src) for path, src in sources.items()}
     bare = report.setdefault("waivers_without_reason", [])
     for m in mutants:
-        reason = marks.get(m.path, {}).get(m.line)
-        if reason is None:
+        marks_here = marks.get(m.path, {}).get(m.line)
+        if marks_here is None:
             continue
-        if not reason:
+        if any(op not in OPERATORS or not reason for op, reason in marks_here.items()):
             if f"{m.path}:{m.line}" not in bare:
                 bare.append(f"{m.path}:{m.line}")
-        elif m.status == "survived":
-            m.status, m.waiver = "waived", reason
+        if marks_here.get(m.op) and m.status == "survived":
+            m.status, m.waiver = "waived", marks_here[m.op]
 
 
 def candidate_tests(paths: list[str], tests_dir: Path) -> list[str]:
@@ -621,8 +633,8 @@ def _tables(ms: list[dict], bare: list[str]) -> list[str]:
     out = []
     if survivors := [m for m in ms if m["status"] == "survived"]:
         out.append("A survivor is a change to that line that the tests covering it do not notice: add an assertion "
-                   "that fails on it or, if the change cannot alter behaviour, put `# mutation-ok: <reason>` "
-                   "at the end of the line or alone on the line above.\n")
+                   "that fails on it or, if the change cannot alter behaviour, put "
+                   "`# mutation-ok[<operator>]: <reason>` at the end of the line or alone on the line above.\n")
         out.append("| Line | Operator | Was | Became | Tests run |\n|---|---|---|---|---:|")
         out += [f"| `{m['path']}:{m['line']}` | {m['op']} | `{_cell(m['original'])}` | `{_cell(m['replacement'])}` "
                 f"| {len(m['tests'])} |" for m in survivors]
@@ -633,7 +645,8 @@ def _tables(ms: list[dict], bare: list[str]) -> list[str]:
                 f"| {_code(m['waiver'])} |" for m in waived]
         out.append("")
     if bare:
-        out.append("A `mutation-ok:` with no reason waives nothing: " + ", ".join(f"`{b}`" for b in bare) + "\n")
+        out.append("A `mutation-ok` with no operator, an unknown operator or no reason waives nothing: "
+                   + ", ".join(f"`{b}`" for b in bare) + "\n")
     return out
 
 

@@ -228,7 +228,7 @@ jobs:
               if (r.survivors.length) {
                 parts.push('A survivor is a change to that line that the tests covering it do not notice: add an ' +
                   'assertion that fails on it or, if the change cannot alter behaviour, put ' +
-                  '`# mutation-ok: <reason>` at the end of the line or alone on the line above.\n');
+                  '`# mutation-ok[<operator>]: <reason>` at the end of the line or alone on the line above.\n');
                 const t = table('| Line | Operator | Was | Became | Tests run |\n|---|---|---|---|---:|',
                   r.survivors.map((e) => `| ${cell(e.path, 200)}:${e.line} | ${cell(e.op, 40)} | ${cell(e.original)} ` +
                     `| ${cell(e.replacement)} | ${e.tests_run} |`), room - (r.waived.length ? WAIVED_ROOM : 0));
@@ -253,7 +253,8 @@ jobs:
               }
               const bare = r.waivers_without_reason.slice(0, 20);
               if (bare.length) {
-                parts.push(`A \`mutation-ok:\` with no reason waives nothing: ${bare.map((b) => cell(b, 120)).join(', ')}\n`);
+                parts.push('A `mutation-ok` with no operator, an unknown operator or no reason waives nothing: ' +
+                  `${bare.map((b) => cell(b, 120)).join(', ')}\n`);
               }
               const gate = process.env.MUTATION_GATE === 'true'
                 ? 'The job fails while a survivor is unwaived.' : 'Warn-only: a survivor does not fail the job yet.';
