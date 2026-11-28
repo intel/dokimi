@@ -118,6 +118,22 @@ def test_other_comments_do_nothing(tmp_path: Path, body: str) -> None:
     assert (tmp_path / "gh.log").read_text(encoding="utf-8") == ""
 
 
+@pytest.mark.parametrize("login", ["alice_acme", "octocat-1_emu", "dependabot[bot]"])
+def test_a_writer_with_a_managed_user_login_runs(tmp_path: Path, login: str) -> None:
+    # Enterprise managed user logins are `<handle>_<shortcode>`.
+    r, out = _gate(tmp_path, ACTOR=login)
+    assert r.returncode == 0, r.stdout
+    assert out == {"run": "true", "pr": "7", "head-sha": SHA}
+    assert f"repos/o/r/collaborators/{login}/permission" in (tmp_path / "gh.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("login", ["a/b", "a_b/../x", "_lead", "a.b", "a?x", "a b"])
+def test_a_login_that_could_change_the_api_path_is_refused(tmp_path: Path, login: str) -> None:
+    r, out = _gate(tmp_path, ACTOR=login)
+    assert (r.returncode, out) == (1, {"run": "false"})
+    assert (tmp_path / "gh.log").read_text(encoding="utf-8") == ""
+
+
 def test_an_issue_comment_does_nothing(tmp_path: Path) -> None:
     r, out = _gate(tmp_path, IS_PR="false")
     assert (r.returncode, out) == (0, {"run": "false"})

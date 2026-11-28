@@ -79,7 +79,7 @@ runs:
           echo "Comment is not the command; nothing to do."
           exit 0
         fi
-        if ! [[ "$PR" =~ ^[1-9][0-9]*$ ]] || ! [[ "$ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$ ]]; then
+        if ! [[ "$PR" =~ ^[1-9][0-9]*$ ]] || ! [[ "$ACTOR" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*(\[bot\])?$ ]]; then
           echo "::error title=dokimi pr-command::unexpected pull request number or login"
           exit 1
         fi
