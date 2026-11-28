@@ -10,8 +10,20 @@ from pathlib import Path
 from typing import List, Optional
 
 from dokimi.atomic_write import write_text_atomic
+from dokimi.digest_entries import listed_entries
+
+from . import MCPConnectionError
 
 logger = logging.getLogger(__name__)
+
+
+def list_doc_tree(client: str, root: Path) -> List[Path]:
+    """Every entry under the directory ``root`` (``rglob("*")``'s, in no set order). A directory that cannot be
+    listed raises :class:`MCPConnectionError` naming it, so a doc source is never a smaller tree than the user's."""
+    try:
+        return listed_entries(root)
+    except OSError as exc:
+        raise MCPConnectionError(f"{client}: cannot list {exc.filename or root}: {exc}") from exc
 
 
 class _TextExtractor(HTMLParser):

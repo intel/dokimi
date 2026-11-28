@@ -13,8 +13,22 @@ from dokimi.utils import InputError
 from . import MCPClient
 
 
+def _require_listable(doc_source: str, path: Path) -> None:
+    """#1207: a directory of the tree that cannot be listed is an input error, not a smaller doc set."""
+    from dokimi.digest_entries import listed_entries
+
+    try:
+        listed_entries(path)
+    except OSError as exc:
+        raise InputError(f"doc source {doc_source}: cannot list {exc.filename or path}: {exc.strerror or exc}") from exc
+
+
 def require_local_doc_source(doc_source: str) -> None:
-    """#1086: a `local:<path>` or `okf:<path>` source whose path is missing is an input error, not default seed topics."""
+    """#1086: a `local:<path>` or `okf:<path>` source whose path is missing is an input error, not default seed topics.
+
+    #1207: so is a directory of its tree that cannot be listed (the root included once it passes the checks above),
+    which the message names. A directory with no doc files, or a file that cannot be read, is not refused here.
+    """
     prefix = next((p for p in ("local:", "okf:") if doc_source.startswith(p)), None)
     if prefix is None:
         return
@@ -33,6 +47,8 @@ def require_local_doc_source(doc_source: str) -> None:
         unreadable = os.access(path, os.F_OK) and not os.access(path, mode)
     except ValueError:  # a name the OS cannot encode (lone surrogate): exists() already accepted it
         unreadable = False
+    if not unreadable and path.is_dir():
+        _require_listable(doc_source, path)
     if unreadable:
         raise InputError(f"doc source {doc_source}: cannot read {local_path}: permission denied")
 
