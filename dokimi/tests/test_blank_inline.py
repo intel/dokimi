@@ -191,6 +191,13 @@ def test_a_link_opened_on_the_line_above_holds_the_spans_of_its_destination(befo
     _same("<`a`>) `b` `c`", False, 0, before)
 
 
+@pytest.mark.parametrize("line, out", [("[x](`a`<`a`>)", "[x](   <`a`>)"), ("[x](`a` <`a`>) `b`", "[x](    <`a`>)    "),
+                                       ("[x](<`<` `a`>)", "[x](<    `a`>)")])
+def test_a_link_that_matches_only_once_a_code_span_is_blanked_still_holds_its_spans(line: str, out: str) -> None:
+    assert _blank_inline(line, False)[0] == out  # a ``](`` that does not match yet stays live while a ``<`` may follow it
+    _same(line, False)
+
+
 def test_scanning_past_many_comment_openers_with_no_close_grows_linearly() -> None:
     ratio, result = growth(lambda k: partial(_blank_inline, _unclosed(k), False), 2000)
     assert ratio < GROWTH_LIMIT
