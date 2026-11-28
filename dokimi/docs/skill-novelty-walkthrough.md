@@ -76,7 +76,7 @@ prices, and is `null` when a model has no price; `usd_by_role` gives each role's
 `least_sure_role` names the role the figure is least sure of. The probe term was validated to within 1–3% of
 counted calls at nine (skill, tier) points, on content that did not escalate.
 
-`expected_usd` is a projection, not a ceiling (held-out runs ran up to 33% low): a call's price
+`expected_usd` is a projection, not a ceiling (held-out runs ran up to 14% low): a call's price
 follows the artifact's length and the models. Pass `--max-usd <n>` to every step that calls a
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,

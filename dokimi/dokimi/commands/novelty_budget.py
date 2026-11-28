@@ -246,7 +246,7 @@ def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_u
 
 
 def print_estimate_only(args: argparse.Namespace, settings, text: str, estimate_usd) -> None:
-    """The ``--estimate-only`` output of ``analyze``: the projection as JSON, and what it rests on."""
+    """The ``--dry-run`` output of ``analyze``: the projection as JSON, and what it rests on."""
     from dokimi.novelty import cost
     from dokimi.novelty.tiers import FITTED_TOKENS_MAX
 

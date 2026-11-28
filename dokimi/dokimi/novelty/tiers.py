@@ -293,28 +293,23 @@ TOKENS_PER_ATOM = 23
 #: artifact) to 0.60, median 0.505.
 ESCALATION_SHARE = 0.5
 
-#: Per call, for the roles whose calls do not depend on the tier: (input tokens besides the
-#: artifact, input tokens per artifact token, output tokens). The answerer's input carries the
-#: artifact on the paired arm; the judge sees the answer and the question only. Pooled over the
-#: fit half.
-CALL_TOKENS: dict[str, tuple[float, float, int]] = {
-    "answerer": (-38, 0.789, 284),
-    "judge": (468, 0.004, 89),
+#: Per call, tier-independent: (input base, input per artifact token, output base, output per
+#: token). Fitted on 10 of the 17 runs of 2026-11-28 (``PROFILE_RUNS`` in the token-profile test).
+CALL_TOKENS: dict[str, tuple[float, float, int, float]] = {
+    "answerer": (-104, 0.946, 350, 0.0),
+    "judge": (481, 0.014, 95, 0.0),
 }
 
-#: The extractor's calls, by tier, in the same shape. A triage extraction packs the capped
-#: atom set into each of its calls and writes about 2,360 output tokens per call, where a
-#: standard extraction writes about 195; the input follows the same split. Study and an
-#: untiered run have no measurement of their own and take the standard profile.
-EXTRACTOR_TOKENS: dict[str, tuple[float, float, int]] = {
-    "triage": (971, 0.045, 2359),
-    "standard": (267, 0.651, 195),
+#: The extractor's calls by tier, fitted on the same 10 runs at every tier. Study and untiered
+#: runs were measured: they do the same work per call as standard and share its profile.
+EXTRACTOR_TOKENS: dict[str, tuple[float, float, int, float]] = {
+    "triage": (841, 0.186, 1908, 0.251),
+    "standard": (452, 0.54, 225, 0.0),
 }
 
 
-#: The largest artifact (in tokens) among the measured runs the profiles above were fitted
-#: and checked on. A projection for a bigger artifact extrapolates: the triage figure ran
-#: lower as the artifact grew (-4% at 1,153 tokens, -33% at 6,723).
+#: The largest artifact (tokens) of the measured runs checked; a bigger one extrapolates, and
+#: the triage figure ran lower as the artifact grew (-2% at 1,153 tokens, -14% at 6,723).
 FITTED_TOKENS_MAX = 6723
 
 #: The share of the answerer's calls whose context carries the artifact in the measured
@@ -338,12 +333,15 @@ def call_tokens(role: str, n_tokens: int, tier: str | None = None,
             default two arms, 1.5 for ``no_artifact,full,placebo,shuffled``.
     """
     if role == "extractor":
-        base, per_token, out = EXTRACTOR_TOKENS.get(tier or "", EXTRACTOR_TOKENS["standard"])
+        in_base, in_per, out_base, out_per = EXTRACTOR_TOKENS.get(
+            tier or "", EXTRACTOR_TOKENS["standard"])
     else:
-        base, per_token, out = CALL_TOKENS[role]
+        in_base, in_per, out_base, out_per = CALL_TOKENS[role]
         if role == "answerer":
-            per_token *= context_share / MEASURED_CONTEXT_SHARE
-    return max(0, round(base + per_token * n_tokens)), out
+            in_per *= context_share / MEASURED_CONTEXT_SHARE
+    return (max(0, round(in_base + in_per * n_tokens)),
+            # mutation-ok[bump-int]: every output base is at least 95 and no output slope is negative, so the floor never binds
+            max(0, round(out_base + out_per * n_tokens)))
 
 
 def usd_by_role(
