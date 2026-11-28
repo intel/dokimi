@@ -73,6 +73,21 @@ def test_a_finding_the_edit_only_moved_to_another_line_is_retained_and_not_clear
     assert moved[0] in [r["message"] for r in receipt["retained"]]
 
 
+def test_a_catalog_check_json_envelope_gives_the_same_receipt_as_the_format_json_report(tmp_path, capsys):
+    """#960 scenario 11 replays `catalog check --json`: its envelope is read, not refused as a report without `skills`."""
+    root = _crlf_catalog(tmp_path)
+    report, _ = _scan_json(root, capsys)
+    args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--json"])
+    args.func(args)
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["schema_version"] == "cli_output.v1" and "skills" not in envelope
+
+    expected = repair_receipt(report, report, "f")
+    assert expected["counts"]["retained"] > 0
+    assert repair_receipt(envelope, report, "f") == expected
+    assert repair_receipt(envelope, envelope, "f") == expected
+
+
 def test_a_reworded_message_is_one_cleared_row_and_one_added_row():
     """#960 scenario 11: full-row comparison counts a changed wording as one removal and one addition."""
     receipt = repair_receipt({"skills": [_row("s", "x", "old")]}, {"skills": [_row("s", "x", "new")]}, "f")

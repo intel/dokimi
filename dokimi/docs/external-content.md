@@ -408,7 +408,7 @@ the section is a shortlist, not a judgement.
 ### Repair receipt (`catalog repair-receipt`)
 
 `catalog repair-receipt BEFORE AFTER EDITED [--out FILE]` compares two saved
-`catalog check --format json` reports, one taken before an edit and one after, and
+`catalog check --format json` (or `--json`) reports, one taken before an edit and one after, and
 prints the findings the edit `cleared`, `added` and `retained`. `EDITED` is the file
 you changed; it is recorded as given. It runs no scan: the two scans are yours, so a
 standalone `catalog check` still needs one. A finding is identified by its whole row,

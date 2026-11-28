@@ -3,7 +3,7 @@
 
 """The repair receipt of ``catalog repair-receipt``: which findings one edit cleared, added or left (#960).
 
-It compares two ``catalog check --format json`` reports, one taken before the edit and one after. A
+It compares two ``catalog check --format json`` (or ``--json``) reports, one taken before the edit and one after. A
 finding is identified by its whole row, the skill it belongs to plus its level, code and message with its line numbers
 left out, so a finding that only moved lines is retained and a message whose wording changed counts as one cleared row
 and one added row. The counts are rows, not affected files.
@@ -24,6 +24,8 @@ _BAD = ("not a `catalog check --format json` report: each skill is an object wit
 
 def _rows(report: dict) -> list[dict[str, Any]]:
     """Every finding of the report as ``{"skill", "level", "code", "message"}``; other finding fields are left out."""
+    if report.get("schema_version") == "cli_output.v1" and isinstance(report.get("data"), dict):
+        report = report["data"]  # `catalog check --json` puts the report under `data`
     skills = report.get("skills")
     if not isinstance(skills, list):
         raise ValueError("not a `catalog check --format json` report: it has no `skills` list (#960)")
