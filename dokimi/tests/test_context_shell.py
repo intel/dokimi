@@ -161,6 +161,22 @@ def test_masking_and_parentheses_read_a_comment_inside_a_substitution_whole():
     assert shell.parens(command) == (0, 0)
 
 
+@pytest.mark.parametrize("command, parts", [
+    ("printf $'don\\'t'\nrm g\n", [("printf $'don\\'t'", "\n"), ("rm g", "\n")]),
+    ("printf $'a\\\\'\nrm g\n", [("printf $'a\\\\'", "\n"), ("rm g", "\n")]),
+    ("echo $(printf $'it\\'s')\nrm g\n", [("echo $(printf $'it\\'s')", "\n"), ("rm g", "\n")]),
+    ("echo \"$'\"\nrm g\n", [("echo \"$'\"", "\n"), ("rm g", "\n")]),
+    ("printf $'abc\nrm g\n", [("printf $'abc\nrm g", "")]),
+])
+def test_an_ansi_c_string_is_read_to_its_unescaped_apostrophe(command, parts):
+    assert split_commands(command) == parts
+
+
+def test_masking_and_parentheses_read_an_ansi_c_string_whole():
+    assert shell._mask("printf $'a\\'' $(echo b)") == "printf $'a\\'' SUBST"
+    assert shell.parens("(printf $'\\')'") == (1, 0)
+
+
 def test_a_shell_write_is_an_edit_for_edit_matchers_only():
     ev = _events("Bash", {"command": "sed -i s/a/b/ f"})[0]
     assert Matcher(tools=("Edit",))(ev) and not Matcher(tools=("Read",))(ev)

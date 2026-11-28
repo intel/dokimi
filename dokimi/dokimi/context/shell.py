@@ -65,7 +65,7 @@ class _Scan:
             self.eat(2, keep=nxt != "\n")
         elif self.comment(ch, nxt):
             pass
-        elif ch in "'\"`" or (ch == "$" and nxt == "(") or (self.depth and ch in "()"):
+        elif ch in "'\"`" or (ch == "$" and nxt in ("(", "'")) or (self.depth and ch in "()"):
             self.open_close(ch, nxt)
         elif self.bracket(ch + nxt):
             pass
@@ -110,6 +110,9 @@ class _Scan:
             self.quote = ch
         elif ch == "`":
             self.tick = not self.tick
+        elif ch == "$" and nxt == "'":  # `$'...'`: kept whole, a backslash escapes the next character
+            self.eat(_ansi_c_end(self.text, self.i) - self.i)
+            return
         elif ch == "$":
             self.depth += 1
             self.eat(2)
@@ -117,6 +120,14 @@ class _Scan:
         else:
             self.depth += 1 if ch == "(" else -1
         self.eat()
+
+
+def _ansi_c_end(text: str, i: int) -> int:
+    """Where the ``$'...'`` that starts at ``i`` ends: a backslash escapes the next character, an apostrophe too."""
+    end = i + 2
+    while end < len(text) and text[end] != "'":
+        end += 2 if text[end] == "\\" else 1
+    return min(end + 1, len(text))
 
 
 def split_commands(command: str) -> list[tuple[str, str]]:
@@ -194,6 +205,11 @@ def _mask(text: str) -> str:
         ch = text[i]
         if quote:
             quote = "" if ch == quote else quote
+        elif ch == "$" and text[i + 1:i + 2] == "'":
+            end = _ansi_c_end(text, i)
+            out.append(text[i:end])
+            i = end
+            continue
         elif ch in "'\"" and not depth:
             quote = ch
         if not quote and ch == "$" and text[i + 1:i + 2] == "(":
@@ -223,9 +239,13 @@ def parens(segment: str) -> tuple[int, int]:
     the subshells it opens and closes (``(cd sub``, ``make)``)."""
     opens = closes = 0
     quote, escaped = "", False
-    for ch in _mask(segment):
+    masked, i = _mask(segment), 0
+    while i < len(masked):
+        ch, i = masked[i], i + 1
         if escaped:
             escaped = False
+        elif ch == "$" and masked[i:i + 1] == "'" and not quote:
+            i = _ansi_c_end(masked, i - 1)
         elif ch == "\\" and quote != "'":
             escaped = True
         elif quote:
