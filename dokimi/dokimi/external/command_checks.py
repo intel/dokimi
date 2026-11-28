@@ -14,6 +14,8 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
   version. One finding per skill, with the count of distinct ``<manager> <name>`` pairs: the same install
   shown twice is one, and a command inside the quoted text of an ``echo`` or ``printf`` is not an install.
   A requirements file, a local path, a URL and a ``git+`` source are not named packages, so they are not counted.
+  A bare ``npx`` of the skill's own package or declared bin is exempt when the example assumes
+  the skill's directory. Explicit package selections and version tags are still checked.
 
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
@@ -29,6 +31,7 @@ look-alike letter does not hide a command.
 from __future__ import annotations
 
 import bisect
+import json
 import os
 import re
 import shlex
@@ -101,6 +104,7 @@ NPM_VALUE_OPTIONS = frozenset({
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
+_NPX_PROJECT_OPTIONS = frozenset({"--prefix", "--workspace", "-w"})
 # pnpm's value options: npm's, less ``-w``/``--workspace`` (flags in pnpm), plus a workspace filter, a directory, the
 # store and a catalog name
 PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
@@ -123,9 +127,10 @@ PNPM_DLX = re.compile(
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 # ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
 # ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
+_ASSIGNMENT = r"""[A-Za-z_]\w*=(?:'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|[^\s;&|()'"`])*"""
 ECHO_COMMAND = re.compile(
-    r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
-    r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
+    rf"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{{|command|builtin|exec|{_ASSIGNMENT})"
+    r"[ \t]+)*(?:echo|printf)(?![\w.-])")
 # ``|`` at the end of a command that feeds a shell: what the command printed is run
 PIPED_SHELL = re.compile(_PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish)(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
@@ -138,6 +143,22 @@ def _lines_of(text: str, matches: Iterator[re.Match]) -> list[int]:
 
 MAX_NESTING = 50  # substitutions entered inside one another; deeper ones are stepped over, so the stack stays bounded
 BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
+# Skip quoted arguments, escaped characters and comments before recognising a directory-changing command.
+_DIR_CHANGE = re.compile(
+    r"""\\[\s\S]|'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
+    r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*"
+    rf"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{{|{_ASSIGNMENT})[ \t]+)*"
+    r"(?P<change>cd|pushd|popd)(?=$|[\s;&|)\0])"
+)
+_SHELL_QUOTED = r"""(?:'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*")"""
+_SHELL_OPTION_VALUE = rf"""(?:{_SHELL_QUOTED}|[^\s;&|()'"`\0]+)"""
+_SHELL_SCRIPT = re.compile(
+    r"(?:^|(?<=[\s;&|(\0/]))(?:(?:ba|z|da|k)?sh|fish)[ \t]+"
+    rf"(?:(?:--(?:init-file|rcfile)|-(?![A-Za-z]*c)[A-Za-z]*[oO])[ \t]+{_SHELL_OPTION_VALUE}[ \t]+"
+    r"|--(?!(?:init-file|rcfile)[ \t])[A-Za-z][A-Za-z-]*[ \t]+"
+    r"|-(?![A-Za-z]*c)(?![A-Za-z]*[oO][ \t])[A-Za-z]+[ \t]+)*"
+    r"""-(?=[A-Za-z]*c)[A-Za-z]+[ \t]+(?:--[ \t]+)?(?P<script>'[^'\0]*'|"(?:\\[^\0]|[^"\\\0])*")"""
+)
 
 
 def _code_text(text: str, markdown: bool) -> str:
@@ -168,10 +189,11 @@ def _code_text(text: str, markdown: bool) -> str:
     return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 
-def _words(rest: str, value_options: frozenset[str]) -> list[str]:
+def _words(rest: str, value_options: frozenset[str], keep_options: frozenset[str] = frozenset()) -> list[str]:
     """The words of a command's rest: shell-split (quotes kept whole), without an option's value.
 
     A word that is only a version number (``30``, ``2.0``) is not a package name, so it is dropped here too.
+    A value option itself is retained only if it appears in ``keep_options``.
     """
     rest = re.sub(r"\\\r?\n", " ", rest)  # a continued line is the same command
     try:
@@ -194,6 +216,8 @@ def _words(rest: str, value_options: frozenset[str]) -> list[str]:
             skip_target = REDIRECT.fullmatch(word) is not None
         elif word in value_options:
             take_value = True
+            if word in keep_options:
+                words.append(word)
         elif not VERSION_ONLY.fullmatch(word):
             words.append(word)
     return words
@@ -237,16 +261,25 @@ def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) 
     return names
 
 
-def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
+def _unpinned_npx(
+    rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS, own: frozenset[str] = frozenset()
+) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
-    it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
-    words = _words(rest, value_options)
+    it. Words after the program are its own arguments: its ``-p`` is not npx's selection. Only an inferred
+    executable can use the skill's local package or bin names (``own``)."""
+    project_options = value_options & _NPX_PROJECT_OPTIONS
+    words = _words(rest, value_options, project_options)
     selected: list[str] = []
     executable = None
     i = 0
     while i < len(words):
         word = words[i]
+        option, _, setting = word.partition("=")
+        if option in project_options or (option in ("--workspaces", "-ws") and setting.lower() != "false"):
+            own = frozenset()
+            i += 1
+            continue
         if word in ("--package", "-p") and i + 1 < len(words):
             selected.append(words[i + 1])
             i += 2
@@ -262,8 +295,11 @@ def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) 
     names = []
     for spec in selected or ([executable] if executable else []):
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
-        if match is not None and not spec.lower().endswith(NON_PACKAGE_SUFFIXES) and not _npm_pinned(match.group(2)):
-            names.append(match.group(1))
+        if match is None or spec.lower().endswith(NON_PACKAGE_SUFFIXES) or _npm_pinned(match.group(2)):
+            continue
+        if not selected and match.group(2) is None and match.group(1).lower() in own:
+            continue  # the package itself, or a bin it declares
+        names.append(match.group(1))
     return names
 
 
@@ -440,7 +476,24 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
-def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
+def _npx_installs(code: str, own: frozenset[str]) -> Iterator[tuple[int, str, int, list[str]]]:
+    """Apply the local-bin exemption before a directory change, outside quoted shell scripts."""
+    changes = iter(m for m in _DIR_CHANGE.finditer(code) if m.lastgroup is not None) if own else iter(())
+    change = next(changes, None)
+    scripts = _SHELL_SCRIPT.finditer(code) if own else iter(())
+    script = next(scripts, None)
+    local = own
+    for m in NPX.finditer(code):
+        while change is not None and change.start() < m.start():
+            local = own if change.lastgroup == "block" else frozenset()
+            change = next(changes, None)
+        while script is not None and script.end("script") <= m.start():
+            script = next(scripts, None)
+        names = frozenset() if script is not None and script.start("script") < m.start() else local
+        yield m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), own=names)]
+
+
+def _unpinned_at(code: str, own: frozenset[str] = frozenset()) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
@@ -452,7 +505,7 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
+    found.extend(_npx_installs(code, own))
     return found
 
 
@@ -464,7 +517,7 @@ def _ends_inside_url(reading: str, end: int) -> bool:
     return "://" in reading[start:stop]
 
 
-def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+def _unpinned_in_readings(text: str, markdown: bool, own: frozenset[str] = frozenset()) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
     same place is counted once, with the packages of the most folded reading that finds it, even when that reading
@@ -472,13 +525,35 @@ def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
     may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
     best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
     for reading in readings(_code_text(text, markdown)):
-        for offset, command, end, labels in _unpinned_at(reading):
+        for offset, command, end, labels in _unpinned_at(reading, own):
             key = (offset, command)
             if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
                 continue  # the earlier reading reads a URL character where this one sees a separator
             best[key] = (end, labels, reading)
     return [label for key in sorted(best) for label in best[key][1]]
 
+
+
+def _own_names(skill_dir: Path) -> frozenset[str]:
+    """The lowercase package name and bin names of the ``package.json`` at the skill's root.
+    One that is missing, a link, too big, not JSON or not an object names nothing."""
+    path = skill_dir / "package.json"
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > BUNDLED_MAX_BYTES:
+            return frozenset()
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, RecursionError):  # a deeply nested file: json raises RecursionError
+        return frozenset()
+    if not isinstance(data, dict):
+        return frozenset()
+    name = data.get("name") if isinstance(data.get("name"), str) else ""
+    bins = data.get("bin")
+    names = {name.lower()} if name else set()
+    if isinstance(bins, dict):
+        names.update(k.lower() for k in bins if isinstance(k, str))
+    elif isinstance(bins, str) and name:
+        names.add(name.rsplit("/", 1)[-1].lower())  # a string bin is named for the unscoped package
+    return frozenset(n for n in names if n)
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -526,12 +601,17 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     """``(code, message)`` for each command check that fires on the skill whose ``SKILL.md`` is ``skill_path``.
 
     The whole file is read, so a line number is the line in the file. ``at_root``: the ``SKILL.md``
-    sits in the scanned root, so no bundled file is read.
+    sits in the scanned root, so no bundled file, including ``package.json``, is read.
+    For a bundled skill, an example starts in the skill's folder for the bare ``npx`` exemption.
+    A directory change in the example disables the exemption for later commands in that example.
+    The audit also checks ``npx`` inside a quoted shell script or when options select a project or workspace.
     """
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
+    own: frozenset[str] = frozenset()
     if not at_root:
         sources += list(_bundled_texts(skill_path.parent))
-    return _findings_in(sources)
+        own = _own_names(skill_path.parent)
+    return _findings_in(sources, own)
 
 
 def skill_md_findings(text: str) -> list[tuple[str, str]]:
@@ -539,7 +619,7 @@ def skill_md_findings(text: str) -> list[tuple[str, str]]:
     return _findings_in([("SKILL.md", text)])
 
 
-def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def _findings_in(sources: list[tuple[str, str]], own: frozenset[str] = frozenset()) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
     for rel, raw in sources:
@@ -560,7 +640,7 @@ def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES), own)
 
     unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:
