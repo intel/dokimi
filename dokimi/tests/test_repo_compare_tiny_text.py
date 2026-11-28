@@ -1,9 +1,12 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The text tables of ``repo compare`` and the rule ledger print a tiny mean and delta at 2 significant digits (#1258)."""
+"""The text tables of ``repo compare`` and the rule ledger print a tiny mean and delta at 2 significant digits (#1258),
+and a cell wider than its column widens the column."""
 
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -16,12 +19,13 @@ from test_repo_compare import _cell, _row
 DELTAS = [1e-12, 2e-12, 3e-12, 4e-12, 5e-12, 6e-12, 2.5e-12, 3.5e-12]
 
 
-def _tiny_score_row(tmp_path):
+def _tiny_score_row(tmp_path, metrics=()):
     b = tmp_path / "b"
     for i, d in enumerate(DELTAS):
-        _cell(b, f"t{i}", "guidance:none", 1, score=1e-12, score_max=None)
-        _cell(b, f"t{i}", "guidance:raw", 1, score=1e-12 + d, score_max=None)
-    s = compare([b], "guidance:none")
+        _cell(b, f"t{i}", "guidance:none", 1, score=1e-12, score_max=None, metrics={"tokens": 1234567.5})
+        _cell(b, f"t{i}", "guidance:raw", 1, score=1e-12 + d, score_max=None,
+              metrics={"tokens": 1234567.5 + d * 1e15})
+    s = compare([b], "guidance:none", metrics=metrics)
     return s, _row(s, "score")
 
 
@@ -31,6 +35,20 @@ def test_compare_text_prints_tiny_arm_means_and_delta_at_two_significant_digits(
     line = next(ln for ln in format_compare(s).splitlines() if ln.lstrip().startswith("score "))
     assert line.split()[:5] == ["score", "8", "1e-12", "4.4e-12", "+3.4e-12"]
     assert "[+2e-12, +4.8e-12]" in line and "0.000" not in line
+
+
+def test_compare_text_lines_up_every_cell_under_its_header(tmp_path):
+    s, _ = _tiny_score_row(tmp_path, metrics=("tokens",))
+    lines = format_compare(s).splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.lstrip().startswith("measure "))
+    table = lines[start:start + 1 + sum(r["treatment"] == "guidance:raw" for r in s["comparisons"])]
+    spans = [[m.span() for m in re.finditer(r"\S+(?: \S+)*", ln)] for ln in table]
+    assert {len(row) for row in spans} == {8}, table
+    for column, align in enumerate("<>>><>><"):
+        edge = 0 if align == "<" else 1
+        assert len({row[column][edge] for row in spans}) == 1, (column, table)
+    assert any("+3.4e-12 [+2e-12, +4.8e-12]" in ln for ln in table)
+    assert any(ln.split()[:3] == ["metric:tokens", "8", "1234567.500"] for ln in table), table
 
 
 def test_ledger_text_prints_tiny_means_and_delta_at_two_significant_digits(tmp_path):
@@ -49,6 +67,7 @@ def test_ledger_text_prints_tiny_means_and_delta_at_two_significant_digits(tmp_p
     (0.0, False, "0.000"), (0.0, True, "+0.000"), (None, False, "-"), (None, True, "-"),
     (0.5, False, "0.500"), (1.0, True, "+1.000"), (-0.012, True, "-0.012"), (-0.012, False, "-0.012"),
     (0.00049999, False, "0.0005"), (0.0005, False, "0.001"), (0.0005, True, "+0.001"), (-0.0004, True, "-0.0004"),
+    (-0.0, False, "0.000"), (-0.0, True, "+0.000"),
 ])
 def test_format_value_keeps_three_decimals_unless_they_read_zero(value, signed, expected):
     assert format_value(value, signed=signed) == expected
