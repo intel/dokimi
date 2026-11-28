@@ -627,7 +627,7 @@ def test_claim_without_a_script_is_counted_when_rejected(pack, monkeypatch):
 
     def run(image, script, mounts, *args, **kwargs):
         if mounts:
-            assert script.endswith("exit 64")
+            assert "\nexit 64\n)\n" in script
             return process.reply(returncode=64)
         assert script.startswith("consumer_exit=64\n")
         return process.reply(returncode=10)

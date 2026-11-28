@@ -49,6 +49,7 @@ def container(
     timeout: int,
     gpu: bool = False,
     platform: str = "linux/amd64",
+    done_marker: str | None = None,
 ) -> process.Completed:
     name = "dokimi-delivery-" + uuid.uuid4().hex
     policy = ContainerPolicy(
@@ -79,10 +80,13 @@ def container(
         with suppress(BaseException):
             process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)
         raise
-    if (
-        result.truncated
-        or result.returncode in (125, 137)
-        or (result.returncode in (126, 127) and result.stderr.startswith("docker:"))
+    finished = done_marker is not None and result.stderr.endswith(done_marker + "\n")
+    if result.truncated or (
+        not finished
+        and (
+            result.returncode in (125, 137)
+            or (result.returncode in (126, 127) and result.stderr.startswith("docker:"))
+        )
     ):
         raise ValueError(result.stderr or "container timeout, killed process or truncated evidence")
     return result
@@ -172,6 +176,7 @@ def _grade(
         raise ValueError("timeout must be a positive integer")
     image = manifest["image"]
     setup_marker = "delivery-workspace-" + uuid.uuid4().hex
+    done_marker = "delivery-consumer-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "delivery"
         path.write_bytes(product)
@@ -189,17 +194,20 @@ def _grade(
             "chmod u+w ./consumer.sh || workspace_failed\n"
             "{\n"
             + manifest["install"]
-            + "\n} </dev/null >&2 || exit 120\n"
-            + script,
+            + "\n} </dev/null >&2 || exit 120\n(\n"
+            + script
+            + f"\n)\nstatus=$?\nprintf '%s\\n' '{done_marker}' >&2\nexit $status\n",
             {"delivery": path, "initial": start},
             hidden,
             budget,
             manifest.get("gpu", False),
             manifest["platform"],
+            done_marker,
         )
     marker_line = setup_marker + "\n"
     setup_failed = result.returncode == 121 and result.stderr.endswith(marker_line)
     stderr = result.stderr.removesuffix(marker_line) if setup_failed else result.stderr
+    stderr = stderr.removesuffix(done_marker + "\n")
     row["evidence"] = {
         "script": script,
         "exit": result.returncode,
