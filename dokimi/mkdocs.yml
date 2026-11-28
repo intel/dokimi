@@ -146,6 +146,7 @@ nav:
       - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
+      - pr-command.md
       - events-format.md
       - behavioural-security.md
       - repo-evaluation-mergeability.md

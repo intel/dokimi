@@ -148,6 +148,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   harness profiles, and the guidance reach probe; and how to run its task
   self-check, agent runs, report and arm comparison (`eval check`,
   `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
+- [pr-command.md](pr-command.md) — implemented: a `/dokimi run` pull request comment from a writer runs the checks and keeps one `dokimi report opportunities` comment (`actions/pr-command`, `actions/opportunities-comment`).
 - [reach-matrix.md](reach-matrix.md) — the reach conformance suite: fixture
   repositories, what each harness's vendor documentation says they load, the
   `scripts/reach_conformance.py` run and merge that produce the agent × version

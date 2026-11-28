@@ -107,3 +107,65 @@ def test_markdown_file_matches_stdout(inputs, tmp_path):
 def test_repo_claim_targets_the_claim_file(inputs):
     [item] = cmd.build(inputs[:1])["items"]
     assert item["target"] == "AGENTS.md"
+
+
+def test_build_identifies_repo_static_inputs_by_path(inputs, tmp_path):
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(STATIC), encoding="utf-8")
+    paths = [inputs[0], str(other), inputs[0]]
+    report = cmd.build(paths)
+    assert [row["path"] for row in report["inputs"]] == paths[:2]
+    assert len({row["source_key"] for row in report["items"]}) == 2
+    scoped = cmd.build(paths, repository="owner/repo")
+    assert len(scoped["items"]) == 2
+    assert len({row["source_key"] for row in scoped["items"]}) == 1
+
+
+def test_repository_report_preserves_embedded_identity(tmp_path):
+    report = {**STATIC, "repo": "embedded/project"}
+    paths = [tmp_path / name for name in ("first.json", "second.json")]
+    for path in paths:
+        path.write_text(json.dumps(report), encoding="utf-8")
+    inputs = [str(path) for path in paths]
+    items = cmd.build(inputs)["items"]
+    assert len({item["source_key"] for item in items}) == 1
+    assert all(item["target"].startswith("embedded/project:") for item in items)
+    overridden = cmd.build(inputs, repository="explicit/project")["items"]
+    assert all(item["target"].startswith("explicit/project:") for item in overridden)
+    assert overridden[0]["source_key"] != items[0]["source_key"]
+
+
+def test_shortcut_reference_at_start_is_markdown(tmp_path):
+    path = tmp_path / "llms.txt"
+    path.write_text("[Guide]\n\n[Guide]: guide.md\n", encoding="utf-8")
+    assert cmd.build([str(path)])["inputs"][0]["kind"] == "llms_txt"
+    json_path = path.with_suffix(".json")
+    json_path.write_text('["incomplete"', encoding="utf-8")
+    with pytest.raises(InputError, match="not valid JSON"):
+        cmd.build([str(json_path)])
+
+
+def test_build_keeps_llms_txt_path_in_finding_identity(tmp_path):
+    paths = [tmp_path / part / "llms.txt" for part in ("api", "sdk")]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text("prose only\n", encoding="utf-8")
+    items = cmd.build(list(map(str, paths)))["items"]
+    assert {item["target"] for item in items} == set(map(str, paths))
+    assert len({item["source_key"] for item in items}) == len(items)
+
+
+@pytest.mark.parametrize("paired", [{"strict": NOVELTY["paired"]["lenient"]},
+                                     {"lenient": {"n_paired": 4, "degraded": 0}}])
+def test_incomplete_novelty_is_an_input_error(tmp_path, paired):
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({**NOVELTY, "paired": paired}), encoding="utf-8")
+    with pytest.raises(InputError, match=r"evidence\.json: novelty.*(object|required)"):
+        cmd.build([str(path)])
+
+
+def test_input_with_unpaired_unicode_surrogate_names_the_path(tmp_path):
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({**NOVELTY, "model": "\ud800"}), encoding="utf-8")
+    with pytest.raises(InputError, match="evidence.json: JSON contains an unpaired Unicode surrogate"):
+        cmd.build([str(path)])
